@@ -1,0 +1,68 @@
+# When you're ready to containerize Go services, add them like this:
+#
+#  auth:
+#    build: ./services/auth
+#    env_file:
+#      - ./services/auth/.env.local
+#    depends_on:
+#      mysql-auth:
+#        condition: service_healthy
+#    ports:
+#      - "8080:8080"
+
+services:
+  mysql-auth:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: braccet_auth
+      MYSQL_USER: auth_user
+      MYSQL_PASSWORD: auth_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_auth_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-tournament:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: braccet_tournament
+      MYSQL_USER: tournament_user
+      MYSQL_PASSWORD: tournament_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_tournament_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-bracket:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: braccet_bracket
+      MYSQL_USER: bracket_user
+      MYSQL_PASSWORD: bracket_pass
+    ports:
+      - "3308:3306"
+    volumes:
+      - mysql_bracket_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_auth_data:
+  mysql_tournament_data:
+  mysql_bracket_data:
