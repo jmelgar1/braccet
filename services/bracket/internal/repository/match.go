@@ -15,6 +15,9 @@ type MatchRepository interface {
 	GetByID(ctx context.Context, id uint64) (*domain.Match, error)
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Match, error)
 	UpdateResult(ctx context.Context, matchID uint64, result domain.MatchResult) error
+	UpdateStatus(ctx context.Context, matchID uint64, status domain.MatchStatus) error
+	SetParticipant(ctx context.Context, matchID uint64, slot int, participantID uint64, name string) error
+	UpdateNextMatchLinks(ctx context.Context, matches []*domain.Match) error
 }
 
 type matchRepository struct {
@@ -150,5 +153,58 @@ func (r *matchRepository) UpdateResult(ctx context.Context, matchID uint64, resu
 		return ErrMatchNotFound
 	}
 
+	return nil
+}
+
+func (r *matchRepository) UpdateStatus(ctx context.Context, matchID uint64, status domain.MatchStatus) error {
+	query := `UPDATE matches SET status = ? WHERE id = ?`
+	res, err := r.db.ExecContext(ctx, query, status, matchID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrMatchNotFound
+	}
+
+	return nil
+}
+
+func (r *matchRepository) SetParticipant(ctx context.Context, matchID uint64, slot int, participantID uint64, name string) error {
+	var query string
+	if slot == 1 {
+		query = `UPDATE matches SET participant1_id = ?, participant1_name = ? WHERE id = ?`
+	} else {
+		query = `UPDATE matches SET participant2_id = ?, participant2_name = ? WHERE id = ?`
+	}
+
+	res, err := r.db.ExecContext(ctx, query, participantID, name, matchID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrMatchNotFound
+	}
+
+	return nil
+}
+
+func (r *matchRepository) UpdateNextMatchLinks(ctx context.Context, matches []*domain.Match) error {
+	query := `UPDATE matches SET next_match_id = ?, loser_match_id = ? WHERE id = ?`
+	for _, m := range matches {
+		_, err := r.db.ExecContext(ctx, query, m.NextMatchID, m.LoserMatchID, m.ID)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
