@@ -1,37 +1,7 @@
 import { Component, signal, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
-import { environment } from '../environments/environment';
-
-interface Participant {
-  id: number;
-  name: string;
-  seed: number;
-}
-
-interface Match {
-  id: number;
-  round: number;
-  position: number;
-  participant1_id?: number;
-  participant2_id?: number;
-  participant1_name?: string;
-  participant2_name?: string;
-  participant1_score?: number;
-  participant2_score?: number;
-  winner_id?: number;
-  status: string;
-  next_match_id?: number;
-}
-
-interface BracketState {
-  tournament_id: number;
-  total_rounds: number;
-  current_round: number;
-  is_complete: boolean;
-  champion_id?: number;
-  matches: Match[];
-}
+import { BracketService } from './services/bracket.service';
+import { Participant, Match, BracketState } from './models/bracket.model';
 
 @Component({
   selector: 'app-root',
@@ -40,8 +10,7 @@ interface BracketState {
   styleUrl: './app.css'
 })
 export class App {
-  private http = inject(HttpClient);
-  private apiUrl = environment.apiUrl;
+  private bracketService = inject(BracketService);
 
   participants = signal<Participant[]>([]);
   newParticipantName = signal('');
@@ -84,7 +53,7 @@ export class App {
     this.loading.set(true);
     this.error.set('');
 
-    this.http.post<BracketState>(`${this.apiUrl}/brackets`, {
+    this.bracketService.createBracket({
       tournament_id: this.tournamentId(),
       format: 'single_elimination',
       participants: participants
@@ -102,7 +71,7 @@ export class App {
 
   refreshBracket() {
     this.loading.set(true);
-    this.http.get<BracketState>(`${this.apiUrl}/brackets/${this.tournamentId()}`)
+    this.bracketService.getBracket(this.tournamentId())
       .subscribe({
         next: (bracket) => {
           this.bracket.set(bracket);
@@ -123,7 +92,7 @@ export class App {
   }
 
   startMatch(match: Match) {
-    this.http.post<Match>(`${this.apiUrl}/brackets/matches/${match.id}/start`, {})
+    this.bracketService.startMatch(match.id)
       .subscribe({
         next: () => this.refreshBracket(),
         error: (err) => this.error.set(err.error?.error || 'Failed to start match')
@@ -134,7 +103,7 @@ export class App {
     const match = this.selectedMatch();
     if (!match) return;
 
-    this.http.post<Match>(`${this.apiUrl}/brackets/matches/${match.id}/result`, {
+    this.bracketService.reportResult(match.id, {
       winner_id: winnerId,
       participant1_score: this.score1(),
       participant2_score: this.score2()
