@@ -1,68 +1,80 @@
 # When you're ready to containerize Go services, add them like this:
 #
 #  auth:
-#    build: ./services/auth
+#    build: ./auth
 #    env_file:
-#      - ./services/auth/.env.local
+#      - ./auth/.env.local
 #    depends_on:
-#      mysql-auth:
+#      postgres-auth:
 #        condition: service_healthy
 #    ports:
 #      - "8080:8080"
 
 services:
-  mysql-auth:
-    image: mysql:8.0
+  postgres-auth:
+    image: postgres:16
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: braccet_auth
-      MYSQL_USER: auth_user
-      MYSQL_PASSWORD: auth_pass
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_pass
+      POSTGRES_DB: braccet_auth
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - mysql_auth_data:/var/lib/mysql
+      - postgres_auth_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U auth_user -d braccet_auth"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  mysql-tournament:
-    image: mysql:8.0
+  postgres-tournament:
+    image: postgres:16
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: braccet_tournament
-      MYSQL_USER: tournament_user
-      MYSQL_PASSWORD: tournament_pass
+      POSTGRES_USER: tournament_user
+      POSTGRES_PASSWORD: tournament_pass
+      POSTGRES_DB: braccet_tournament
     ports:
-      - "3307:3306"
+      - "5433:5432"
     volumes:
-      - mysql_tournament_data:/var/lib/mysql
+      - postgres_tournament_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U tournament_user -d braccet_tournament"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  mysql-bracket:
-    image: mysql:8.0
+  postgres-bracket:
+    image: postgres:16
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: braccet_bracket
-      MYSQL_USER: bracket_user
-      MYSQL_PASSWORD: bracket_pass
+      POSTGRES_USER: bracket_user
+      POSTGRES_PASSWORD: bracket_pass
+      POSTGRES_DB: braccet_bracket
     ports:
-      - "3308:3306"
+      - "5434:5432"
     volumes:
-      - mysql_bracket_data:/var/lib/mysql
+      - postgres_bracket_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U bracket_user -d braccet_bracket"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres-auth
+      - postgres-tournament
+      - postgres-bracket
 
 volumes:
-  mysql_auth_data:
-  mysql_tournament_data:
-  mysql_bracket_data:
+  postgres_auth_data:
+  postgres_tournament_data:
+  postgres_bracket_data:
+  pgadmin_data:

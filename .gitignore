@@ -40,6 +40,5 @@ node_modules/
 # npm
 .npm/
 
+# claude
 .claude/
-plans/
-CLAUDE.md

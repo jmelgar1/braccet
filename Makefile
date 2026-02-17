@@ -1,9 +1,9 @@
 .PHONY: db-up db-down migrate-auth migrate-tournament migrate-bracket migrate-all migrate-down-auth migrate-down-tournament migrate-down-bracket run-auth run-tournament run-bracket
 
 # Database URLs for golang-migrate (local development)
-AUTH_DB_URL := mysql://auth_user:auth_pass@tcp(localhost:3306)/braccet_auth
-TOURNAMENT_DB_URL := mysql://tournament_user:tournament_pass@tcp(localhost:3307)/braccet_tournament
-BRACKET_DB_URL := mysql://bracket_user:bracket_pass@tcp(localhost:3308)/braccet_bracket
+AUTH_DB_URL := postgres://auth_user:auth_pass@localhost:5432/braccet_auth?sslmode=disable
+TOURNAMENT_DB_URL := postgres://tournament_user:tournament_pass@localhost:5433/braccet_tournament?sslmode=disable
+BRACKET_DB_URL := postgres://bracket_user:bracket_pass@localhost:5434/braccet_bracket?sslmode=disable
 
 # Start all database containers
 db-up:
@@ -17,39 +17,39 @@ db-down:
 
 # Run services (loads .env.local for each)
 run-auth:
-	@set -a && . ./services/auth/.env.local && set +a && go run ./services/auth/cmd/...
+	@cd auth && set -a && . ./.env.local && set +a && go run ./cmd/...
 
 run-tournament:
-	@set -a && . ./services/tournament/.env.local && set +a && go run ./services/tournament/cmd/...
+	@cd tournament && set -a && . ./.env.local && set +a && go run ./cmd/...
 
 run-bracket:
-	@set -a && . ./services/bracket/.env.local && set +a && go run ./services/bracket/cmd/...
+	@cd bracket && set -a && . ./.env.local && set +a && go run ./cmd/...
 
 # Run migrations for Auth service
 migrate-auth:
-	migrate -path services/auth/migrations -database "$(AUTH_DB_URL)" up
+	migrate -path auth/migrations -database "$(AUTH_DB_URL)" up
 
 # Run migrations for Tournament service
 migrate-tournament:
-	migrate -path services/tournament/migrations -database "$(TOURNAMENT_DB_URL)" up
+	migrate -path tournament/migrations -database "$(TOURNAMENT_DB_URL)" up
 
 # Run migrations for Bracket service
 migrate-bracket:
-	migrate -path services/bracket/migrations -database "$(BRACKET_DB_URL)" up
+	migrate -path bracket/migrations -database "$(BRACKET_DB_URL)" up
 
 # Run all migrations
 migrate-all: migrate-auth migrate-tournament migrate-bracket
 
 # Rollback migrations
 migrate-down-auth:
-	migrate -path services/auth/migrations -database "$(AUTH_DB_URL)" down 1
+	migrate -path auth/migrations -database "$(AUTH_DB_URL)" down 1
 
 migrate-down-tournament:
-	migrate -path services/tournament/migrations -database "$(TOURNAMENT_DB_URL)" down 1
+	migrate -path tournament/migrations -database "$(TOURNAMENT_DB_URL)" down 1
 
 migrate-down-bracket:
-	migrate -path services/bracket/migrations -database "$(BRACKET_DB_URL)" down 1
+	migrate -path bracket/migrations -database "$(BRACKET_DB_URL)" down 1
 
 # Create new migration (usage: make create-migration SERVICE=auth NAME=add_column)
 create-migration:
-	migrate create -ext sql -dir services/$(SERVICE)/migrations -seq $(NAME)
+	migrate create -ext sql -dir $(SERVICE)/migrations -seq $(NAME)
