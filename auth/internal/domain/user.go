@@ -14,8 +14,10 @@ type User struct {
 	Email         string
 	DisplayName   string
 	AvatarURL     *string
-	OAuthProvider OAuthProvider
-	OAuthID       string
+	OAuthProvider *OAuthProvider // nil for password-only users
+	OAuthID       *string        // nil for password-only users
+	Username      *string        // nil for OAuth-only users
+	PasswordHash  *string        // nil for OAuth-only users
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
