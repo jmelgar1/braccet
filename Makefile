@@ -1,4 +1,4 @@
-.PHONY: db-up db-down migrate-auth migrate-tournament migrate-bracket migrate-all migrate-down-auth migrate-down-tournament migrate-down-bracket run-auth run-tournament run-bracket
+.PHONY: db-up db-down migrate-auth migrate-tournament migrate-bracket migrate-all migrate-down-auth migrate-down-tournament migrate-down-bracket run-auth run-tournament run-bracket run-gateway
 
 # Database URLs for golang-migrate (local development)
 AUTH_DB_URL := postgres://auth_user:auth_pass@localhost:5432/braccet_auth?sslmode=disable
@@ -24,6 +24,9 @@ run-tournament:
 
 run-bracket:
 	@cd bracket && set -a && . ./.env.local && set +a && go run ./cmd/...
+
+run-gateway:
+	@cd gateway && set -a && . ./.env.local && set +a && go run ./cmd/...
 
 # Run migrations for Auth service
 migrate-auth:

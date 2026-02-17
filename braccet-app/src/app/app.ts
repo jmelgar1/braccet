@@ -1,6 +1,7 @@
 import { Component, signal, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
+import { environment } from '../environments/environment';
 
 interface Participant {
   id: number;
@@ -40,7 +41,7 @@ interface BracketState {
 })
 export class App {
   private http = inject(HttpClient);
-  private apiUrl = 'http://localhost:8082';
+  private apiUrl = environment.apiUrl;
 
   participants = signal<Participant[]>([]);
   newParticipantName = signal('');
@@ -122,7 +123,7 @@ export class App {
   }
 
   startMatch(match: Match) {
-    this.http.post<Match>(`${this.apiUrl}/matches/${match.id}/start`, {})
+    this.http.post<Match>(`${this.apiUrl}/brackets/matches/${match.id}/start`, {})
       .subscribe({
         next: () => this.refreshBracket(),
         error: (err) => this.error.set(err.error?.error || 'Failed to start match')
@@ -133,7 +134,7 @@ export class App {
     const match = this.selectedMatch();
     if (!match) return;
 
-    this.http.post<Match>(`${this.apiUrl}/matches/${match.id}/result`, {
+    this.http.post<Match>(`${this.apiUrl}/brackets/matches/${match.id}/result`, {
       winner_id: winnerId,
       participant1_score: this.score1(),
       participant2_score: this.score2()

@@ -3,7 +3,6 @@ package api
 import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 
 	"github.com/braccet/bracket/internal/api/handlers"
 	"github.com/braccet/bracket/internal/repository"
@@ -15,13 +14,7 @@ func NewRouter(repo repository.MatchRepository) chi.Router {
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:4200", "http://localhost:*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
+	// CORS is handled by the gateway - don't add it here to avoid duplicate headers
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
 	// Create services
@@ -40,10 +33,10 @@ func NewRouter(repo repository.MatchRepository) chi.Router {
 	r.Get("/brackets/{tournamentId}", bracketHandler.GetState)
 	r.Get("/brackets/{tournamentId}/matches", bracketHandler.ListMatches)
 
-	// Match routes
-	r.Get("/matches/{id}", matchHandler.Get)
-	r.Post("/matches/{id}/result", matchHandler.ReportResult)
-	r.Post("/matches/{id}/start", matchHandler.Start)
+	// Match routes (nested under /brackets)
+	r.Get("/brackets/matches/{id}", matchHandler.Get)
+	r.Post("/brackets/matches/{id}/result", matchHandler.ReportResult)
+	r.Post("/brackets/matches/{id}/start", matchHandler.Start)
 
 	return r
 }
