@@ -1,5 +1,6 @@
 export interface Tournament {
   id: number;
+  slug: string;
   organizer_id: number;
   name: string;
   description?: string;
@@ -9,6 +10,7 @@ export interface Tournament {
   max_participants?: number;
   registration_open: boolean;
   starts_at?: string;
+  starts_at_tentative: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -20,4 +22,25 @@ export interface CreateTournamentRequest {
   format: 'single_elimination' | 'double_elimination';
   max_participants?: number;
   starts_at?: string;
+  starts_at_tentative?: boolean;
+}
+
+export interface Participant {
+  id: number;
+  tournament_id: number;
+  user_id?: number;
+  display_name: string;
+  seed?: number;
+  status: 'registered' | 'checked_in' | 'active' | 'eliminated' | 'disqualified';
+  checked_in_at?: string;
+  created_at: string;
+}
+
+export interface AddParticipantRequest {
+  user_id?: number;
+  display_name: string;
+}
+
+export interface UpdateSeedingRequest {
+  seeds: Record<number, number>;
 }

@@ -1,5 +1,155 @@
-<div class="p-6">
+<div class="min-h-[calc(100vh-4rem)] bg-gray-100 p-6 pb-12">
   <app-breadcrumb [items]="breadcrumbs" />
 
-  <h1 class="text-2xl font-bold text-gray-900">New Tournament</h1>
+  <div class="w-3/4 mx-auto">
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">New Tournament</h1>
+
+  @if (error()) {
+    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 text-sm">
+      {{ error() }}
+    </div>
+  }
+
+  <form (ngSubmit)="onSubmit()">
+    <!-- Basic Information Card -->
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Basic Information</h2>
+
+      <div class="space-y-4">
+        <!-- Name -->
+        <div>
+          <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+            Tournament Name <span class="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            id="name"
+            name="name"
+            [ngModel]="name()"
+            (ngModelChange)="name.set($event)"
+            (blur)="nameTouched.set(true)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Enter tournament name"
+            maxlength="200"
+          />
+          @if (nameError()) {
+            <p class="text-red-600 text-sm mt-1">{{ nameError() }}</p>
+          }
+        </div>
+
+        <!-- Game -->
+        <div>
+          <label for="game" class="block text-sm font-medium text-gray-700 mb-1">
+            Game
+          </label>
+          <input
+            type="text"
+            id="game"
+            name="game"
+            [ngModel]="game()"
+            (ngModelChange)="game.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="e.g., Super Smash Bros, League of Legends"
+            maxlength="100"
+          />
+        </div>
+
+        <!-- Description -->
+        <div>
+          <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
+            Description
+          </label>
+          <textarea
+            id="description"
+            name="description"
+            [ngModel]="description()"
+            (ngModelChange)="description.set($event)"
+            rows="3"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            placeholder="Describe your tournament..."
+          ></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tournament Settings Card -->
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Settings</h2>
+
+      <div class="space-y-4">
+        <!-- Format -->
+        <div>
+          <label for="format" class="block text-sm font-medium text-gray-700 mb-1">
+            Format <span class="text-red-500">*</span>
+          </label>
+          <select
+            id="format"
+            name="format"
+            [ngModel]="format()"
+            (ngModelChange)="format.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+          >
+            <option value="single_elimination">Single Elimination</option>
+            <option value="double_elimination">Double Elimination</option>
+          </select>
+        </div>
+
+        <!-- Max Participants -->
+        <div>
+          <label for="maxParticipants" class="block text-sm font-medium text-gray-700 mb-1">
+            Max Participants
+          </label>
+          <input
+            type="number"
+            id="maxParticipants"
+            name="maxParticipants"
+            [ngModel]="maxParticipants()"
+            (ngModelChange)="maxParticipants.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Leave empty for unlimited"
+            min="2"
+          />
+        </div>
+
+        <!-- Starts At -->
+        <div>
+          <label for="startsAt" class="block text-sm font-medium text-gray-700 mb-1">
+            Start Date & Time
+          </label>
+          <input
+            type="datetime-local"
+            id="startsAt"
+            name="startsAt"
+            [ngModel]="startsAt()"
+            (ngModelChange)="startsAt.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <label class="flex items-center gap-2 mt-2 cursor-pointer">
+            <input
+              type="checkbox"
+              name="startsAtTentative"
+              [ngModel]="startsAtTentative()"
+              (ngModelChange)="startsAtTentative.set($event)"
+              class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+            <span class="text-sm text-gray-600">Tentative (date may change)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Button -->
+    <button
+      type="submit"
+      [disabled]="loading()"
+      class="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      @if (loading()) {
+        Creating...
+      } @else {
+        Create Tournament
+      }
+    </button>
+  </form>
+  </div>
 </div>

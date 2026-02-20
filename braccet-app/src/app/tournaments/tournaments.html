@@ -1,5 +1,5 @@
 <div class="min-h-[calc(100vh-4rem)] bg-gray-100 p-6">
-  <div class="max-w-4xl mx-auto">
+  <div class="w-3/4 mx-auto">
     <!-- Header -->
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-2xl font-bold text-gray-900">Tournaments</h1>
@@ -34,7 +34,8 @@
       } @else {
         <div class="space-y-4">
           @for (tournament of tournaments(); track tournament.id) {
-            <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow">
+            <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer"
+                 (click)="onTournamentClick(tournament.slug)">
               <div class="flex justify-between items-start">
                 <div>
                   <h2 class="text-lg font-semibold text-gray-900">{{ tournament.name }}</h2>

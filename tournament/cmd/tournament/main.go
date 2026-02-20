@@ -21,9 +21,10 @@ func main() {
 
 	// Initialize repositories
 	tournamentRepo := repository.NewTournamentRepository(db)
+	participantRepo := repository.NewParticipantRepository(db)
 
 	// Create router
-	router := api.NewRouter(tournamentRepo)
+	router := api.NewRouter(tournamentRepo, participantRepo)
 
 	// Get port from environment
 	port := os.Getenv("PORT")

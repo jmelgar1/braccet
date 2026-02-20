@@ -1,11 +1,12 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/braccet/tournament/internal/api/middleware"
@@ -46,6 +47,7 @@ type UpdateTournamentRequest struct {
 
 type TournamentResponse struct {
 	ID               uint64  `json:"id"`
+	Slug             string  `json:"slug"`
 	OrganizerID      uint64  `json:"organizer_id"`
 	Name             string  `json:"name"`
 	Description      *string `json:"description,omitempty"`
@@ -73,9 +75,22 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, ErrorResponse{Error: message})
 }
 
+const slugChars = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+func generateSlug() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	var sb strings.Builder
+	for _, v := range b {
+		sb.WriteByte(slugChars[int(v)%len(slugChars)])
+	}
+	return sb.String()
+}
+
 func toTournamentResponse(t *domain.Tournament) TournamentResponse {
 	resp := TournamentResponse{
 		ID:               t.ID,
+		Slug:             t.Slug,
 		OrganizerID:      t.OrganizerID,
 		Name:             t.Name,
 		Description:      t.Description,
@@ -143,6 +158,7 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tournament := &domain.Tournament{
+		Slug:             generateSlug(),
 		OrganizerID:      userID,
 		Name:             req.Name,
 		Description:      req.Description,
@@ -150,7 +166,7 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Format:           format,
 		Status:           domain.StatusDraft,
 		MaxParticipants:  req.MaxParticipants,
-		RegistrationOpen: false,
+		RegistrationOpen: true,
 		Settings:         json.RawMessage(`{}`),
 	}
 
@@ -170,7 +186,7 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch the created tournament to get timestamps
-	created, err := h.repo.GetByID(r.Context(), tournament.ID)
+	created, err := h.repo.GetBySlug(r.Context(), tournament.Slug)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to fetch created tournament")
 		return
@@ -179,16 +195,15 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, toTournamentResponse(created))
 }
 
-// Get returns a single tournament by ID
+// Get returns a single tournament by slug
 func (h *TournamentHandler) Get(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid tournament id")
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
 		return
 	}
 
-	tournament, err := h.repo.GetByID(r.Context(), id)
+	tournament, err := h.repo.GetBySlug(r.Context(), slug)
 	if err != nil {
 		if errors.Is(err, repository.ErrTournamentNotFound) {
 			writeError(w, http.StatusNotFound, "tournament not found")
@@ -209,14 +224,13 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid tournament id")
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
 		return
 	}
 
-	tournament, err := h.repo.GetByID(r.Context(), id)
+	tournament, err := h.repo.GetBySlug(r.Context(), slug)
 	if err != nil {
 		if errors.Is(err, repository.ErrTournamentNotFound) {
 			writeError(w, http.StatusNotFound, "tournament not found")
@@ -280,7 +294,7 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch updated tournament
-	updated, err := h.repo.GetByID(r.Context(), id)
+	updated, err := h.repo.GetBySlug(r.Context(), slug)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to fetch updated tournament")
 		return
@@ -297,14 +311,13 @@ func (h *TournamentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid tournament id")
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
 		return
 	}
 
-	tournament, err := h.repo.GetByID(r.Context(), id)
+	tournament, err := h.repo.GetBySlug(r.Context(), slug)
 	if err != nil {
 		if errors.Is(err, repository.ErrTournamentNotFound) {
 			writeError(w, http.StatusNotFound, "tournament not found")
@@ -320,7 +333,7 @@ func (h *TournamentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.Delete(r.Context(), id); err != nil {
+	if err := h.repo.Delete(r.Context(), slug); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete tournament")
 		return
 	}

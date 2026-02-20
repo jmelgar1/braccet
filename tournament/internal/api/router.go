@@ -8,24 +8,16 @@ import (
 	"github.com/braccet/tournament/internal/repository"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 )
 
-func NewRouter(tournamentRepo repository.TournamentRepository) *chi.Mux {
+func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo repository.ParticipantRepository) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware
 	r.Use(chimw.Logger)
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.RealIP)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:4200", "http://localhost:3000"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
-		MaxAge:           300,
-	}))
+	// Note: CORS is handled by the gateway, not here
 
 	// Health check
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -34,15 +26,24 @@ func NewRouter(tournamentRepo repository.TournamentRepository) *chi.Mux {
 
 	// Tournament handlers
 	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo)
+	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo)
 
 	r.Route("/tournaments", func(r chi.Router) {
 		r.Use(middleware.Auth)
 
 		r.Get("/", tournamentHandler.List)
 		r.Post("/", tournamentHandler.Create)
-		r.Get("/{id}", tournamentHandler.Get)
-		r.Put("/{id}", tournamentHandler.Update)
-		r.Delete("/{id}", tournamentHandler.Delete)
+		r.Get("/{slug}", tournamentHandler.Get)
+		r.Put("/{slug}", tournamentHandler.Update)
+		r.Delete("/{slug}", tournamentHandler.Delete)
+
+		// Participant routes (nested under tournament)
+		r.Route("/{slug}/participants", func(r chi.Router) {
+			r.Get("/", participantHandler.List)
+			r.Post("/", participantHandler.Add)
+			r.Delete("/{participantId}", participantHandler.Remove)
+			r.Put("/seeding", participantHandler.UpdateSeeding)
+		})
 	})
 
 	return r

@@ -24,6 +24,7 @@ const (
 
 type Tournament struct {
 	ID               uint64
+	Slug             string
 	OrganizerID      uint64
 	Name             string
 	Description      *string

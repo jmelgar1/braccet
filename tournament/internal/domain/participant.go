@@ -15,7 +15,7 @@ const (
 type Participant struct {
 	ID           uint64
 	TournamentID uint64
-	UserID       uint64
+	UserID       *uint64 // Pointer to allow nil for display-name-only participants
 	DisplayName  string
 	Seed         *uint
 	Status       ParticipantStatus

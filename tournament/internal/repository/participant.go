@@ -14,6 +14,8 @@ type ParticipantRepository interface {
 	Create(ctx context.Context, p *domain.Participant) error
 	GetByID(ctx context.Context, id uint64) (*domain.Participant, error)
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Participant, error)
+	GetByTournamentAndUser(ctx context.Context, tournamentID, userID uint64) (*domain.Participant, error)
+	CountByTournament(ctx context.Context, tournamentID uint64) (int, error)
 	UpdateSeeding(ctx context.Context, tournamentID uint64, seeds map[uint64]uint) error
 	UpdateStatus(ctx context.Context, id uint64, status domain.ParticipantStatus) error
 	Delete(ctx context.Context, id uint64) error
@@ -93,6 +95,36 @@ func (r *participantRepository) GetByTournament(ctx context.Context, tournamentI
 	}
 
 	return participants, nil
+}
+
+func (r *participantRepository) GetByTournamentAndUser(ctx context.Context, tournamentID, userID uint64) (*domain.Participant, error) {
+	query := `
+		SELECT id, tournament_id, user_id, display_name, seed, status, checked_in_at, created_at
+		FROM participants
+		WHERE tournament_id = $1 AND user_id = $2
+	`
+	p := &domain.Participant{}
+	err := r.db.QueryRowContext(ctx, query, tournamentID, userID).Scan(
+		&p.ID, &p.TournamentID, &p.UserID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrParticipantNotFound
+		}
+		return nil, err
+	}
+
+	return p, nil
+}
+
+func (r *participantRepository) CountByTournament(ctx context.Context, tournamentID uint64) (int, error) {
+	query := `SELECT COUNT(*) FROM participants WHERE tournament_id = $1`
+	var count int
+	err := r.db.QueryRowContext(ctx, query, tournamentID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *participantRepository) UpdateSeeding(ctx context.Context, tournamentID uint64, seeds map[uint64]uint) error {
