@@ -46,7 +46,7 @@ func (r *tournamentRepository) Create(ctx context.Context, t *domain.Tournament)
 
 func (r *tournamentRepository) GetByID(ctx context.Context, id uint64) (*domain.Tournament, error) {
 	query := `
-		SELECT id, organizer_id, name, description, game, format, status, max_participants, registration_open, settings, starts_at, created_at, updated_at
+		SELECT id, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
 		FROM tournaments
 		WHERE id = $1
 	`
@@ -110,7 +110,7 @@ func (r *tournamentRepository) Delete(ctx context.Context, id uint64) error {
 
 func (r *tournamentRepository) ListByOrganizer(ctx context.Context, organizerID uint64) ([]*domain.Tournament, error) {
 	query := `
-		SELECT id, organizer_id, name, description, game, format, status, max_participants, registration_open, settings, starts_at, created_at, updated_at
+		SELECT id, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
 		FROM tournaments
 		WHERE organizer_id = $1
 		ORDER BY created_at DESC
@@ -120,7 +120,7 @@ func (r *tournamentRepository) ListByOrganizer(ctx context.Context, organizerID 
 
 func (r *tournamentRepository) ListByStatus(ctx context.Context, status domain.TournamentStatus) ([]*domain.Tournament, error) {
 	query := `
-		SELECT id, organizer_id, name, description, game, format, status, max_participants, registration_open, settings, starts_at, created_at, updated_at
+		SELECT id, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
 		FROM tournaments
 		WHERE status = $1
 		ORDER BY created_at DESC

@@ -1,0 +1,66 @@
+<div class="min-h-[calc(100vh-4rem)] bg-gray-100 p-6">
+  <div class="max-w-4xl mx-auto">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-2xl font-bold text-gray-900">Tournaments</h1>
+      <button
+        (click)="onCreateTournament()"
+        class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+        Create Tournament
+      </button>
+    </div>
+
+    <!-- Loading state -->
+    @if (loading()) {
+      <div class="text-center py-8">
+        <p class="text-gray-500">Loading tournaments...</p>
+      </div>
+    }
+
+    <!-- Error state -->
+    @if (error()) {
+      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+        {{ error() }}
+      </div>
+    }
+
+    <!-- Tournament list -->
+    @if (!loading() && !error()) {
+      @if (tournaments().length === 0) {
+        <div class="bg-white rounded-lg shadow p-8 text-center">
+          <p class="text-gray-500 mb-4">No tournaments yet</p>
+          <p class="text-gray-400 text-sm">Create your first tournament to get started</p>
+        </div>
+      } @else {
+        <div class="space-y-4">
+          @for (tournament of tournaments(); track tournament.id) {
+            <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow">
+              <div class="flex justify-between items-start">
+                <div>
+                  <h2 class="text-lg font-semibold text-gray-900">{{ tournament.name }}</h2>
+                  @if (tournament.description) {
+                    <p class="text-gray-600 text-sm mt-1">{{ tournament.description }}</p>
+                  }
+                  <div class="flex gap-4 mt-2 text-sm text-gray-500">
+                    <span class="capitalize">{{ tournament.format.replace('_', ' ') }}</span>
+                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                          [class]="tournament.status === 'draft' ? 'bg-gray-100 text-gray-700' :
+                                   tournament.status === 'registration' ? 'bg-blue-100 text-blue-700' :
+                                   tournament.status === 'in_progress' ? 'bg-green-100 text-green-700' :
+                                   tournament.status === 'completed' ? 'bg-purple-100 text-purple-700' :
+                                   'bg-red-100 text-red-700'">
+                      {{ tournament.status.replace('_', ' ') }}
+                    </span>
+                  </div>
+                </div>
+                <div class="text-sm text-gray-400">
+                  {{ tournament.created_at | date:'mediumDate' }}
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    }
+  </div>
+</div>
