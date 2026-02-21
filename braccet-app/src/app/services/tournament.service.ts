@@ -42,6 +42,10 @@ export class TournamentService {
     return this.http.delete<void>(`${this.baseUrl}/${slug}/participants/${participantId}`);
   }
 
+  withdrawParticipant(slug: string, participantId: number): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/${slug}/participants/${participantId}/withdraw`, {});
+  }
+
   updateSeeding(slug: string, request: UpdateSeedingRequest): Observable<Participant[]> {
     return this.http.put<Participant[]>(`${this.baseUrl}/${slug}/participants/seeding`, request);
   }

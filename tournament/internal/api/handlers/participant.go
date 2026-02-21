@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/braccet/tournament/internal/api/middleware"
+	"github.com/braccet/tournament/internal/client"
 	"github.com/braccet/tournament/internal/domain"
 	"github.com/braccet/tournament/internal/repository"
 	"github.com/go-chi/chi/v5"
@@ -17,12 +18,14 @@ import (
 type ParticipantHandler struct {
 	participantRepo repository.ParticipantRepository
 	tournamentRepo  repository.TournamentRepository
+	bracketClient   client.BracketClient
 }
 
-func NewParticipantHandler(participantRepo repository.ParticipantRepository, tournamentRepo repository.TournamentRepository) *ParticipantHandler {
+func NewParticipantHandler(participantRepo repository.ParticipantRepository, tournamentRepo repository.TournamentRepository, bracketClient client.BracketClient) *ParticipantHandler {
 	return &ParticipantHandler{
 		participantRepo: participantRepo,
 		tournamentRepo:  tournamentRepo,
+		bracketClient:   bracketClient,
 	}
 }
 
@@ -325,4 +328,89 @@ func (h *ParticipantHandler) UpdateSeeding(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+// Withdraw withdraws a participant from an in-progress tournament
+func (h *ParticipantHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
+		return
+	}
+
+	participantIDStr := chi.URLParam(r, "participantId")
+	participantID, err := strconv.ParseUint(participantIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid participant id")
+		return
+	}
+
+	tournament, err := h.tournamentRepo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrTournamentNotFound) {
+			writeError(w, http.StatusNotFound, "tournament not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournament")
+		return
+	}
+
+	participant, err := h.participantRepo.GetByID(r.Context(), participantID)
+	if err != nil {
+		if errors.Is(err, repository.ErrParticipantNotFound) {
+			writeError(w, http.StatusNotFound, "participant not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch participant")
+		return
+	}
+
+	// Verify participant belongs to this tournament
+	if participant.TournamentID != tournament.ID {
+		writeError(w, http.StatusNotFound, "participant not found in this tournament")
+		return
+	}
+
+	// Validate: Only allow withdrawal during in_progress tournament
+	if tournament.Status != domain.StatusInProgress {
+		writeError(w, http.StatusBadRequest, "withdrawal only allowed during in-progress tournaments")
+		return
+	}
+
+	isOrganizer := tournament.OrganizerID == userID
+	isSelf := participant.UserID != nil && *participant.UserID == userID
+
+	// Authorization: organizer can withdraw anyone, participants can withdraw themselves
+	if !isOrganizer && !isSelf {
+		writeError(w, http.StatusForbidden, "you can only withdraw yourself")
+		return
+	}
+
+	// Cannot withdraw if already eliminated/disqualified/withdrawn
+	if participant.Status == domain.ParticipantEliminated ||
+		participant.Status == domain.ParticipantDisqualified ||
+		participant.Status == domain.ParticipantWithdrawn {
+		writeError(w, http.StatusBadRequest, "participant is not active in tournament")
+		return
+	}
+
+	// Update participant status to withdrawn
+	if err := h.participantRepo.UpdateStatus(r.Context(), participantID, domain.ParticipantWithdrawn); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update participant status")
+		return
+	}
+
+	// Notify bracket service to process forfeits
+	if err := h.bracketClient.ProcessWithdrawal(r.Context(), tournament.ID, participantID); err != nil {
+		log.Printf("Warning: failed to process bracket forfeit: %v", err)
+		// Don't fail the request - status is updated, bracket service can retry
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

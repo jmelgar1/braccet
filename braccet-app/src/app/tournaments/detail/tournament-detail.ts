@@ -30,6 +30,9 @@ export class TournamentDetail implements OnInit {
   participants = signal<Participant[]>([]);
   participantsLoading = signal(false);
 
+  // Bracket refresh trigger - increment to trigger reload
+  bracketRefreshKey = signal(0);
+
   // Computed properties
   isOrganizer = computed(() => {
     const t = this.tournament();
@@ -125,6 +128,15 @@ export class TournamentDetail implements OnInit {
 
   onParticipantRemoved(id: number): void {
     this.participants.update(list => list.filter(p => p.id !== id));
+  }
+
+  onParticipantWithdrawn(id: number): void {
+    // Update participant status locally
+    this.participants.update(list =>
+      list.map(p => p.id === id ? { ...p, status: 'withdrawn' } : p)
+    );
+    // Trigger bracket refresh to show forfeited matches
+    this.bracketRefreshKey.update(k => k + 1);
   }
 
   onSeedingChanged(participants: Participant[]): void {

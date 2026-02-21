@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/braccet/tournament/internal/api"
+	"github.com/braccet/tournament/internal/client"
 	"github.com/braccet/tournament/internal/config"
 	"github.com/braccet/tournament/internal/repository"
 )
@@ -23,8 +24,15 @@ func main() {
 	tournamentRepo := repository.NewTournamentRepository(db)
 	participantRepo := repository.NewParticipantRepository(db)
 
+	// Initialize bracket service client
+	bracketServiceURL := os.Getenv("BRACKET_SERVICE_URL")
+	if bracketServiceURL == "" {
+		bracketServiceURL = "http://localhost:8082"
+	}
+	bracketClient := client.NewBracketClient(bracketServiceURL)
+
 	// Create router
-	router := api.NewRouter(tournamentRepo, participantRepo)
+	router := api.NewRouter(tournamentRepo, participantRepo, bracketClient)
 
 	// Get port from environment
 	port := os.Getenv("PORT")

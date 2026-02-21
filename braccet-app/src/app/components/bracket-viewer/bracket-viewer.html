@@ -7,18 +7,28 @@
           <div class="matches-column">
             @for (match of roundData.matches; track match.position) {
               <div class="match-wrapper">
-                <div class="match" [class.bye]="isBye(match)" [class.tbd]="isMatchTBD(match)">
-                  <div class="participant top" [class.bye-slot]="!getParticipant1Display(match) || getParticipant1Display(match) === 'TBD'">
+                <div class="match" [class.bye]="isBye(match)" [class.tbd]="isMatchTBD(match)" [class.forfeit]="isMatchForfeit(match)">
+                  <div class="participant top"
+                       [class.bye-slot]="!getParticipant1Display(match) || getParticipant1Display(match) === 'TBD'"
+                       [class.forfeited]="isParticipant1Forfeited(match)">
                     @if (getSeed1(match)) {
                       <span class="seed">{{ getSeed1(match) }}</span>
                     }
                     <span class="name">{{ getParticipant1Display(match) }}</span>
+                    @if (isParticipant1Forfeited(match)) {
+                      <span class="forfeit-badge">WD</span>
+                    }
                   </div>
-                  <div class="participant bottom" [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD'">
+                  <div class="participant bottom"
+                       [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD'"
+                       [class.forfeited]="isParticipant2Forfeited(match)">
                     @if (getSeed2(match)) {
                       <span class="seed">{{ getSeed2(match) }}</span>
                     }
                     <span class="name">{{ getParticipant2Display(match) }}</span>
+                    @if (isParticipant2Forfeited(match)) {
+                      <span class="forfeit-badge">WD</span>
+                    }
                   </div>
                 </div>
                 <!-- Connector line to next round -->

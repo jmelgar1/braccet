@@ -15,6 +15,7 @@ export interface Match {
   participant1_score?: number;
   participant2_score?: number;
   winner_id?: number;
+  forfeit_winner_id?: number;
   status: string;
   next_match_id?: number;
 }

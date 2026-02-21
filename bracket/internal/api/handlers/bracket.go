@@ -42,19 +42,20 @@ type BracketResponse struct {
 }
 
 type MatchResponse struct {
-	ID               uint64  `json:"id"`
-	Round            int     `json:"round"`
-	Position         int     `json:"position"`
-	BracketType      string  `json:"bracket_type"`
-	Participant1ID   *uint64 `json:"participant1_id,omitempty"`
-	Participant2ID   *uint64 `json:"participant2_id,omitempty"`
-	Participant1Name *string `json:"participant1_name,omitempty"`
-	Participant2Name *string `json:"participant2_name,omitempty"`
-	Participant1Score *int   `json:"participant1_score,omitempty"`
-	Participant2Score *int   `json:"participant2_score,omitempty"`
-	WinnerID         *uint64 `json:"winner_id,omitempty"`
-	Status           string  `json:"status"`
-	NextMatchID      *uint64 `json:"next_match_id,omitempty"`
+	ID                uint64  `json:"id"`
+	Round             int     `json:"round"`
+	Position          int     `json:"position"`
+	BracketType       string  `json:"bracket_type"`
+	Participant1ID    *uint64 `json:"participant1_id,omitempty"`
+	Participant2ID    *uint64 `json:"participant2_id,omitempty"`
+	Participant1Name  *string `json:"participant1_name,omitempty"`
+	Participant2Name  *string `json:"participant2_name,omitempty"`
+	Participant1Score *int    `json:"participant1_score,omitempty"`
+	Participant2Score *int    `json:"participant2_score,omitempty"`
+	WinnerID          *uint64 `json:"winner_id,omitempty"`
+	ForfeitWinnerID   *uint64 `json:"forfeit_winner_id,omitempty"`
+	Status            string  `json:"status"`
+	NextMatchID       *uint64 `json:"next_match_id,omitempty"`
 }
 
 func (h *BracketHandler) Generate(w http.ResponseWriter, r *http.Request) {
@@ -151,19 +152,20 @@ func toBracketResponse(state *service.BracketState) *BracketResponse {
 
 func toMatchResponse(m *domain.Match) *MatchResponse {
 	return &MatchResponse{
-		ID:               m.ID,
-		Round:            m.Round,
-		Position:         m.Position,
-		BracketType:      string(m.BracketType),
-		Participant1ID:   m.Participant1ID,
-		Participant2ID:   m.Participant2ID,
-		Participant1Name: m.Participant1Name,
-		Participant2Name: m.Participant2Name,
+		ID:                m.ID,
+		Round:             m.Round,
+		Position:          m.Position,
+		BracketType:       string(m.BracketType),
+		Participant1ID:    m.Participant1ID,
+		Participant2ID:    m.Participant2ID,
+		Participant1Name:  m.Participant1Name,
+		Participant2Name:  m.Participant2Name,
 		Participant1Score: m.Participant1Score,
 		Participant2Score: m.Participant2Score,
-		WinnerID:         m.WinnerID,
-		Status:           string(m.Status),
-		NextMatchID:      m.NextMatchID,
+		WinnerID:          m.WinnerID,
+		ForfeitWinnerID:   m.ForfeitWinnerID,
+		Status:            string(m.Status),
+		NextMatchID:       m.NextMatchID,
 	}
 }
 

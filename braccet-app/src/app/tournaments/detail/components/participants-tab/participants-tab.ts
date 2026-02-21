@@ -22,6 +22,7 @@ export class ParticipantsTab {
 
   participantAdded = output<Participant>();
   participantRemoved = output<number>();
+  participantWithdrawn = output<number>();
   seedingChanged = output<Participant[]>();
   selfRegistered = output<Participant>();
   left = output<number>();
@@ -109,6 +110,32 @@ export class ParticipantsTab {
         }
       });
     }
+  }
+
+  withdrawParticipant(participant: Participant): void {
+    const t = this.tournament();
+    if (!t) return;
+
+    if (!confirm(`Are you sure you want to withdraw ${participant.display_name}? This will forfeit all their pending matches.`)) {
+      return;
+    }
+
+    this.tournamentService.withdrawParticipant(t.slug, participant.id).subscribe({
+      next: () => {
+        this.participantWithdrawn.emit(participant.id);
+      },
+      error: (err) => {
+        this.error.set(err.error?.error || 'Failed to withdraw participant');
+      }
+    });
+  }
+
+  canWithdraw(participant: Participant): boolean {
+    const t = this.tournament();
+    return t.status === 'in_progress' &&
+           participant.status !== 'eliminated' &&
+           participant.status !== 'disqualified' &&
+           participant.status !== 'withdrawn';
   }
 
   onDrop(event: CdkDragDrop<Participant[]>): void {

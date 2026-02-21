@@ -16,6 +16,7 @@ export class BracketTab {
 
   tournament = input.required<Tournament>();
   participants = input.required<Participant[]>();
+  refreshKey = input(0);
 
   bracketState = signal<BracketState | null>(null);
   loadingBracket = signal(false);
@@ -48,6 +49,16 @@ export class BracketTab {
     effect(() => {
       const t = this.tournament();
       if (t.status === 'in_progress' || t.status === 'completed') {
+        this.loadBracket(t.id);
+      }
+    });
+
+    // Reload bracket when refreshKey changes (e.g., after withdraw)
+    effect(() => {
+      const key = this.refreshKey();
+      const t = this.tournament();
+      // Only reload if key > 0 (not initial) and bracket is active
+      if (key > 0 && (t.status === 'in_progress' || t.status === 'completed')) {
         this.loadBracket(t.id);
       }
     });

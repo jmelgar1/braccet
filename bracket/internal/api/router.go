@@ -20,10 +20,12 @@ func NewRouter(repo repository.MatchRepository) chi.Router {
 	// Create services
 	bracketSvc := service.NewBracketService(repo)
 	matchSvc := service.NewMatchService(repo)
+	forfeitSvc := service.NewForfeitService(repo)
 
 	// Create handlers
 	bracketHandler := handlers.NewBracketHandler(bracketSvc, matchSvc, repo)
 	matchHandler := handlers.NewMatchHandler(matchSvc, repo)
+	forfeitHandler := handlers.NewForfeitHandler(forfeitSvc)
 
 	// Health check
 	r.Get("/health", handlers.Health)
@@ -37,6 +39,9 @@ func NewRouter(repo repository.MatchRepository) chi.Router {
 	r.Get("/brackets/matches/{id}", matchHandler.Get)
 	r.Post("/brackets/matches/{id}/result", matchHandler.ReportResult)
 	r.Post("/brackets/matches/{id}/start", matchHandler.Start)
+
+	// Forfeit route (internal, called by tournament service)
+	r.Post("/brackets/forfeit-participant", forfeitHandler.ForfeitParticipant)
 
 	return r
 }

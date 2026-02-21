@@ -23,6 +23,7 @@
         <app-bracket-tab
           [tournament]="tournament()"
           [participants]="participants()"
+          [refreshKey]="bracketRefreshKey()"
         />
       }
       @case ('participants') {
@@ -34,6 +35,7 @@
           [canSelfRegister]="canSelfRegister()"
           (participantAdded)="onParticipantAdded($event)"
           (participantRemoved)="onParticipantRemoved($event)"
+          (participantWithdrawn)="onParticipantWithdrawn($event)"
           (seedingChanged)="onSeedingChanged($event)"
           (selfRegistered)="onSelfRegistered($event)"
           (left)="onLeft($event)"

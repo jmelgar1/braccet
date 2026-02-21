@@ -31,7 +31,7 @@ export interface Participant {
   user_id?: number;
   display_name: string;
   seed?: number;
-  status: 'registered' | 'checked_in' | 'active' | 'eliminated' | 'disqualified';
+  status: 'registered' | 'checked_in' | 'active' | 'eliminated' | 'disqualified' | 'withdrawn';
   checked_in_at?: string;
   created_at: string;
 }

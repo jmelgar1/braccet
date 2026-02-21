@@ -5,12 +5,13 @@ import (
 
 	"github.com/braccet/tournament/internal/api/handlers"
 	"github.com/braccet/tournament/internal/api/middleware"
+	"github.com/braccet/tournament/internal/client"
 	"github.com/braccet/tournament/internal/repository"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo repository.ParticipantRepository) *chi.Mux {
+func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo repository.ParticipantRepository, bracketClient client.BracketClient) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -26,7 +27,7 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 
 	// Tournament handlers
 	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo)
-	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo)
+	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo, bracketClient)
 
 	r.Route("/tournaments", func(r chi.Router) {
 		r.Use(middleware.Auth)
@@ -42,6 +43,7 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 			r.Get("/", participantHandler.List)
 			r.Post("/", participantHandler.Add)
 			r.Delete("/{participantId}", participantHandler.Remove)
+			r.Post("/{participantId}/withdraw", participantHandler.Withdraw)
 			r.Put("/seeding", participantHandler.UpdateSeeding)
 		})
 	})

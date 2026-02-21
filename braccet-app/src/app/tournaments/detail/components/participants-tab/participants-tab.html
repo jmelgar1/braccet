@@ -87,14 +87,27 @@
                   <span class="text-xs text-blue-600 ml-1">(You)</span>
                 }
               </span>
-              <span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">
+              <span class="px-2 py-1 text-xs rounded-full"
+                    [class.bg-gray-100]="participant.status !== 'withdrawn'"
+                    [class.text-gray-700]="participant.status !== 'withdrawn'"
+                    [class.bg-red-100]="participant.status === 'withdrawn'"
+                    [class.text-red-700]="participant.status === 'withdrawn'">
                 {{ participant.status }}
               </span>
-              <button
-                (click)="removeParticipant(participant); $event.stopPropagation()"
-                class="text-red-600 hover:text-red-800 text-sm ml-2">
-                Remove
-              </button>
+              @if (canWithdraw(participant)) {
+                <button
+                  (click)="withdrawParticipant(participant); $event.stopPropagation()"
+                  class="text-orange-600 hover:text-orange-800 text-sm ml-2">
+                  Withdraw
+                </button>
+              }
+              @if (tournament().status === 'registration') {
+                <button
+                  (click)="removeParticipant(participant); $event.stopPropagation()"
+                  class="text-red-600 hover:text-red-800 text-sm ml-2">
+                  Remove
+                </button>
+              }
             </div>
           }
         </div>
@@ -122,7 +135,11 @@
                     }
                   </td>
                   <td class="px-4 py-3 text-sm">
-                    <span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">
+                    <span class="px-2 py-1 text-xs rounded-full"
+                          [class.bg-gray-100]="participant.status !== 'withdrawn'"
+                          [class.text-gray-700]="participant.status !== 'withdrawn'"
+                          [class.bg-red-100]="participant.status === 'withdrawn'"
+                          [class.text-red-700]="participant.status === 'withdrawn'">
                       {{ participant.status }}
                     </span>
                   </td>

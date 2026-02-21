@@ -10,6 +10,7 @@ const (
 	ParticipantActive       ParticipantStatus = "active"
 	ParticipantEliminated   ParticipantStatus = "eliminated"
 	ParticipantDisqualified ParticipantStatus = "disqualified"
+	ParticipantWithdrawn    ParticipantStatus = "withdrawn"
 )
 
 type Participant struct {

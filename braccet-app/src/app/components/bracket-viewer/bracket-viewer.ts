@@ -96,4 +96,36 @@ export class BracketViewer {
     const p2 = this.getParticipant2Display(match);
     return p1 === 'TBD' || p2 === 'TBD';
   }
+
+  // Check if this match was won by forfeit
+  isMatchForfeit(match: DisplayMatch): boolean {
+    if ('forfeit_winner_id' in match) {
+      return match.forfeit_winner_id != null;
+    }
+    return false;
+  }
+
+  // Check if participant in slot 1 was forfeited (withdrew)
+  isParticipant1Forfeited(match: DisplayMatch): boolean {
+    if (!('forfeit_winner_id' in match) || !match.forfeit_winner_id) {
+      return false;
+    }
+    // The forfeited participant is the one who is NOT the forfeit winner
+    if ('participant1_id' in match && match.participant1_id) {
+      return match.participant1_id !== match.forfeit_winner_id;
+    }
+    return false;
+  }
+
+  // Check if participant in slot 2 was forfeited (withdrew)
+  isParticipant2Forfeited(match: DisplayMatch): boolean {
+    if (!('forfeit_winner_id' in match) || !match.forfeit_winner_id) {
+      return false;
+    }
+    // The forfeited participant is the one who is NOT the forfeit winner
+    if ('participant2_id' in match && match.participant2_id) {
+      return match.participant2_id !== match.forfeit_winner_id;
+    }
+    return false;
+  }
 }

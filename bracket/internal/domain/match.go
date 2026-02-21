@@ -37,6 +37,7 @@ type Match struct {
 	CompletedAt      *time.Time
 	NextMatchID      *uint64
 	LoserMatchID     *uint64
+	ForfeitWinnerID  *uint64 // Non-nil if match was won by forfeit (opponent withdrew)
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
