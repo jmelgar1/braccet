@@ -20,6 +20,8 @@ type MatchRepository interface {
 	UpdateForfeit(ctx context.Context, matchID uint64, winnerID uint64) error
 	SetParticipant(ctx context.Context, matchID uint64, slot int, participantID uint64, name string) error
 	UpdateNextMatchLinks(ctx context.Context, matches []*domain.Match) error
+	ReopenMatch(ctx context.Context, matchID uint64) error
+	ClearParticipant(ctx context.Context, matchID uint64, slot int) error
 }
 
 type matchRepository struct {
@@ -252,6 +254,52 @@ func (r *matchRepository) UpdateForfeit(ctx context.Context, matchID uint64, win
 		WHERE id = $2
 	`
 	res, err := r.db.ExecContext(ctx, query, winnerID, matchID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrMatchNotFound
+	}
+
+	return nil
+}
+
+func (r *matchRepository) ReopenMatch(ctx context.Context, matchID uint64) error {
+	query := `
+		UPDATE matches
+		SET winner_id = NULL, forfeit_winner_id = NULL, status = $1, completed_at = NULL
+		WHERE id = $2
+	`
+	res, err := r.db.ExecContext(ctx, query, domain.MatchReady, matchID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrMatchNotFound
+	}
+
+	return nil
+}
+
+func (r *matchRepository) ClearParticipant(ctx context.Context, matchID uint64, slot int) error {
+	var query string
+	if slot == 1 {
+		query = `UPDATE matches SET participant1_id = NULL, participant1_name = NULL WHERE id = $1`
+	} else {
+		query = `UPDATE matches SET participant2_id = NULL, participant2_name = NULL WHERE id = $1`
+	}
+
+	res, err := r.db.ExecContext(ctx, query, matchID)
 	if err != nil {
 		return err
 	}

@@ -18,6 +18,7 @@ export class BracketTab {
   tournament = input.required<Tournament>();
   participants = input.required<Participant[]>();
   refreshKey = input(0);
+  isOrganizer = input(false);
 
   bracketState = signal<BracketState | null>(null);
   loadingBracket = signal(false);
@@ -108,6 +109,17 @@ export class BracketTab {
       error: (err) => {
         const errorMsg = err.error?.error || 'Failed to save result';
         this.matchModal?.setError(errorMsg);
+      }
+    });
+  }
+
+  onMatchReopened(match: Match): void {
+    this.bracketService.reopenMatch(match.id).subscribe({
+      next: () => {
+        this.loadBracket(this.tournament().id);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to reopen match');
       }
     });
   }

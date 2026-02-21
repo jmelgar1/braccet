@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -204,6 +205,28 @@ func (h *TournamentHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tournament, err := h.repo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrTournamentNotFound) {
+			writeError(w, http.StatusNotFound, "tournament not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournament")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toTournamentResponse(tournament))
+}
+
+// GetByID returns a single tournament by ID (internal endpoint for service-to-service calls)
+func (h *TournamentHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	tournament, err := h.repo.GetByID(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, repository.ErrTournamentNotFound) {
 			writeError(w, http.StatusNotFound, "tournament not found")

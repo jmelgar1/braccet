@@ -54,7 +54,9 @@
               matches: bracketState()!.matches
             }"
             [isPreview]="false"
+            [isOrganizer]="isOrganizer()"
             (matchClicked)="onMatchClicked($event)"
+            (matchReopened)="onMatchReopened($event)"
           />
         } @else {
           <div class="flex items-center justify-center h-full text-gray-500">

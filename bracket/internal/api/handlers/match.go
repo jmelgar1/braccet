@@ -3,11 +3,14 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/braccet/bracket/internal/api/middleware"
 	"github.com/braccet/bracket/internal/domain"
 	"github.com/braccet/bracket/internal/repository"
 	"github.com/braccet/bracket/internal/service"
@@ -176,4 +179,98 @@ func (h *MatchHandler) Start(w http.ResponseWriter, r *http.Request) {
 	match.Sets = sets
 
 	json.NewEncoder(w).Encode(toMatchResponse(match))
+}
+
+func (h *MatchHandler) Reopen(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid match ID")
+		return
+	}
+
+	// Get user ID from context (requires auth middleware)
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// Get match to find tournament ID
+	match, err := h.repo.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrMatchNotFound) {
+			writeError(w, http.StatusNotFound, "match not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Verify user is tournament organizer
+	isOrganizer, err := h.verifyOrganizer(match.TournamentID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify permissions")
+		return
+	}
+	if !isOrganizer {
+		writeError(w, http.StatusForbidden, "only the tournament organizer can reopen matches")
+		return
+	}
+
+	// Call service to reopen match
+	reopenedMatches, err := h.matchSvc.ReopenMatch(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrMatchNotCompleted):
+			writeError(w, http.StatusBadRequest, "match is not completed")
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	// Convert to response format
+	response := make([]*MatchResponse, len(reopenedMatches))
+	for i, m := range reopenedMatches {
+		response[i] = toMatchResponse(m)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"reopened_matches": response,
+	})
+}
+
+// verifyOrganizer checks if the user is the organizer of the tournament
+func (h *MatchHandler) verifyOrganizer(tournamentID, userID uint64) (bool, error) {
+	tournamentServiceURL := os.Getenv("TOURNAMENT_SERVICE_URL")
+	if tournamentServiceURL == "" {
+		tournamentServiceURL = "http://localhost:8083"
+	}
+
+	// Use internal endpoint (no auth required for service-to-service calls)
+	url := fmt.Sprintf("%s/internal/tournaments/%d", tournamentServiceURL, tournamentID)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return false, err
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("tournament service returned status %d", resp.StatusCode)
+	}
+
+	var tournament struct {
+		OrganizerID uint64 `json:"organizer_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tournament); err != nil {
+		return false, err
+	}
+
+	return tournament.OrganizerID == userID, nil
 }

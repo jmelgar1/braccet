@@ -14,12 +14,14 @@ var (
 	ErrMatchAlreadyComplete = errors.New("match has already been completed")
 	ErrNoSets               = errors.New("at least one set is required")
 	ErrSetsTied             = errors.New("sets are tied - there must be a clear winner")
+	ErrMatchNotCompleted    = errors.New("match is not completed")
 )
 
 type MatchService interface {
 	ReportResult(ctx context.Context, matchID uint64, result domain.MatchResult) error
 	StartMatch(ctx context.Context, matchID uint64) error
 	GetBracketState(ctx context.Context, tournamentID uint64) (*BracketState, error)
+	ReopenMatch(ctx context.Context, matchID uint64) ([]*domain.Match, error)
 }
 
 type BracketState struct {
@@ -232,4 +234,104 @@ func CountSetsWon(sets []domain.Set) (p1Sets, p2Sets int) {
 		}
 	}
 	return
+}
+
+// ReopenMatch reopens a completed match, clearing its result and cascading
+// the changes to all downstream matches that were affected.
+func (s *matchService) ReopenMatch(ctx context.Context, matchID uint64) ([]*domain.Match, error) {
+	match, err := s.repo.GetByID(ctx, matchID)
+	if err != nil {
+		return nil, err
+	}
+
+	if match.Status != domain.MatchCompleted {
+		return nil, ErrMatchNotCompleted
+	}
+
+	reopenedMatches := []*domain.Match{}
+
+	if err := s.reopenMatchCascade(ctx, match, &reopenedMatches); err != nil {
+		return nil, err
+	}
+
+	return reopenedMatches, nil
+}
+
+// reopenMatchCascade recursively reopens a match and all downstream affected matches.
+func (s *matchService) reopenMatchCascade(ctx context.Context, match *domain.Match, reopened *[]*domain.Match) error {
+	// If this match has a next match and had a winner, handle cascade
+	if match.NextMatchID != nil && match.WinnerID != nil {
+		nextMatch, err := s.repo.GetByID(ctx, *match.NextMatchID)
+		if err != nil {
+			return err
+		}
+
+		// Determine which slot the winner occupied in next match
+		slot := 1
+		if match.Position%2 == 0 {
+			slot = 2
+		}
+
+		// Check if winner was actually placed in next match
+		winnerInNextMatch := false
+		if slot == 1 && nextMatch.Participant1ID != nil && *nextMatch.Participant1ID == *match.WinnerID {
+			winnerInNextMatch = true
+		} else if slot == 2 && nextMatch.Participant2ID != nil && *nextMatch.Participant2ID == *match.WinnerID {
+			winnerInNextMatch = true
+		}
+
+		if winnerInNextMatch {
+			// If next match was completed, recursively reopen it first
+			if nextMatch.Status == domain.MatchCompleted {
+				if err := s.reopenMatchCascade(ctx, nextMatch, reopened); err != nil {
+					return err
+				}
+			}
+
+			// Clear the participant slot in next match
+			if err := s.repo.ClearParticipant(ctx, *match.NextMatchID, slot); err != nil {
+				return err
+			}
+
+			// Update next match status
+			if err := s.updateMatchStatusAfterClear(ctx, *match.NextMatchID); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Delete sets for this match
+	if err := s.setRepo.DeleteByMatchID(ctx, match.ID); err != nil {
+		return err
+	}
+
+	// Reopen this match (clear winner, set status to ready)
+	if err := s.repo.ReopenMatch(ctx, match.ID); err != nil {
+		return err
+	}
+
+	// Track this match as reopened (update local state for return)
+	match.WinnerID = nil
+	match.ForfeitWinnerID = nil
+	match.Status = domain.MatchReady
+	match.Sets = nil
+	*reopened = append(*reopened, match)
+
+	return nil
+}
+
+// updateMatchStatusAfterClear updates a match's status after a participant is cleared.
+func (s *matchService) updateMatchStatusAfterClear(ctx context.Context, matchID uint64) error {
+	match, err := s.repo.GetByID(ctx, matchID)
+	if err != nil {
+		return err
+	}
+
+	// If either participant is missing, status should be pending
+	if match.Participant1ID == nil || match.Participant2ID == nil {
+		return s.repo.UpdateStatus(ctx, matchID, domain.MatchPending)
+	}
+
+	// Both participants are set, status should be ready
+	return s.repo.UpdateStatus(ctx, matchID, domain.MatchReady)
 }

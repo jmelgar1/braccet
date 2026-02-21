@@ -5,6 +5,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/braccet/bracket/internal/api/handlers"
+	authmw "github.com/braccet/bracket/internal/api/middleware"
 	"github.com/braccet/bracket/internal/repository"
 	"github.com/braccet/bracket/internal/service"
 )
@@ -39,6 +40,12 @@ func NewRouter(repo repository.MatchRepository, setRepo repository.SetRepository
 	r.Get("/brackets/matches/{id}", matchHandler.Get)
 	r.Post("/brackets/matches/{id}/result", matchHandler.ReportResult)
 	r.Post("/brackets/matches/{id}/start", matchHandler.Start)
+
+	// Protected match routes (require auth)
+	r.Group(func(r chi.Router) {
+		r.Use(authmw.Auth)
+		r.Post("/brackets/matches/{id}/reopen", matchHandler.Reopen)
+	})
 
 	// Forfeit route (internal, called by tournament service)
 	r.Post("/brackets/forfeit-participant", forfeitHandler.ForfeitParticipant)

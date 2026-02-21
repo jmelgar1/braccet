@@ -7,43 +7,58 @@
           <div class="matches-column">
             @for (match of roundData.matches; track match.position) {
               <div class="match-wrapper">
-                <div class="match"
-                   [class.bye]="isBye(match)"
-                   [class.tbd]="isMatchTBD(match)"
-                   [class.forfeit]="isMatchForfeit(match)"
-                   [class.clickable]="isClickable(match)"
-                   [class.completed]="isCompleted(match)"
-                   (click)="onMatchClick(match)">
-                  <div class="participant top"
-                       [class.bye-slot]="!getParticipant1Display(match) || getParticipant1Display(match) === 'TBD'"
-                       [class.forfeited]="isParticipant1Forfeited(match)"
-                       [class.winner]="isWinner(match, getParticipant1Id(match))">
-                    @if (getSeed1(match)) {
-                      <span class="seed">{{ getSeed1(match) }}</span>
-                    }
-                    <span class="name">{{ getParticipant1Display(match) }}</span>
-                    @if (getParticipant1Score(match) !== null) {
-                      <span class="score">{{ getParticipant1Score(match) }}</span>
-                    }
-                    @if (isParticipant1Forfeited(match)) {
-                      <span class="forfeit-badge">WD</span>
-                    }
+                <div class="match-with-action">
+                  <div class="match"
+                     [class.bye]="isBye(match)"
+                     [class.tbd]="isMatchTBD(match)"
+                     [class.forfeit]="isMatchForfeit(match)"
+                     [class.completed]="isCompleted(match)">
+                    <div class="participant top"
+                         [class.bye-slot]="!getParticipant1Display(match) || getParticipant1Display(match) === 'TBD'"
+                         [class.forfeited]="isParticipant1Forfeited(match)"
+                         [class.winner]="isWinner(match, getParticipant1Id(match))">
+                      @if (getSeed1(match)) {
+                        <span class="seed">{{ getSeed1(match) }}</span>
+                      }
+                      <span class="name">{{ getParticipant1Display(match) }}</span>
+                      @if (isParticipant1Forfeited(match)) {
+                        <span class="forfeit-badge">WD</span>
+                      }
+                    </div>
+                    <div class="participant bottom"
+                         [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD'"
+                         [class.forfeited]="isParticipant2Forfeited(match)"
+                         [class.winner]="isWinner(match, getParticipant2Id(match))">
+                      @if (getSeed2(match)) {
+                        <span class="seed">{{ getSeed2(match) }}</span>
+                      }
+                      <span class="name">{{ getParticipant2Display(match) }}</span>
+                      @if (isParticipant2Forfeited(match)) {
+                        <span class="forfeit-badge">WD</span>
+                      }
+                    </div>
                   </div>
-                  <div class="participant bottom"
-                       [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD'"
-                       [class.forfeited]="isParticipant2Forfeited(match)"
-                       [class.winner]="isWinner(match, getParticipant2Id(match))">
-                    @if (getSeed2(match)) {
-                      <span class="seed">{{ getSeed2(match) }}</span>
-                    }
-                    <span class="name">{{ getParticipant2Display(match) }}</span>
-                    @if (getParticipant2Score(match) !== null) {
-                      <span class="score">{{ getParticipant2Score(match) }}</span>
-                    }
-                    @if (isParticipant2Forfeited(match)) {
-                      <span class="forfeit-badge">WD</span>
-                    }
-                  </div>
+                  @if (showActionArea(match)) {
+                    <div class="match-action"
+                         [class.completed]="isCompleted(match)"
+                         [class.hoverable]="canReopenMatch(match)">
+                      @if (isCompleted(match)) {
+                        <div class="score-display">
+                          <div class="score-cell top">{{ getParticipant1Score(match) }}</div>
+                          <div class="score-cell bottom">{{ getParticipant2Score(match) }}</div>
+                        </div>
+                        @if (canReopenMatch(match)) {
+                          <button class="reopen-btn" (click)="onReopenClick(match, $event)">
+                            <img src="reopen-match.png" alt="Reopen match" class="reopen-icon" />
+                          </button>
+                        }
+                      } @else {
+                        <button class="report-btn" (click)="onReportClick(match, $event)">
+                          <img src="edit-match.png" alt="Report score" class="report-icon" />
+                        </button>
+                      }
+                    </div>
+                  }
                 </div>
                 <!-- Connector line to next round -->
                 @if (roundData.round < rounds().length) {

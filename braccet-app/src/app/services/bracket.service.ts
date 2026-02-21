@@ -31,4 +31,11 @@ export class BracketService {
   reportResult(matchId: number, request: ReportResultRequest): Observable<Match> {
     return this.http.post<Match>(`${this.apiUrl}/matches/${matchId}/result`, request);
   }
+
+  reopenMatch(matchId: number): Observable<{ reopened_matches: Match[] }> {
+    return this.http.post<{ reopened_matches: Match[] }>(
+      `${this.apiUrl}/matches/${matchId}/reopen`,
+      {}
+    );
+  }
 }

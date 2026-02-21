@@ -13,6 +13,7 @@ var ErrTournamentNotFound = errors.New("tournament not found")
 type TournamentRepository interface {
 	Create(ctx context.Context, t *domain.Tournament) error
 	GetBySlug(ctx context.Context, slug string) (*domain.Tournament, error)
+	GetByID(ctx context.Context, id uint64) (*domain.Tournament, error)
 	Update(ctx context.Context, t *domain.Tournament) error
 	Delete(ctx context.Context, slug string) error
 	ListByOrganizer(ctx context.Context, organizerID uint64) ([]*domain.Tournament, error)
@@ -52,6 +53,27 @@ func (r *tournamentRepository) GetBySlug(ctx context.Context, slug string) (*dom
 	`
 	t := &domain.Tournament{}
 	err := r.db.QueryRowContext(ctx, query, slug).Scan(
+		&t.ID, &t.Slug, &t.OrganizerID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
+		&t.MaxParticipants, &t.RegistrationOpen, &t.Settings, &t.StartsAt, &t.CreatedAt, &t.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrTournamentNotFound
+		}
+		return nil, err
+	}
+
+	return t, nil
+}
+
+func (r *tournamentRepository) GetByID(ctx context.Context, id uint64) (*domain.Tournament, error) {
+	query := `
+		SELECT id, slug, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
+		FROM tournaments
+		WHERE id = $1
+	`
+	t := &domain.Tournament{}
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&t.ID, &t.Slug, &t.OrganizerID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
 		&t.MaxParticipants, &t.RegistrationOpen, &t.Settings, &t.StartsAt, &t.CreatedAt, &t.UpdatedAt,
 	)

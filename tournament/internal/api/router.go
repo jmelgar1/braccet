@@ -29,6 +29,11 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo)
 	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo, bracketClient)
 
+	// Internal routes (service-to-service, no auth required)
+	r.Route("/internal/tournaments", func(r chi.Router) {
+		r.Get("/{id}", tournamentHandler.GetByID)
+	})
+
 	r.Route("/tournaments", func(r chi.Router) {
 		r.Use(middleware.Auth)
 

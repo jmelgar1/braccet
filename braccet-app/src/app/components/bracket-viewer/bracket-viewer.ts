@@ -18,8 +18,10 @@ interface BracketData {
 export class BracketViewer {
   preview = input<BracketData | null>(null);
   isPreview = input(true);
+  isOrganizer = input(false);
 
   matchClicked = output<Match>();
+  matchReopened = output<Match>();
 
   rounds = computed(() => {
     const p = this.preview();
@@ -136,19 +138,6 @@ export class BracketViewer {
     return 'id' in match && typeof match.id === 'number';
   }
 
-  // Check if match is clickable (only actual matches, not preview)
-  isClickable(match: DisplayMatch): boolean {
-    if (this.isPreview()) return false;
-    return this.isActualMatch(match);
-  }
-
-  // Handle match click
-  onMatchClick(match: DisplayMatch): void {
-    if (this.isActualMatch(match)) {
-      this.matchClicked.emit(match);
-    }
-  }
-
   // Check if participant is the winner
   isWinner(match: DisplayMatch, participantId: number | undefined): boolean {
     if (!participantId) return false;
@@ -199,5 +188,34 @@ export class BracketViewer {
       return match.status === 'completed';
     }
     return false;
+  }
+
+  // Check if action area should be shown (not bye, not TBD, and not preview)
+  showActionArea(match: DisplayMatch): boolean {
+    if (this.isPreview()) return false;
+    return !this.isBye(match) && !this.isMatchTBD(match);
+  }
+
+  // Handle report button click
+  onReportClick(match: DisplayMatch, event: Event): void {
+    event.stopPropagation();
+    if (this.isActualMatch(match)) {
+      this.matchClicked.emit(match);
+    }
+  }
+
+  // Check if reopen button should be shown for a match
+  canReopenMatch(match: DisplayMatch): boolean {
+    if (!this.isOrganizer()) return false;
+    if (this.isPreview()) return false;
+    return this.isCompleted(match);
+  }
+
+  // Handle reopen button click
+  onReopenClick(match: DisplayMatch, event: Event): void {
+    event.stopPropagation();
+    if (this.isActualMatch(match)) {
+      this.matchReopened.emit(match);
+    }
   }
 }
