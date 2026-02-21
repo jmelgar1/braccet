@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braccet/auth/internal/api/middleware"
 	"github.com/braccet/auth/internal/domain"
 	"github.com/braccet/auth/internal/repository"
 	"github.com/braccet/auth/internal/service"
@@ -52,8 +53,20 @@ type LoginRequest struct {
 
 // AuthResponse is returned on successful auth
 type AuthResponse struct {
-	Token string       `json:"token"`
-	User  UserResponse `json:"user"`
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	User         UserResponse `json:"user"`
+}
+
+// RefreshRequest represents the refresh token request payload
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// RefreshResponse is returned on successful token refresh
+type RefreshResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 // UserResponse is the user data returned to clients
@@ -286,15 +299,16 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to delete pending registration %d: %v", pending.ID, err)
 	}
 
-	// Issue JWT
-	jwtToken, err := service.IssueToken(user)
+	// Issue token pair
+	tokens, err := service.IssueTokenPair(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "account created but failed to issue token")
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, AuthResponse{
-		Token: jwtToken,
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
 		User: UserResponse{
 			ID:          user.ID,
 			Email:       user.Email,
@@ -410,15 +424,16 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Issue JWT
-	token, err := service.IssueToken(user)
+	// Issue token pair
+	tokens, err := service.IssueTokenPair(user)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to issue token")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, AuthResponse{
-		Token: token,
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
 		User: UserResponse{
 			ID:          user.ID,
 			Email:       user.Email,
@@ -426,5 +441,77 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			DisplayName: user.DisplayName,
 			AvatarURL:   user.AvatarURL,
 		},
+	})
+}
+
+// Me returns the current user's information
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	// Get user info from context (set by auth middleware)
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "user not found in context")
+		return
+	}
+
+	user, err := h.userRepo.GetByID(r.Context(), userID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to get user")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, UserResponse{
+		ID:          user.ID,
+		Email:       user.Email,
+		Username:    user.Username,
+		DisplayName: user.DisplayName,
+		AvatarURL:   user.AvatarURL,
+	})
+}
+
+// Refresh exchanges a refresh token for a new access token
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req RefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.RefreshToken == "" {
+		writeError(w, http.StatusBadRequest, "refresh token required")
+		return
+	}
+
+	// Validate the refresh token
+	claims, err := service.ValidateRefreshToken(req.RefreshToken)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		return
+	}
+
+	// Get user to ensure they still exist
+	user, err := h.userRepo.GetByID(r.Context(), claims.UserID)
+	if err != nil {
+		if errors.Is(err, repository.ErrUserNotFound) {
+			writeError(w, http.StatusUnauthorized, "user not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to verify user")
+		return
+	}
+
+	// Issue new token pair
+	tokens, err := service.IssueTokenPair(user)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to issue tokens")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, RefreshResponse{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
 	})
 }

@@ -31,8 +31,6 @@ export class TournamentDetail implements OnInit {
   addingParticipant = signal(false);
 
   // Seeding state
-  seedingMode = signal(false);
-  seedingOrder = signal<Participant[]>([]);
   savingSeeding = signal(false);
 
   // Computed properties
@@ -194,29 +192,22 @@ export class TournamentDetail implements OnInit {
   }
 
   // Seeding methods
-  enterSeedingMode(): void {
-    this.seedingOrder.set([...this.participants()]);
-    this.seedingMode.set(true);
-  }
-
-  exitSeedingMode(): void {
-    this.seedingMode.set(false);
-    this.seedingOrder.set([]);
-  }
-
   onDrop(event: CdkDragDrop<Participant[]>): void {
-    const list = [...this.seedingOrder()];
+    if (event.previousIndex === event.currentIndex) return;
+
+    const list = [...this.participants()];
     moveItemInArray(list, event.previousIndex, event.currentIndex);
-    this.seedingOrder.set(list);
+    this.participants.set(list);
+    this.saveSeeding(list);
   }
 
-  saveSeeding(): void {
+  private saveSeeding(orderedParticipants: Participant[]): void {
     const t = this.tournament();
     if (!t) return;
 
     // Build seeds map: participantId -> seed (1-indexed)
     const seeds: Record<number, number> = {};
-    this.seedingOrder().forEach((p, index) => {
+    orderedParticipants.forEach((p, index) => {
       seeds[p.id] = index + 1;
     });
 
@@ -225,7 +216,6 @@ export class TournamentDetail implements OnInit {
       next: (updatedParticipants) => {
         this.participants.set(updatedParticipants);
         this.savingSeeding.set(false);
-        this.exitSeedingMode();
       },
       error: (err) => {
         this.participantsError.set(err.error?.error || 'Failed to update seeding');

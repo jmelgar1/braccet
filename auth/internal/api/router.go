@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/braccet/auth/internal/api/handlers"
+	authmw "github.com/braccet/auth/internal/api/middleware"
 	"github.com/braccet/auth/internal/repository"
 	"github.com/braccet/auth/internal/service"
 	"github.com/go-chi/chi/v5"
@@ -32,11 +33,19 @@ func NewRouter(
 	authHandler := handlers.NewAuthHandler(userRepo, pendingRepo, emailSender, baseURL)
 
 	r.Route("/auth", func(r chi.Router) {
+		// Public routes
 		r.Post("/signup", authHandler.Signup)
 		r.Post("/login", authHandler.Login)
 		r.Get("/verify-email", authHandler.VerifyEmail)   // GET for email links
 		r.Post("/verify-email", authHandler.VerifyEmail)  // POST for API calls
 		r.Post("/resend-verification", authHandler.ResendVerification)
+		r.Post("/refresh", authHandler.Refresh) // Uses refresh token JWT
+
+		// Protected routes (require valid access token)
+		r.Group(func(r chi.Router) {
+			r.Use(authmw.Auth)
+			r.Get("/me", authHandler.Me)
+		})
 	})
 
 	return r
