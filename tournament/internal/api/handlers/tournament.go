@@ -164,7 +164,7 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Description:      req.Description,
 		Game:             req.Game,
 		Format:           format,
-		Status:           domain.StatusDraft,
+		Status:           domain.StatusRegistration,
 		MaxParticipants:  req.MaxParticipants,
 		RegistrationOpen: true,
 		Settings:         json.RawMessage(`{}`),

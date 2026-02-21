@@ -6,7 +6,7 @@ export interface Tournament {
   description?: string;
   game?: string;
   format: 'single_elimination' | 'double_elimination';
-  status: 'draft' | 'registration' | 'in_progress' | 'completed' | 'cancelled';
+  status: 'registration' | 'in_progress' | 'completed' | 'cancelled';
   max_participants?: number;
   registration_open: boolean;
   starts_at?: string;
@@ -43,4 +43,14 @@ export interface AddParticipantRequest {
 
 export interface UpdateSeedingRequest {
   seeds: Record<number, number>;
+}
+
+export interface UpdateTournamentRequest {
+  name?: string;
+  description?: string;
+  game?: string;
+  max_participants?: number;
+  starts_at?: string;
+  starts_at_tentative?: boolean;
+  registration_open?: boolean;
 }

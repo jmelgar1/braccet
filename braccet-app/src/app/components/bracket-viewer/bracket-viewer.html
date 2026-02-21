@@ -1,0 +1,41 @@
+@if (preview()) {
+  <div class="bracket-container">
+    <div class="bracket-grid" [style.--rounds]="rounds().length">
+      @for (roundData of rounds(); track roundData.round) {
+        <div class="round" [attr.data-round]="roundData.round">
+          <div class="round-header">{{ getRoundLabel(roundData.round) }}</div>
+          <div class="matches-column">
+            @for (match of roundData.matches; track match.position) {
+              <div class="match-wrapper">
+                <div class="match" [class.bye]="isBye(match)" [class.tbd]="isMatchTBD(match)">
+                  <div class="participant top" [class.bye-slot]="!getParticipant1Display(match) || getParticipant1Display(match) === 'TBD'">
+                    @if (getSeed1(match)) {
+                      <span class="seed">{{ getSeed1(match) }}</span>
+                    }
+                    <span class="name">{{ getParticipant1Display(match) }}</span>
+                  </div>
+                  <div class="participant bottom" [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD'">
+                    @if (getSeed2(match)) {
+                      <span class="seed">{{ getSeed2(match) }}</span>
+                    }
+                    <span class="name">{{ getParticipant2Display(match) }}</span>
+                  </div>
+                </div>
+                <!-- Connector line to next round -->
+                @if (roundData.round < rounds().length) {
+                  <div class="connector">
+                    <div class="line-h"></div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+} @else {
+  <div class="no-bracket">
+    <p class="text-gray-500 text-sm">No bracket to display</p>
+  </div>
+}

@@ -1,0 +1,50 @@
+<div class="bg-white rounded-lg shadow border border-gray-200 flex h-[500px]">
+  <!-- Vertical tab sidebar -->
+  <div class="w-48 border-r border-gray-200 bg-gray-50 rounded-l-lg flex-shrink-0">
+    <nav class="flex flex-col p-2 space-y-1">
+      @for (tab of tabs(); track tab.id) {
+        <button
+          (click)="setActiveTab(tab.id)"
+          [class]="'px-3 py-2 text-sm font-medium rounded-lg transition-colors ' +
+            (isActiveTab(tab.id)
+              ? 'bg-blue-100 text-blue-700 border-l-4 border-blue-600'
+              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900')"
+        >
+          {{ tab.label }}
+        </button>
+      }
+    </nav>
+  </div>
+
+  <!-- Tab content area -->
+  <div class="flex-1 p-4 overflow-hidden">
+    @switch (activeTab()) {
+      @case ('bracket') {
+        <app-bracket-tab
+          [tournament]="tournament()"
+          [participants]="participants()"
+        />
+      }
+      @case ('participants') {
+        <app-participants-tab
+          [tournament]="tournament()"
+          [participants]="participants()"
+          [isOrganizer]="isOrganizer()"
+          [currentUserParticipant]="currentUserParticipant()"
+          [canSelfRegister]="canSelfRegister()"
+          (participantAdded)="onParticipantAdded($event)"
+          (participantRemoved)="onParticipantRemoved($event)"
+          (seedingChanged)="onSeedingChanged($event)"
+          (selfRegistered)="onSelfRegistered($event)"
+          (left)="onLeft($event)"
+        />
+      }
+      @case ('settings') {
+        <app-settings-tab
+          [tournament]="tournament()"
+          (tournamentUpdated)="onTournamentUpdated($event)"
+        />
+      }
+    }
+  </div>
+</div>

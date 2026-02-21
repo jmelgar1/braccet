@@ -15,7 +15,6 @@ const (
 type TournamentStatus string
 
 const (
-	StatusDraft        TournamentStatus = "draft"
 	StatusRegistration TournamentStatus = "registration"
 	StatusInProgress   TournamentStatus = "in_progress"
 	StatusCompleted    TournamentStatus = "completed"
