@@ -30,8 +30,7 @@ type Match struct {
 	Participant1Name *string
 	Participant2Name *string
 	WinnerID         *uint64
-	Participant1Score *int
-	Participant2Score *int
+	Sets             []Set // Set-based scoring (replaces simple scores)
 	Status           MatchStatus
 	ScheduledAt      *time.Time
 	CompletedAt      *time.Time
@@ -42,8 +41,26 @@ type Match struct {
 	UpdatedAt        time.Time
 }
 
-type MatchResult struct {
-	WinnerID          uint64
+// Set represents a single set within a match
+type Set struct {
+	ID                uint64
+	MatchID           uint64
+	SetNumber         int
 	Participant1Score int
 	Participant2Score int
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// SetScore represents set scores for API requests (without database fields)
+type SetScore struct {
+	SetNumber         int `json:"set_number"`
+	Participant1Score int `json:"participant1_score"`
+	Participant2Score int `json:"participant2_score"`
+}
+
+// MatchResult contains the sets data for reporting a match result
+// Winner is computed from sets (whoever wins the most sets)
+type MatchResult struct {
+	Sets []SetScore
 }

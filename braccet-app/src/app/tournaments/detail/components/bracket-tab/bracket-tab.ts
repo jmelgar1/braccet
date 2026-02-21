@@ -1,13 +1,14 @@
-import { Component, input, computed, inject, signal, effect } from '@angular/core';
+import { Component, input, computed, inject, signal, effect, ViewChild } from '@angular/core';
 import { Tournament, Participant } from '../../../../models/tournament.model';
 import { BracketGeneratorService, BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
-import { BracketState } from '../../../../models/bracket.model';
+import { BracketState, Match } from '../../../../models/bracket.model';
 import { BracketViewer } from '../../../../components/bracket-viewer/bracket-viewer';
+import { MatchResultModal, MatchResultEvent } from '../../../../components/match-result-modal/match-result-modal';
 
 @Component({
   selector: 'app-bracket-tab',
-  imports: [BracketViewer],
+  imports: [BracketViewer, MatchResultModal],
   templateUrl: './bracket-tab.html'
 })
 export class BracketTab {
@@ -21,6 +22,12 @@ export class BracketTab {
   bracketState = signal<BracketState | null>(null);
   loadingBracket = signal(false);
   bracketError = signal('');
+
+  // Modal state
+  selectedMatch = signal<Match | null>(null);
+  showModal = signal(false);
+
+  @ViewChild(MatchResultModal) matchModal?: MatchResultModal;
 
   // Preview is generated client-side from participants
   preview = computed<BracketPreview | null>(() => {
@@ -76,6 +83,31 @@ export class BracketTab {
       error: (err) => {
         this.bracketError.set(err.error?.error || 'Failed to load bracket');
         this.loadingBracket.set(false);
+      }
+    });
+  }
+
+  onMatchClicked(match: Match): void {
+    this.selectedMatch.set(match);
+    this.showModal.set(true);
+  }
+
+  closeModal(): void {
+    this.selectedMatch.set(null);
+    this.showModal.set(false);
+  }
+
+  onResultSubmitted(event: MatchResultEvent): void {
+    this.bracketService.reportResult(event.matchId, {
+      sets: event.sets
+    }).subscribe({
+      next: () => {
+        this.closeModal();
+        this.loadBracket(this.tournament().id);
+      },
+      error: (err) => {
+        const errorMsg = err.error?.error || 'Failed to save result';
+        this.matchModal?.setError(errorMsg);
       }
     });
   }

@@ -1,0 +1,119 @@
+<div class="modal-backdrop" (click)="onBackdropClick($event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Match Result</h3>
+      <button class="close-btn" (click)="close.emit()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      @if (isEditable()) {
+        <p class="match-info">Round {{ match().round }} - Match {{ match().position }}</p>
+
+        @if (error()) {
+          <div class="error-message">{{ error() }}</div>
+        }
+
+        <!-- Participant Headers with Sets Tally -->
+        <div class="participants-header">
+          <div class="participant-header" [class.leading]="setsWon().participant1 > setsWon().participant2">
+            <span class="name">{{ match().participant1_name || 'TBD' }}</span>
+            <span class="sets-tally">{{ setsWon().participant1 }} sets</span>
+          </div>
+          <div class="vs-label">vs</div>
+          <div class="participant-header" [class.leading]="setsWon().participant2 > setsWon().participant1">
+            <span class="name">{{ match().participant2_name || 'TBD' }}</span>
+            <span class="sets-tally">{{ setsWon().participant2 }} sets</span>
+          </div>
+        </div>
+
+        <!-- Sets List -->
+        <div class="sets-container">
+          @for (set of sets(); track set.set_number; let i = $index) {
+            <div class="set-row">
+              <span class="set-label">Set {{ set.set_number }}</span>
+              <div class="set-scores">
+                <input
+                  type="number"
+                  class="score-input"
+                  [class.winner]="set.participant1_score > set.participant2_score"
+                  [ngModel]="set.participant1_score"
+                  (ngModelChange)="updateSetScore(i, 'participant1_score', $event)"
+                  min="0"
+                  [disabled]="submitting()"
+                />
+                <span class="score-separator">-</span>
+                <input
+                  type="number"
+                  class="score-input"
+                  [class.winner]="set.participant2_score > set.participant1_score"
+                  [ngModel]="set.participant2_score"
+                  (ngModelChange)="updateSetScore(i, 'participant2_score', $event)"
+                  min="0"
+                  [disabled]="submitting()"
+                />
+              </div>
+              @if (sets().length > 1) {
+                <button class="remove-set-btn" (click)="removeSet(i)" [disabled]="submitting()">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 6L6 18M6 6l12 12"/>
+                  </svg>
+                </button>
+              }
+            </div>
+          }
+        </div>
+
+        <!-- Add Set Button -->
+        <button class="add-set-btn" (click)="addSet()" [disabled]="submitting()">
+          + Add Set
+        </button>
+
+      } @else if (match().status === 'completed') {
+        <p class="match-info">Round {{ match().round }} - Match {{ match().position }}</p>
+
+        <div class="result-display">
+          <div class="winner-display">
+            <span class="label">Winner:</span>
+            <span class="value">{{ getWinnerName() }}</span>
+          </div>
+          <div class="sets-summary">
+            <span class="label">Sets:</span>
+            <span class="value">{{ match().participant1_sets }} - {{ match().participant2_sets }}</span>
+          </div>
+          @if (match().sets && match().sets.length > 0) {
+            <div class="sets-detail">
+              @for (set of match().sets; track set.set_number) {
+                <div class="set-line">
+                  Set {{ set.set_number }}: {{ set.participant1_score }} - {{ set.participant2_score }}
+                </div>
+              }
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="pending-message">
+          <p>This match is waiting for participants from previous rounds.</p>
+        </div>
+      }
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-secondary" (click)="close.emit()" [disabled]="submitting()">
+        {{ isEditable() ? 'Cancel' : 'Close' }}
+      </button>
+      @if (isEditable()) {
+        <button
+          class="btn-primary"
+          (click)="submit()"
+          [disabled]="!canSubmit() || submitting()"
+        >
+          {{ submitting() ? 'Saving...' : 'Save Result' }}
+        </button>
+      }
+    </div>
+  </div>
+</div>

@@ -54,6 +54,7 @@
               matches: bracketState()!.matches
             }"
             [isPreview]="false"
+            (matchClicked)="onMatchClicked($event)"
           />
         } @else {
           <div class="flex items-center justify-center h-full text-gray-500">
@@ -64,3 +65,12 @@
     </div>
   }
 </div>
+
+<!-- Match Result Modal -->
+@if (showModal() && selectedMatch()) {
+  <app-match-result-modal
+    [match]="selectedMatch()!"
+    (close)="closeModal()"
+    (resultSubmitted)="onResultSubmitted($event)"
+  />
+}

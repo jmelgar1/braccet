@@ -4,6 +4,12 @@ export interface Participant {
   seed: number;
 }
 
+export interface SetScore {
+  set_number: number;
+  participant1_score: number;
+  participant2_score: number;
+}
+
 export interface Match {
   id: number;
   round: number;
@@ -12,8 +18,9 @@ export interface Match {
   participant2_id?: number;
   participant1_name?: string;
   participant2_name?: string;
-  participant1_score?: number;
-  participant2_score?: number;
+  sets: SetScore[];
+  participant1_sets: number;
+  participant2_sets: number;
   winner_id?: number;
   forfeit_winner_id?: number;
   status: string;
@@ -36,7 +43,5 @@ export interface CreateBracketRequest {
 }
 
 export interface ReportResultRequest {
-  winner_id: number;
-  participant1_score: number;
-  participant2_score: number;
+  sets: SetScore[];
 }

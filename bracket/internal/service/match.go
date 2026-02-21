@@ -9,9 +9,11 @@ import (
 )
 
 var (
-	ErrMatchNotReady       = errors.New("match is not ready for result reporting")
-	ErrInvalidWinner       = errors.New("winner must be a participant in the match")
+	ErrMatchNotReady        = errors.New("match is not ready for result reporting")
+	ErrInvalidWinner        = errors.New("winner must be a participant in the match")
 	ErrMatchAlreadyComplete = errors.New("match has already been completed")
+	ErrNoSets               = errors.New("at least one set is required")
+	ErrSetsTied             = errors.New("sets are tied - there must be a clear winner")
 )
 
 type MatchService interface {
@@ -30,14 +32,16 @@ type BracketState struct {
 }
 
 type matchService struct {
-	repo repository.MatchRepository
+	repo    repository.MatchRepository
+	setRepo repository.SetRepository
 }
 
-func NewMatchService(repo repository.MatchRepository) MatchService {
-	return &matchService{repo: repo}
+func NewMatchService(repo repository.MatchRepository, setRepo repository.SetRepository) MatchService {
+	return &matchService{repo: repo, setRepo: setRepo}
 }
 
 // ReportResult records the result of a match and advances the winner.
+// Winner is computed from the sets (whoever wins the most sets).
 func (s *matchService) ReportResult(ctx context.Context, matchID uint64, result domain.MatchResult) error {
 	match, err := s.repo.GetByID(ctx, matchID)
 	if err != nil {
@@ -52,19 +56,30 @@ func (s *matchService) ReportResult(ctx context.Context, matchID uint64, result 
 		return ErrMatchNotReady
 	}
 
-	// Validate winner is a participant
-	if !isParticipant(match, result.WinnerID) {
-		return ErrInvalidWinner
+	// Validate sets
+	if len(result.Sets) == 0 {
+		return ErrNoSets
 	}
 
-	// Update the match result
-	if err := s.repo.UpdateResult(ctx, matchID, result); err != nil {
+	// Compute winner from sets
+	winnerID, err := computeWinnerFromSets(match, result.Sets)
+	if err != nil {
+		return err
+	}
+
+	// Save the sets
+	if err := s.setRepo.CreateBatch(ctx, matchID, result.Sets); err != nil {
+		return err
+	}
+
+	// Update the match result with computed winner
+	if err := s.repo.UpdateResult(ctx, matchID, winnerID); err != nil {
 		return err
 	}
 
 	// Advance winner to next match if there is one
 	if match.NextMatchID != nil {
-		if err := s.advanceWinner(ctx, match, result.WinnerID); err != nil {
+		if err := s.advanceWinner(ctx, match, winnerID); err != nil {
 			return err
 		}
 	}
@@ -181,4 +196,40 @@ func isParticipant(match *domain.Match, participantID uint64) bool {
 		return true
 	}
 	return false
+}
+
+// computeWinnerFromSets determines the winner based on sets won.
+// Returns the winner ID or an error if sets are tied.
+func computeWinnerFromSets(match *domain.Match, sets []domain.SetScore) (uint64, error) {
+	var p1Wins, p2Wins int
+
+	for _, set := range sets {
+		if set.Participant1Score > set.Participant2Score {
+			p1Wins++
+		} else if set.Participant2Score > set.Participant1Score {
+			p2Wins++
+		}
+		// Tied sets don't count for either participant
+	}
+
+	if p1Wins > p2Wins && match.Participant1ID != nil {
+		return *match.Participant1ID, nil
+	}
+	if p2Wins > p1Wins && match.Participant2ID != nil {
+		return *match.Participant2ID, nil
+	}
+
+	return 0, ErrSetsTied
+}
+
+// CountSetsWon returns the number of sets won by each participant.
+func CountSetsWon(sets []domain.Set) (p1Sets, p2Sets int) {
+	for _, set := range sets {
+		if set.Participant1Score > set.Participant2Score {
+			p1Sets++
+		} else if set.Participant2Score > set.Participant1Score {
+			p2Sets++
+		}
+	}
+	return
 }

@@ -129,8 +129,8 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 				}
 
 				if winnerID != nil {
-					result := domain.MatchResult{WinnerID: *winnerID}
-					if err := s.repo.UpdateResult(ctx, match.ID, result); err != nil {
+					// For bye matches, just update the winner directly (no sets needed)
+					if err := s.repo.UpdateResult(ctx, match.ID, *winnerID); err != nil {
 						return err
 					}
 					match.Status = domain.MatchCompleted

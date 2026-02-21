@@ -15,7 +15,7 @@ type MatchRepository interface {
 	GetByID(ctx context.Context, id uint64) (*domain.Match, error)
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Match, error)
 	GetPendingByParticipant(ctx context.Context, tournamentID, participantID uint64) ([]*domain.Match, error)
-	UpdateResult(ctx context.Context, matchID uint64, result domain.MatchResult) error
+	UpdateResult(ctx context.Context, matchID uint64, winnerID uint64) error
 	UpdateStatus(ctx context.Context, matchID uint64, status domain.MatchStatus) error
 	UpdateForfeit(ctx context.Context, matchID uint64, winnerID uint64) error
 	SetParticipant(ctx context.Context, matchID uint64, slot int, participantID uint64, name string) error
@@ -67,8 +67,7 @@ func (r *matchRepository) GetByID(ctx context.Context, id uint64) (*domain.Match
 	query := `
 		SELECT id, tournament_id, bracket_type, round, position,
 		       participant1_id, participant2_id, participant1_name, participant2_name,
-		       winner_id, participant1_score, participant2_score, status,
-		       scheduled_at, completed_at, next_match_id, loser_match_id,
+		       winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
 		       forfeit_winner_id, created_at, updated_at
 		FROM matches
 		WHERE id = $1
@@ -77,7 +76,7 @@ func (r *matchRepository) GetByID(ctx context.Context, id uint64) (*domain.Match
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&m.ID, &m.TournamentID, &m.BracketType, &m.Round, &m.Position,
 		&m.Participant1ID, &m.Participant2ID, &m.Participant1Name, &m.Participant2Name,
-		&m.WinnerID, &m.Participant1Score, &m.Participant2Score, &m.Status,
+		&m.WinnerID, &m.Status,
 		&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
 		&m.ForfeitWinnerID, &m.CreatedAt, &m.UpdatedAt,
 	)
@@ -95,8 +94,7 @@ func (r *matchRepository) GetByTournament(ctx context.Context, tournamentID uint
 	query := `
 		SELECT id, tournament_id, bracket_type, round, position,
 		       participant1_id, participant2_id, participant1_name, participant2_name,
-		       winner_id, participant1_score, participant2_score, status,
-		       scheduled_at, completed_at, next_match_id, loser_match_id,
+		       winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
 		       forfeit_winner_id, created_at, updated_at
 		FROM matches
 		WHERE tournament_id = $1
@@ -114,7 +112,7 @@ func (r *matchRepository) GetByTournament(ctx context.Context, tournamentID uint
 		err := rows.Scan(
 			&m.ID, &m.TournamentID, &m.BracketType, &m.Round, &m.Position,
 			&m.Participant1ID, &m.Participant2ID, &m.Participant1Name, &m.Participant2Name,
-			&m.WinnerID, &m.Participant1Score, &m.Participant2Score, &m.Status,
+			&m.WinnerID, &m.Status,
 			&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
 			&m.ForfeitWinnerID, &m.CreatedAt, &m.UpdatedAt,
 		)
@@ -131,15 +129,13 @@ func (r *matchRepository) GetByTournament(ctx context.Context, tournamentID uint
 	return matches, nil
 }
 
-func (r *matchRepository) UpdateResult(ctx context.Context, matchID uint64, result domain.MatchResult) error {
+func (r *matchRepository) UpdateResult(ctx context.Context, matchID uint64, winnerID uint64) error {
 	query := `
 		UPDATE matches
-		SET winner_id = $1, participant1_score = $2, participant2_score = $3, status = $4, completed_at = NOW()
-		WHERE id = $5
+		SET winner_id = $1, status = $2, completed_at = NOW()
+		WHERE id = $3
 	`
-	res, err := r.db.ExecContext(ctx, query,
-		result.WinnerID, result.Participant1Score, result.Participant2Score, domain.MatchCompleted, matchID,
-	)
+	res, err := r.db.ExecContext(ctx, query, winnerID, domain.MatchCompleted, matchID)
 	if err != nil {
 		return err
 	}
@@ -212,8 +208,7 @@ func (r *matchRepository) GetPendingByParticipant(ctx context.Context, tournamen
 	query := `
 		SELECT id, tournament_id, bracket_type, round, position,
 		       participant1_id, participant2_id, participant1_name, participant2_name,
-		       winner_id, participant1_score, participant2_score, status,
-		       scheduled_at, completed_at, next_match_id, loser_match_id,
+		       winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
 		       forfeit_winner_id, created_at, updated_at
 		FROM matches
 		WHERE tournament_id = $1
@@ -233,7 +228,7 @@ func (r *matchRepository) GetPendingByParticipant(ctx context.Context, tournamen
 		err := rows.Scan(
 			&m.ID, &m.TournamentID, &m.BracketType, &m.Round, &m.Position,
 			&m.Participant1ID, &m.Participant2ID, &m.Participant1Name, &m.Participant2Name,
-			&m.WinnerID, &m.Participant1Score, &m.Participant2Score, &m.Status,
+			&m.WinnerID, &m.Status,
 			&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
 			&m.ForfeitWinnerID, &m.CreatedAt, &m.UpdatedAt,
 		)

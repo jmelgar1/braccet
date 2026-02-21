@@ -1,4 +1,4 @@
-import { Component, input, computed } from '@angular/core';
+import { Component, input, computed, output } from '@angular/core';
 import { PreviewMatch, BracketPreview } from '../../services/bracket-generator.service';
 import { Match } from '../../models/bracket.model';
 
@@ -18,6 +18,8 @@ interface BracketData {
 export class BracketViewer {
   preview = input<BracketData | null>(null);
   isPreview = input(true);
+
+  matchClicked = output<Match>();
 
   rounds = computed(() => {
     const p = this.preview();
@@ -125,6 +127,76 @@ export class BracketViewer {
     // The forfeited participant is the one who is NOT the forfeit winner
     if ('participant2_id' in match && match.participant2_id) {
       return match.participant2_id !== match.forfeit_winner_id;
+    }
+    return false;
+  }
+
+  // Type guard to check if this is an actual Match (not a preview)
+  isActualMatch(match: DisplayMatch): match is Match {
+    return 'id' in match && typeof match.id === 'number';
+  }
+
+  // Check if match is clickable (only actual matches, not preview)
+  isClickable(match: DisplayMatch): boolean {
+    if (this.isPreview()) return false;
+    return this.isActualMatch(match);
+  }
+
+  // Handle match click
+  onMatchClick(match: DisplayMatch): void {
+    if (this.isActualMatch(match)) {
+      this.matchClicked.emit(match);
+    }
+  }
+
+  // Check if participant is the winner
+  isWinner(match: DisplayMatch, participantId: number | undefined): boolean {
+    if (!participantId) return false;
+    if ('winner_id' in match && match.winner_id) {
+      return match.winner_id === participantId;
+    }
+    if ('forfeit_winner_id' in match && match.forfeit_winner_id) {
+      return match.forfeit_winner_id === participantId;
+    }
+    return false;
+  }
+
+  // Get participant 1 ID
+  getParticipant1Id(match: DisplayMatch): number | undefined {
+    if ('participant1_id' in match) {
+      return match.participant1_id;
+    }
+    return undefined;
+  }
+
+  // Get participant 2 ID
+  getParticipant2Id(match: DisplayMatch): number | undefined {
+    if ('participant2_id' in match) {
+      return match.participant2_id;
+    }
+    return undefined;
+  }
+
+  // Get participant 1 sets won (for display in bracket)
+  getParticipant1Score(match: DisplayMatch): number | null {
+    if ('participant1_sets' in match && match.participant1_sets !== undefined) {
+      return match.participant1_sets;
+    }
+    return null;
+  }
+
+  // Get participant 2 sets won (for display in bracket)
+  getParticipant2Score(match: DisplayMatch): number | null {
+    if ('participant2_sets' in match && match.participant2_sets !== undefined) {
+      return match.participant2_sets;
+    }
+    return null;
+  }
+
+  // Check if match is completed
+  isCompleted(match: DisplayMatch): boolean {
+    if ('status' in match) {
+      return match.status === 'completed';
     }
     return false;
   }

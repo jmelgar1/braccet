@@ -16,13 +16,15 @@ type BracketHandler struct {
 	bracketSvc service.BracketService
 	matchSvc   service.MatchService
 	repo       repository.MatchRepository
+	setRepo    repository.SetRepository
 }
 
-func NewBracketHandler(bracketSvc service.BracketService, matchSvc service.MatchService, repo repository.MatchRepository) *BracketHandler {
+func NewBracketHandler(bracketSvc service.BracketService, matchSvc service.MatchService, repo repository.MatchRepository, setRepo repository.SetRepository) *BracketHandler {
 	return &BracketHandler{
 		bracketSvc: bracketSvc,
 		matchSvc:   matchSvc,
 		repo:       repo,
+		setRepo:    setRepo,
 	}
 }
 
@@ -41,21 +43,28 @@ type BracketResponse struct {
 	Matches      []*MatchResponse `json:"matches"`
 }
 
+type SetResponse struct {
+	SetNumber         int `json:"set_number"`
+	Participant1Score int `json:"participant1_score"`
+	Participant2Score int `json:"participant2_score"`
+}
+
 type MatchResponse struct {
-	ID                uint64  `json:"id"`
-	Round             int     `json:"round"`
-	Position          int     `json:"position"`
-	BracketType       string  `json:"bracket_type"`
-	Participant1ID    *uint64 `json:"participant1_id,omitempty"`
-	Participant2ID    *uint64 `json:"participant2_id,omitempty"`
-	Participant1Name  *string `json:"participant1_name,omitempty"`
-	Participant2Name  *string `json:"participant2_name,omitempty"`
-	Participant1Score *int    `json:"participant1_score,omitempty"`
-	Participant2Score *int    `json:"participant2_score,omitempty"`
-	WinnerID          *uint64 `json:"winner_id,omitempty"`
-	ForfeitWinnerID   *uint64 `json:"forfeit_winner_id,omitempty"`
-	Status            string  `json:"status"`
-	NextMatchID       *uint64 `json:"next_match_id,omitempty"`
+	ID               uint64        `json:"id"`
+	Round            int           `json:"round"`
+	Position         int           `json:"position"`
+	BracketType      string        `json:"bracket_type"`
+	Participant1ID   *uint64       `json:"participant1_id,omitempty"`
+	Participant2ID   *uint64       `json:"participant2_id,omitempty"`
+	Participant1Name *string       `json:"participant1_name,omitempty"`
+	Participant2Name *string       `json:"participant2_name,omitempty"`
+	Sets             []SetResponse `json:"sets"`
+	Participant1Sets int           `json:"participant1_sets"`
+	Participant2Sets int           `json:"participant2_sets"`
+	WinnerID         *uint64       `json:"winner_id,omitempty"`
+	ForfeitWinnerID  *uint64       `json:"forfeit_winner_id,omitempty"`
+	Status           string        `json:"status"`
+	NextMatchID      *uint64       `json:"next_match_id,omitempty"`
 }
 
 func (h *BracketHandler) Generate(w http.ResponseWriter, r *http.Request) {
@@ -109,6 +118,24 @@ func (h *BracketHandler) GetState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load sets for all matches
+	matchIDs := make([]uint64, len(state.Matches))
+	for i, m := range state.Matches {
+		matchIDs[i] = m.ID
+	}
+	setsMap, err := h.setRepo.GetByMatchIDs(r.Context(), matchIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Attach sets to matches
+	for _, m := range state.Matches {
+		if sets, ok := setsMap[m.ID]; ok {
+			m.Sets = sets
+		}
+	}
+
 	resp := toBracketResponse(state)
 	json.NewEncoder(w).Encode(resp)
 }
@@ -124,6 +151,24 @@ func (h *BracketHandler) ListMatches(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	// Load sets for all matches
+	matchIDs := make([]uint64, len(matches))
+	for i, m := range matches {
+		matchIDs[i] = m.ID
+	}
+	setsMap, err := h.setRepo.GetByMatchIDs(r.Context(), matchIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Attach sets to matches
+	for _, m := range matches {
+		if sets, ok := setsMap[m.ID]; ok {
+			m.Sets = sets
+		}
 	}
 
 	resp := make([]*MatchResponse, len(matches))
@@ -151,21 +196,38 @@ func toBracketResponse(state *service.BracketState) *BracketResponse {
 }
 
 func toMatchResponse(m *domain.Match) *MatchResponse {
+	// Convert sets
+	sets := make([]SetResponse, len(m.Sets))
+	var p1Sets, p2Sets int
+	for i, s := range m.Sets {
+		sets[i] = SetResponse{
+			SetNumber:         s.SetNumber,
+			Participant1Score: s.Participant1Score,
+			Participant2Score: s.Participant2Score,
+		}
+		if s.Participant1Score > s.Participant2Score {
+			p1Sets++
+		} else if s.Participant2Score > s.Participant1Score {
+			p2Sets++
+		}
+	}
+
 	return &MatchResponse{
-		ID:                m.ID,
-		Round:             m.Round,
-		Position:          m.Position,
-		BracketType:       string(m.BracketType),
-		Participant1ID:    m.Participant1ID,
-		Participant2ID:    m.Participant2ID,
-		Participant1Name:  m.Participant1Name,
-		Participant2Name:  m.Participant2Name,
-		Participant1Score: m.Participant1Score,
-		Participant2Score: m.Participant2Score,
-		WinnerID:          m.WinnerID,
-		ForfeitWinnerID:   m.ForfeitWinnerID,
-		Status:            string(m.Status),
-		NextMatchID:       m.NextMatchID,
+		ID:               m.ID,
+		Round:            m.Round,
+		Position:         m.Position,
+		BracketType:      string(m.BracketType),
+		Participant1ID:   m.Participant1ID,
+		Participant2ID:   m.Participant2ID,
+		Participant1Name: m.Participant1Name,
+		Participant2Name: m.Participant2Name,
+		Sets:             sets,
+		Participant1Sets: p1Sets,
+		Participant2Sets: p2Sets,
+		WinnerID:         m.WinnerID,
+		ForfeitWinnerID:  m.ForfeitWinnerID,
+		Status:           string(m.Status),
+		NextMatchID:      m.NextMatchID,
 	}
 }
 

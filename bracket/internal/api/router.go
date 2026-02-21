@@ -9,7 +9,7 @@ import (
 	"github.com/braccet/bracket/internal/service"
 )
 
-func NewRouter(repo repository.MatchRepository) chi.Router {
+func NewRouter(repo repository.MatchRepository, setRepo repository.SetRepository) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -19,12 +19,12 @@ func NewRouter(repo repository.MatchRepository) chi.Router {
 
 	// Create services
 	bracketSvc := service.NewBracketService(repo)
-	matchSvc := service.NewMatchService(repo)
+	matchSvc := service.NewMatchService(repo, setRepo)
 	forfeitSvc := service.NewForfeitService(repo)
 
 	// Create handlers
-	bracketHandler := handlers.NewBracketHandler(bracketSvc, matchSvc, repo)
-	matchHandler := handlers.NewMatchHandler(matchSvc, repo)
+	bracketHandler := handlers.NewBracketHandler(bracketSvc, matchSvc, repo, setRepo)
+	matchHandler := handlers.NewMatchHandler(matchSvc, repo, setRepo)
 	forfeitHandler := handlers.NewForfeitHandler(forfeitSvc)
 
 	// Health check

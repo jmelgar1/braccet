@@ -19,11 +19,12 @@ func main() {
 	}
 	defer db.Close()
 
-	// Create repository
+	// Create repositories
 	repo := repository.NewMatchRepository(db)
+	setRepo := repository.NewSetRepository(db)
 
 	// Create router
-	router := api.NewRouter(repo)
+	router := api.NewRouter(repo, setRepo)
 
 	// Get port from environment
 	port := os.Getenv("SERVICE_PORT")
