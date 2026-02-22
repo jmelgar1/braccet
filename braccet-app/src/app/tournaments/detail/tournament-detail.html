@@ -41,6 +41,16 @@
       <!-- Condensed Tournament Info Card -->
       <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
         <div class="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+          @if (community()) {
+            <div class="flex items-center gap-2">
+              <span class="text-gray-500">Community:</span>
+              <a [routerLink]="['/communities', community()!.slug]"
+                 class="font-medium text-blue-600 hover:text-blue-800">
+                {{ community()!.name }}
+              </a>
+            </div>
+          }
+
           <div class="flex items-center gap-2">
             <span class="text-gray-500">Format:</span>
             <span class="font-medium text-gray-900">

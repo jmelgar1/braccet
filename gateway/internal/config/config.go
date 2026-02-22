@@ -5,10 +5,11 @@ import (
 )
 
 type Config struct {
-	Port            string
+	Port                 string
 	AuthServiceURL       string
 	TournamentServiceURL string
 	BracketServiceURL    string
+	CommunityServiceURL  string
 }
 
 func Load() Config {
@@ -17,6 +18,7 @@ func Load() Config {
 		AuthServiceURL:       getEnv("AUTH_SERVICE_URL", "http://localhost:8081"),
 		TournamentServiceURL: getEnv("TOURNAMENT_SERVICE_URL", "http://localhost:8083"),
 		BracketServiceURL:    getEnv("BRACKET_SERVICE_URL", "http://localhost:8082"),
+		CommunityServiceURL:  getEnv("COMMUNITY_SERVICE_URL", "http://localhost:8084"),
 	}
 }
 

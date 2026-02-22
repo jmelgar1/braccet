@@ -2,6 +2,8 @@ export interface Tournament {
   id: number;
   slug: string;
   organizer_id: number;
+  community_id?: number;
+  elo_system_id?: number;
   name: string;
   description?: string;
   game?: string;
@@ -23,6 +25,8 @@ export interface CreateTournamentRequest {
   max_participants?: number;
   starts_at?: string;
   starts_at_tentative?: boolean;
+  community_id?: number;
+  elo_system_id?: number;
 }
 
 export interface Participant {
@@ -53,4 +57,5 @@ export interface UpdateTournamentRequest {
   starts_at?: string;
   starts_at_tentative?: boolean;
   registration_open?: boolean;
+  elo_system_id?: number;
 }

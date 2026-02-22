@@ -57,6 +57,7 @@
             [isOrganizer]="isOrganizer()"
             (matchClicked)="onMatchClicked($event)"
             (matchReopened)="onMatchReopened($event)"
+            (matchEditClicked)="onMatchEditClicked($event)"
           />
         } @else {
           <div class="flex items-center justify-center h-full text-gray-500">
@@ -72,6 +73,7 @@
 @if (showModal() && selectedMatch()) {
   <app-match-result-modal
     [match]="selectedMatch()!"
+    [editMode]="isEditMode()"
     (close)="closeModal()"
     (resultSubmitted)="onResultSubmitted($event)"
   />

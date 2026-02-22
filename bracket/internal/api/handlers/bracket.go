@@ -58,6 +58,8 @@ type MatchResponse struct {
 	Participant2ID   *uint64       `json:"participant2_id,omitempty"`
 	Participant1Name *string       `json:"participant1_name,omitempty"`
 	Participant2Name *string       `json:"participant2_name,omitempty"`
+	Seed1            *int          `json:"seed1,omitempty"`
+	Seed2            *int          `json:"seed2,omitempty"`
 	Sets             []SetResponse `json:"sets"`
 	Participant1Sets int           `json:"participant1_sets"`
 	Participant2Sets int           `json:"participant2_sets"`
@@ -221,6 +223,8 @@ func toMatchResponse(m *domain.Match) *MatchResponse {
 		Participant2ID:   m.Participant2ID,
 		Participant1Name: m.Participant1Name,
 		Participant2Name: m.Participant2Name,
+		Seed1:            m.Seed1,
+		Seed2:            m.Seed2,
 		Sets:             sets,
 		Participant1Sets: p1Sets,
 		Participant2Sets: p2Sets,

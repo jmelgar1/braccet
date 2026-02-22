@@ -60,4 +60,23 @@ export class Tournaments implements OnInit {
   onTournamentClick(slug: string): void {
     this.router.navigate(['/tournaments', slug]);
   }
+
+  deleteTournament(slug: string, name: string, event: Event): void {
+    event.stopPropagation();
+
+    if (!confirm(`Are you sure you want to delete "${name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    this.tournamentService.deleteTournament(slug).subscribe({
+      next: () => {
+        this.tournaments.update(tournaments =>
+          tournaments.filter(t => t.slug !== slug)
+        );
+      },
+      error: (err) => {
+        this.error.set(err.error?.error || 'Failed to delete tournament');
+      }
+    });
+  }
 }

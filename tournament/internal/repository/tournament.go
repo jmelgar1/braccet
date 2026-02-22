@@ -18,6 +18,7 @@ type TournamentRepository interface {
 	Delete(ctx context.Context, slug string) error
 	ListByOrganizer(ctx context.Context, organizerID uint64) ([]*domain.Tournament, error)
 	ListByStatus(ctx context.Context, status domain.TournamentStatus) ([]*domain.Tournament, error)
+	ListByCommunityID(ctx context.Context, communityID uint64) ([]*domain.Tournament, error)
 }
 
 type tournamentRepository struct {
@@ -30,12 +31,12 @@ func NewTournamentRepository(db *sql.DB) TournamentRepository {
 
 func (r *tournamentRepository) Create(ctx context.Context, t *domain.Tournament) error {
 	query := `
-		INSERT INTO tournaments (slug, organizer_id, name, description, game, format, status, max_participants, registration_open, settings, starts_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO tournaments (slug, organizer_id, community_id, elo_system_id, name, description, game, format, status, max_participants, registration_open, settings, starts_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		RETURNING id
 	`
 	err := r.db.QueryRowContext(ctx, query,
-		t.Slug, t.OrganizerID, t.Name, t.Description, t.Game, t.Format, t.Status,
+		t.Slug, t.OrganizerID, t.CommunityID, t.EloSystemID, t.Name, t.Description, t.Game, t.Format, t.Status,
 		t.MaxParticipants, t.RegistrationOpen, t.Settings, t.StartsAt,
 	).Scan(&t.ID)
 	if err != nil {
@@ -47,13 +48,13 @@ func (r *tournamentRepository) Create(ctx context.Context, t *domain.Tournament)
 
 func (r *tournamentRepository) GetBySlug(ctx context.Context, slug string) (*domain.Tournament, error) {
 	query := `
-		SELECT id, slug, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
+		SELECT id, slug, organizer_id, community_id, elo_system_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
 		FROM tournaments
 		WHERE LOWER(slug) = LOWER($1)
 	`
 	t := &domain.Tournament{}
 	err := r.db.QueryRowContext(ctx, query, slug).Scan(
-		&t.ID, &t.Slug, &t.OrganizerID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
+		&t.ID, &t.Slug, &t.OrganizerID, &t.CommunityID, &t.EloSystemID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
 		&t.MaxParticipants, &t.RegistrationOpen, &t.Settings, &t.StartsAt, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
@@ -68,13 +69,13 @@ func (r *tournamentRepository) GetBySlug(ctx context.Context, slug string) (*dom
 
 func (r *tournamentRepository) GetByID(ctx context.Context, id uint64) (*domain.Tournament, error) {
 	query := `
-		SELECT id, slug, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
+		SELECT id, slug, organizer_id, community_id, elo_system_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
 		FROM tournaments
 		WHERE id = $1
 	`
 	t := &domain.Tournament{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&t.ID, &t.Slug, &t.OrganizerID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
+		&t.ID, &t.Slug, &t.OrganizerID, &t.CommunityID, &t.EloSystemID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
 		&t.MaxParticipants, &t.RegistrationOpen, &t.Settings, &t.StartsAt, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err != nil {
@@ -90,12 +91,12 @@ func (r *tournamentRepository) GetByID(ctx context.Context, id uint64) (*domain.
 func (r *tournamentRepository) Update(ctx context.Context, t *domain.Tournament) error {
 	query := `
 		UPDATE tournaments
-		SET name = $1, description = $2, game = $3, format = $4, status = $5, max_participants = $6, registration_open = $7, settings = $8, starts_at = $9
-		WHERE LOWER(slug) = LOWER($10)
+		SET name = $1, description = $2, game = $3, format = $4, status = $5, max_participants = $6, registration_open = $7, settings = $8, starts_at = $9, community_id = $10, elo_system_id = $11
+		WHERE LOWER(slug) = LOWER($12)
 	`
 	result, err := r.db.ExecContext(ctx, query,
 		t.Name, t.Description, t.Game, t.Format, t.Status,
-		t.MaxParticipants, t.RegistrationOpen, t.Settings, t.StartsAt, t.Slug,
+		t.MaxParticipants, t.RegistrationOpen, t.Settings, t.StartsAt, t.CommunityID, t.EloSystemID, t.Slug,
 	)
 	if err != nil {
 		return err
@@ -132,7 +133,7 @@ func (r *tournamentRepository) Delete(ctx context.Context, slug string) error {
 
 func (r *tournamentRepository) ListByOrganizer(ctx context.Context, organizerID uint64) ([]*domain.Tournament, error) {
 	query := `
-		SELECT id, slug, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
+		SELECT id, slug, organizer_id, community_id, elo_system_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
 		FROM tournaments
 		WHERE organizer_id = $1
 		ORDER BY created_at DESC
@@ -142,12 +143,22 @@ func (r *tournamentRepository) ListByOrganizer(ctx context.Context, organizerID 
 
 func (r *tournamentRepository) ListByStatus(ctx context.Context, status domain.TournamentStatus) ([]*domain.Tournament, error) {
 	query := `
-		SELECT id, slug, organizer_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
+		SELECT id, slug, organizer_id, community_id, elo_system_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
 		FROM tournaments
 		WHERE status = $1
 		ORDER BY created_at DESC
 	`
 	return r.queryTournaments(ctx, query, status)
+}
+
+func (r *tournamentRepository) ListByCommunityID(ctx context.Context, communityID uint64) ([]*domain.Tournament, error) {
+	query := `
+		SELECT id, slug, organizer_id, community_id, elo_system_id, name, description, game, format::text, status::text, max_participants, registration_open, COALESCE(settings, '{}'), starts_at, created_at, updated_at
+		FROM tournaments
+		WHERE community_id = $1
+		ORDER BY created_at DESC
+	`
+	return r.queryTournaments(ctx, query, communityID)
 }
 
 func (r *tournamentRepository) queryTournaments(ctx context.Context, query string, args ...any) ([]*domain.Tournament, error) {
@@ -161,7 +172,7 @@ func (r *tournamentRepository) queryTournaments(ctx context.Context, query strin
 	for rows.Next() {
 		t := &domain.Tournament{}
 		err := rows.Scan(
-			&t.ID, &t.Slug, &t.OrganizerID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
+			&t.ID, &t.Slug, &t.OrganizerID, &t.CommunityID, &t.EloSystemID, &t.Name, &t.Description, &t.Game, &t.Format, &t.Status,
 			&t.MaxParticipants, &t.RegistrationOpen, &t.Settings, &t.StartsAt, &t.CreatedAt, &t.UpdatedAt,
 		)
 		if err != nil {

@@ -19,21 +19,24 @@ type ParticipantHandler struct {
 	participantRepo repository.ParticipantRepository
 	tournamentRepo  repository.TournamentRepository
 	bracketClient   client.BracketClient
+	communityClient client.CommunityClient
 }
 
-func NewParticipantHandler(participantRepo repository.ParticipantRepository, tournamentRepo repository.TournamentRepository, bracketClient client.BracketClient) *ParticipantHandler {
+func NewParticipantHandler(participantRepo repository.ParticipantRepository, tournamentRepo repository.TournamentRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *ParticipantHandler {
 	return &ParticipantHandler{
 		participantRepo: participantRepo,
 		tournamentRepo:  tournamentRepo,
 		bracketClient:   bracketClient,
+		communityClient: communityClient,
 	}
 }
 
 // Request/Response types
 
 type AddParticipantRequest struct {
-	UserID      *uint64 `json:"user_id,omitempty"`
-	DisplayName string  `json:"display_name"`
+	UserID            *uint64 `json:"user_id,omitempty"`
+	CommunityMemberID *uint64 `json:"community_member_id,omitempty"`
+	DisplayName       string  `json:"display_name"`
 }
 
 type UpdateSeedingRequest struct {
@@ -41,31 +44,55 @@ type UpdateSeedingRequest struct {
 }
 
 type ParticipantResponse struct {
-	ID           uint64  `json:"id"`
-	TournamentID uint64  `json:"tournament_id"`
-	UserID       *uint64 `json:"user_id,omitempty"`
-	DisplayName  string  `json:"display_name"`
-	Seed         *uint   `json:"seed,omitempty"`
-	Status       string  `json:"status"`
-	CheckedInAt  *string `json:"checked_in_at,omitempty"`
-	CreatedAt    string  `json:"created_at"`
+	ID                uint64  `json:"id"`
+	TournamentID      uint64  `json:"tournament_id"`
+	UserID            *uint64 `json:"user_id,omitempty"`
+	CommunityMemberID *uint64 `json:"community_member_id,omitempty"`
+	DisplayName       string  `json:"display_name"`
+	Seed              *uint   `json:"seed,omitempty"`
+	Status            string  `json:"status"`
+	CheckedInAt       *string `json:"checked_in_at,omitempty"`
+	CreatedAt         string  `json:"created_at"`
 }
 
 func toParticipantResponse(p *domain.Participant) ParticipantResponse {
 	resp := ParticipantResponse{
-		ID:           p.ID,
-		TournamentID: p.TournamentID,
-		UserID:       p.UserID,
-		DisplayName:  p.DisplayName,
-		Seed:         p.Seed,
-		Status:       string(p.Status),
-		CreatedAt:    p.CreatedAt.Format(time.RFC3339),
+		ID:                p.ID,
+		TournamentID:      p.TournamentID,
+		UserID:            p.UserID,
+		CommunityMemberID: p.CommunityMemberID,
+		DisplayName:       p.DisplayName,
+		Seed:              p.Seed,
+		Status:            string(p.Status),
+		CreatedAt:         p.CreatedAt.Format(time.RFC3339),
 	}
 	if p.CheckedInAt != nil {
 		checkedInAt := p.CheckedInAt.Format(time.RFC3339)
 		resp.CheckedInAt = &checkedInAt
 	}
 	return resp
+}
+
+// GetByID returns a single participant by ID (internal endpoint)
+func (h *ParticipantHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid participant ID")
+		return
+	}
+
+	participant, err := h.participantRepo.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrParticipantNotFound) {
+			writeError(w, http.StatusNotFound, "participant not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch participant")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toParticipantResponse(participant))
 }
 
 // List returns all participants for a tournament
@@ -181,11 +208,23 @@ func (h *ParticipantHandler) Add(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// For community tournaments: auto-create ghost member if no community_member_id provided
+	if tournament.CommunityID != nil && req.CommunityMemberID == nil {
+		member, err := h.communityClient.CreateGhostMember(r.Context(), *tournament.CommunityID, req.DisplayName)
+		if err != nil {
+			log.Printf("Error creating ghost member for community %d: %v", *tournament.CommunityID, err)
+			writeError(w, http.StatusInternalServerError, "failed to create community member")
+			return
+		}
+		req.CommunityMemberID = &member.ID
+	}
+
 	participant := &domain.Participant{
-		TournamentID: tournament.ID,
-		UserID:       req.UserID,
-		DisplayName:  req.DisplayName,
-		Status:       domain.ParticipantRegistered,
+		TournamentID:      tournament.ID,
+		UserID:            req.UserID,
+		CommunityMemberID: req.CommunityMemberID,
+		DisplayName:       req.DisplayName,
+		Status:            domain.ParticipantRegistered,
 	}
 
 	if err := h.participantRepo.Create(r.Context(), participant); err != nil {

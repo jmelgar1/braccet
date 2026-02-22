@@ -48,5 +48,12 @@ func NewRouter(cfg config.Config) chi.Router {
 		r.HandleFunc("/*", bracketProxy) // Handles /api/brackets/*
 	})
 
+	// Community service routes
+	r.Route("/api/communities", func(r chi.Router) {
+		communityProxy := proxy.NewServiceProxy(cfg.CommunityServiceURL, "/api")
+		r.HandleFunc("/", communityProxy)  // Handles /api/communities
+		r.HandleFunc("/*", communityProxy) // Handles /api/communities/*
+	})
+
 	return r
 }

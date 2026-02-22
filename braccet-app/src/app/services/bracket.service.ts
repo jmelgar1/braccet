@@ -6,7 +6,8 @@ import {
   BracketState,
   Match,
   CreateBracketRequest,
-  ReportResultRequest
+  ReportResultRequest,
+  EditResultResponse
 } from '../models/bracket.model';
 
 @Injectable({
@@ -36,6 +37,13 @@ export class BracketService {
     return this.http.post<{ reopened_matches: Match[] }>(
       `${this.apiUrl}/matches/${matchId}/reopen`,
       {}
+    );
+  }
+
+  editResult(matchId: number, request: ReportResultRequest): Observable<EditResultResponse> {
+    return this.http.put<EditResultResponse>(
+      `${this.apiUrl}/matches/${matchId}/result`,
+      request
     );
   }
 }

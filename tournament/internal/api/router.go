@@ -11,7 +11,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo repository.ParticipantRepository, bracketClient client.BracketClient) *chi.Mux {
+func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo repository.ParticipantRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -27,29 +27,42 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 
 	// Tournament handlers
 	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo)
-	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo, bracketClient)
+	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo, bracketClient, communityClient)
 
 	// Internal routes (service-to-service, no auth required)
 	r.Route("/internal/tournaments", func(r chi.Router) {
 		r.Get("/{id}", tournamentHandler.GetByID)
 	})
 
+	r.Route("/internal/participants", func(r chi.Router) {
+		r.Get("/{id}", participantHandler.GetByID)
+	})
+
+	r.Route("/internal/communities/{communityId}/tournaments", func(r chi.Router) {
+		r.Get("/", tournamentHandler.ListByCommunity)
+	})
+
 	r.Route("/tournaments", func(r chi.Router) {
-		r.Use(middleware.Auth)
+		// Public route - no auth required for listing community tournaments
+		r.Get("/community/{communityId}", tournamentHandler.ListByCommunity)
 
-		r.Get("/", tournamentHandler.List)
-		r.Post("/", tournamentHandler.Create)
-		r.Get("/{slug}", tournamentHandler.Get)
-		r.Put("/{slug}", tournamentHandler.Update)
-		r.Delete("/{slug}", tournamentHandler.Delete)
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Auth)
 
-		// Participant routes (nested under tournament)
-		r.Route("/{slug}/participants", func(r chi.Router) {
-			r.Get("/", participantHandler.List)
-			r.Post("/", participantHandler.Add)
-			r.Delete("/{participantId}", participantHandler.Remove)
-			r.Post("/{participantId}/withdraw", participantHandler.Withdraw)
-			r.Put("/seeding", participantHandler.UpdateSeeding)
+			r.Get("/", tournamentHandler.List)
+			r.Post("/", tournamentHandler.Create)
+			r.Get("/{slug}", tournamentHandler.Get)
+			r.Put("/{slug}", tournamentHandler.Update)
+			r.Delete("/{slug}", tournamentHandler.Delete)
+
+			// Participant routes (nested under tournament)
+			r.Route("/{slug}/participants", func(r chi.Router) {
+				r.Get("/", participantHandler.List)
+				r.Post("/", participantHandler.Add)
+				r.Delete("/{participantId}", participantHandler.Remove)
+				r.Post("/{participantId}/withdraw", participantHandler.Withdraw)
+				r.Put("/seeding", participantHandler.UpdateSeeding)
+			})
 		})
 	})
 

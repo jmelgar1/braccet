@@ -53,8 +53,15 @@
                     </span>
                   </div>
                 </div>
-                <div class="text-sm text-gray-400">
-                  {{ tournament.created_at | date:'mediumDate' }}
+                <div class="flex items-center gap-3">
+                  <span class="text-sm text-gray-400">
+                    {{ tournament.created_at | date:'mediumDate' }}
+                  </span>
+                  <button
+                    (click)="deleteTournament(tournament.slug, tournament.name, $event)"
+                    class="text-red-500 hover:text-red-700 text-sm font-medium">
+                    Delete
+                  </button>
                 </div>
               </div>
             </div>

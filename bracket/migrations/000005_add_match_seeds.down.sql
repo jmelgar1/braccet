@@ -1,0 +1,2 @@
+ALTER TABLE matches DROP COLUMN seed1;
+ALTER TABLE matches DROP COLUMN seed2;

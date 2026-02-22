@@ -73,14 +73,23 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 				continue
 			}
 
-			// Determine winner's name
+			// Determine winner's name and seed
 			winnerName := ""
+			winnerSeed := 0
 			if match.Participant1ID != nil && *match.Participant1ID == *match.WinnerID {
 				if match.Participant1Name != nil {
 					winnerName = *match.Participant1Name
 				}
-			} else if match.Participant2Name != nil {
-				winnerName = *match.Participant2Name
+				if match.Seed1 != nil {
+					winnerSeed = *match.Seed1
+				}
+			} else {
+				if match.Participant2Name != nil {
+					winnerName = *match.Participant2Name
+				}
+				if match.Seed2 != nil {
+					winnerSeed = *match.Seed2
+				}
 			}
 
 			// Determine slot based on position
@@ -89,7 +98,7 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 				slot = 2
 			}
 
-			if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, *match.WinnerID, winnerName); err != nil {
+			if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, *match.WinnerID, winnerName, winnerSeed); err != nil {
 				return err
 			}
 
@@ -97,9 +106,11 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 			if slot == 1 {
 				nextMatch.Participant1ID = match.WinnerID
 				nextMatch.Participant1Name = &winnerName
+				nextMatch.Seed1 = &winnerSeed
 			} else {
 				nextMatch.Participant2ID = match.WinnerID
 				nextMatch.Participant2Name = &winnerName
+				nextMatch.Seed2 = &winnerSeed
 			}
 		}
 	}

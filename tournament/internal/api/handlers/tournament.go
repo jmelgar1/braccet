@@ -33,6 +33,8 @@ type CreateTournamentRequest struct {
 	Format          string  `json:"format"`
 	MaxParticipants *uint   `json:"max_participants,omitempty"`
 	StartsAt        *string `json:"starts_at,omitempty"`
+	CommunityID     *uint64 `json:"community_id,omitempty"`
+	EloSystemID     *uint64 `json:"elo_system_id,omitempty"`
 }
 
 type UpdateTournamentRequest struct {
@@ -44,12 +46,16 @@ type UpdateTournamentRequest struct {
 	MaxParticipants  *uint   `json:"max_participants,omitempty"`
 	RegistrationOpen *bool   `json:"registration_open,omitempty"`
 	StartsAt         *string `json:"starts_at,omitempty"`
+	CommunityID      *uint64 `json:"community_id,omitempty"`
+	EloSystemID      *uint64 `json:"elo_system_id,omitempty"`
 }
 
 type TournamentResponse struct {
 	ID               uint64  `json:"id"`
 	Slug             string  `json:"slug"`
 	OrganizerID      uint64  `json:"organizer_id"`
+	CommunityID      *uint64 `json:"community_id,omitempty"`
+	EloSystemID      *uint64 `json:"elo_system_id,omitempty"`
 	Name             string  `json:"name"`
 	Description      *string `json:"description,omitempty"`
 	Game             *string `json:"game,omitempty"`
@@ -93,6 +99,8 @@ func toTournamentResponse(t *domain.Tournament) TournamentResponse {
 		ID:               t.ID,
 		Slug:             t.Slug,
 		OrganizerID:      t.OrganizerID,
+		CommunityID:      t.CommunityID,
+		EloSystemID:      t.EloSystemID,
 		Name:             t.Name,
 		Description:      t.Description,
 		Game:             t.Game,
@@ -133,6 +141,30 @@ func (h *TournamentHandler) List(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// ListByCommunity returns all tournaments for a specific community
+func (h *TournamentHandler) ListByCommunity(w http.ResponseWriter, r *http.Request) {
+	communityIDStr := chi.URLParam(r, "communityId")
+	communityID, err := strconv.ParseUint(communityIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid community ID")
+		return
+	}
+
+	tournaments, err := h.repo.ListByCommunityID(r.Context(), communityID)
+	if err != nil {
+		log.Printf("Error fetching tournaments for community %d: %v", communityID, err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournaments")
+		return
+	}
+
+	response := make([]TournamentResponse, len(tournaments))
+	for i, t := range tournaments {
+		response[i] = toTournamentResponse(t)
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 // Create creates a new tournament
 func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
@@ -161,6 +193,8 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	tournament := &domain.Tournament{
 		Slug:             generateSlug(),
 		OrganizerID:      userID,
+		CommunityID:      req.CommunityID,
+		EloSystemID:      req.EloSystemID,
 		Name:             req.Name,
 		Description:      req.Description,
 		Game:             req.Game,
@@ -309,6 +343,12 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		tournament.StartsAt = &startsAt
+	}
+	if req.CommunityID != nil {
+		tournament.CommunityID = req.CommunityID
+	}
+	if req.EloSystemID != nil {
+		tournament.EloSystemID = req.EloSystemID
 	}
 
 	if err := h.repo.Update(r.Context(), tournament); err != nil {

@@ -6,11 +6,17 @@ import (
 
 	"github.com/braccet/bracket/internal/api/handlers"
 	authmw "github.com/braccet/bracket/internal/api/middleware"
+	"github.com/braccet/bracket/internal/client"
 	"github.com/braccet/bracket/internal/repository"
 	"github.com/braccet/bracket/internal/service"
 )
 
-func NewRouter(repo repository.MatchRepository, setRepo repository.SetRepository) chi.Router {
+func NewRouter(
+	repo repository.MatchRepository,
+	setRepo repository.SetRepository,
+	tournamentClient client.TournamentClient,
+	communityClient client.CommunityClient,
+) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -20,7 +26,7 @@ func NewRouter(repo repository.MatchRepository, setRepo repository.SetRepository
 
 	// Create services
 	bracketSvc := service.NewBracketService(repo)
-	matchSvc := service.NewMatchService(repo, setRepo)
+	matchSvc := service.NewMatchService(repo, setRepo, tournamentClient, communityClient)
 	forfeitSvc := service.NewForfeitService(repo)
 
 	// Create handlers
@@ -45,6 +51,7 @@ func NewRouter(repo repository.MatchRepository, setRepo repository.SetRepository
 	r.Group(func(r chi.Router) {
 		r.Use(authmw.Auth)
 		r.Post("/brackets/matches/{id}/reopen", matchHandler.Reopen)
+		r.Put("/brackets/matches/{id}/result", matchHandler.EditResult)
 	})
 
 	// Forfeit route (internal, called by tournament service)

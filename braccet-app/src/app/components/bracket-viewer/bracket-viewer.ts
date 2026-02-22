@@ -22,6 +22,11 @@ export class BracketViewer {
 
   matchClicked = output<Match>();
   matchReopened = output<Match>();
+  matchEditClicked = output<Match>();
+
+  // Modal state
+  showDetailsModal = false;
+  selectedMatch: DisplayMatch | null = null;
 
   rounds = computed(() => {
     const p = this.preview();
@@ -55,8 +60,12 @@ export class BracketViewer {
     if ('participant1_name' in match && match.participant1_name) {
       return match.participant1_name;
     }
-    if ('seed1' in match && match.seed1 > 0) {
+    if ('seed1' in match && match.seed1 && match.seed1 > 0) {
       return `Seed ${match.seed1}`;
+    }
+    // If this is a bye match and slot 1 is empty, show BYE
+    if (this.isBye(match) && !this.hasParticipant1(match)) {
+      return 'BYE';
     }
     return 'TBD';
   }
@@ -68,10 +77,30 @@ export class BracketViewer {
     if ('participant2_name' in match && match.participant2_name) {
       return match.participant2_name;
     }
-    if ('seed2' in match && match.seed2 > 0) {
+    if ('seed2' in match && match.seed2 && match.seed2 > 0) {
       return `Seed ${match.seed2}`;
     }
+    // If this is a bye match and slot 2 is empty, show BYE
+    if (this.isBye(match) && !this.hasParticipant2(match)) {
+      return 'BYE';
+    }
     return 'TBD';
+  }
+
+  // Check if participant 1 slot has a participant
+  private hasParticipant1(match: DisplayMatch): boolean {
+    if ('participant1Name' in match && match.participant1Name) return true;
+    if ('participant1_name' in match && match.participant1_name) return true;
+    if ('participant1_id' in match && match.participant1_id) return true;
+    return false;
+  }
+
+  // Check if participant 2 slot has a participant
+  private hasParticipant2(match: DisplayMatch): boolean {
+    if ('participant2Name' in match && match.participant2Name) return true;
+    if ('participant2_name' in match && match.participant2_name) return true;
+    if ('participant2_id' in match && match.participant2_id) return true;
+    return false;
   }
 
   getSeed1(match: DisplayMatch): number | null {
@@ -89,10 +118,19 @@ export class BracketViewer {
   }
 
   isBye(match: DisplayMatch): boolean {
+    // PreviewMatch has explicit isBye flag
     if ('isBye' in match) {
       return match.isBye;
     }
-    return false;
+    // For actual Match: BYE only occurs in round 1 when exactly one participant has an ID
+    // Later rounds with one participant are just waiting for opponent (TBD), not BYE
+    if (match.round !== 1) {
+      return false;
+    }
+    // Note: backend uses omitempty, so missing participant won't have the property at all
+    const hasP1 = 'participant1_id' in match && match.participant1_id != null;
+    const hasP2 = 'participant2_id' in match && match.participant2_id != null;
+    return (hasP1 && !hasP2) || (!hasP1 && hasP2);
   }
 
   isMatchTBD(match: DisplayMatch): boolean {
@@ -190,10 +228,11 @@ export class BracketViewer {
     return false;
   }
 
-  // Check if action area should be shown (not bye, not TBD, and not preview)
+  // Check if action area should be shown (not TBD, and not preview; BYE matches show "BYE" label)
   showActionArea(match: DisplayMatch): boolean {
     if (this.isPreview()) return false;
-    return !this.isBye(match) && !this.isMatchTBD(match);
+    if (this.isBye(match)) return true;
+    return !this.isMatchTBD(match);
   }
 
   // Handle report button click
@@ -208,6 +247,7 @@ export class BracketViewer {
   canReopenMatch(match: DisplayMatch): boolean {
     if (!this.isOrganizer()) return false;
     if (this.isPreview()) return false;
+    if (this.isBye(match)) return false;
     return this.isCompleted(match);
   }
 
@@ -217,5 +257,45 @@ export class BracketViewer {
     if (this.isActualMatch(match)) {
       this.matchReopened.emit(match);
     }
+  }
+
+  // Check if edit button should be shown for a match
+  canEditMatch(match: DisplayMatch): boolean {
+    if (!this.isOrganizer()) return false;
+    if (this.isPreview()) return false;
+    if (this.isBye(match)) return false;
+    return this.isCompleted(match);
+  }
+
+  // Handle edit button click
+  onEditClick(match: DisplayMatch, event: Event): void {
+    event.stopPropagation();
+    if (this.isActualMatch(match)) {
+      this.matchEditClicked.emit(match);
+    }
+  }
+
+  // Handle details button click
+  onDetailsClick(match: DisplayMatch, event: Event): void {
+    event.stopPropagation();
+    this.selectedMatch = match;
+    this.showDetailsModal = true;
+  }
+
+  // Close details modal
+  closeDetailsModal(): void {
+    this.showDetailsModal = false;
+    this.selectedMatch = null;
+  }
+
+  // Get sets for display
+  getSets(match: DisplayMatch): { p1: number; p2: number }[] {
+    if ('sets' in match && Array.isArray(match.sets)) {
+      return match.sets.map(s => ({
+        p1: s.participant1_score,
+        p2: s.participant2_score
+      }));
+    }
+    return [];
   }
 }

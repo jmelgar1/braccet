@@ -29,6 +29,8 @@ type Match struct {
 	Participant2ID   *uint64
 	Participant1Name *string
 	Participant2Name *string
+	Seed1            *int
+	Seed2            *int
 	WinnerID         *uint64
 	Sets             []Set // Set-based scoring (replaces simple scores)
 	Status           MatchStatus

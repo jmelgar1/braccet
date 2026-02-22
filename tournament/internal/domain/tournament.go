@@ -25,6 +25,8 @@ type Tournament struct {
 	ID               uint64
 	Slug             string
 	OrganizerID      uint64
+	CommunityID      *uint64 // Optional - NULL for standalone tournaments
+	EloSystemID      *uint64 // Optional - ELO system for rating updates
 	Name             string
 	Description      *string
 	Game             *string

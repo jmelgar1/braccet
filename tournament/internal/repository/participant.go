@@ -31,12 +31,12 @@ func NewParticipantRepository(db *sql.DB) ParticipantRepository {
 
 func (r *participantRepository) Create(ctx context.Context, p *domain.Participant) error {
 	query := `
-		INSERT INTO participants (tournament_id, user_id, display_name, seed, status)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO participants (tournament_id, user_id, community_member_id, display_name, seed, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
 	`
 	err := r.db.QueryRowContext(ctx, query,
-		p.TournamentID, p.UserID, p.DisplayName, p.Seed, p.Status,
+		p.TournamentID, p.UserID, p.CommunityMemberID, p.DisplayName, p.Seed, p.Status,
 	).Scan(&p.ID)
 	if err != nil {
 		return err
@@ -47,13 +47,13 @@ func (r *participantRepository) Create(ctx context.Context, p *domain.Participan
 
 func (r *participantRepository) GetByID(ctx context.Context, id uint64) (*domain.Participant, error) {
 	query := `
-		SELECT id, tournament_id, user_id, display_name, seed, status, checked_in_at, created_at
+		SELECT id, tournament_id, user_id, community_member_id, display_name, seed, status, checked_in_at, created_at
 		FROM participants
 		WHERE id = $1
 	`
 	p := &domain.Participant{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&p.ID, &p.TournamentID, &p.UserID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
+		&p.ID, &p.TournamentID, &p.UserID, &p.CommunityMemberID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -67,7 +67,7 @@ func (r *participantRepository) GetByID(ctx context.Context, id uint64) (*domain
 
 func (r *participantRepository) GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Participant, error) {
 	query := `
-		SELECT id, tournament_id, user_id, display_name, seed, status, checked_in_at, created_at
+		SELECT id, tournament_id, user_id, community_member_id, display_name, seed, status, checked_in_at, created_at
 		FROM participants
 		WHERE tournament_id = $1
 		ORDER BY seed ASC NULLS LAST, created_at ASC
@@ -82,7 +82,7 @@ func (r *participantRepository) GetByTournament(ctx context.Context, tournamentI
 	for rows.Next() {
 		p := &domain.Participant{}
 		err := rows.Scan(
-			&p.ID, &p.TournamentID, &p.UserID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
+			&p.ID, &p.TournamentID, &p.UserID, &p.CommunityMemberID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -99,13 +99,13 @@ func (r *participantRepository) GetByTournament(ctx context.Context, tournamentI
 
 func (r *participantRepository) GetByTournamentAndUser(ctx context.Context, tournamentID, userID uint64) (*domain.Participant, error) {
 	query := `
-		SELECT id, tournament_id, user_id, display_name, seed, status, checked_in_at, created_at
+		SELECT id, tournament_id, user_id, community_member_id, display_name, seed, status, checked_in_at, created_at
 		FROM participants
 		WHERE tournament_id = $1 AND user_id = $2
 	`
 	p := &domain.Participant{}
 	err := r.db.QueryRowContext(ctx, query, tournamentID, userID).Scan(
-		&p.ID, &p.TournamentID, &p.UserID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
+		&p.ID, &p.TournamentID, &p.UserID, &p.CommunityMemberID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

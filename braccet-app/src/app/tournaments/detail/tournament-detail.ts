@@ -1,17 +1,19 @@
 import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { switchMap } from 'rxjs';
 import { TournamentService } from '../../services/tournament.service';
 import { BracketService } from '../../services/bracket.service';
 import { AuthService } from '../../services/auth.service';
+import { CommunityService } from '../../services/community.service';
 import { Tournament, Participant } from '../../models/tournament.model';
+import { Community } from '../../models/community.model';
 import { Breadcrumb, BreadcrumbItem } from '../../components/breadcrumb/breadcrumb';
 import { SidePanel } from './components/side-panel/side-panel';
 
 @Component({
   selector: 'app-tournament-detail',
-  imports: [DatePipe, Breadcrumb, SidePanel],
+  imports: [DatePipe, Breadcrumb, SidePanel, RouterLink],
   templateUrl: './tournament-detail.html',
   styleUrl: './tournament-detail.css'
 })
@@ -19,9 +21,11 @@ export class TournamentDetail implements OnInit {
   private route = inject(ActivatedRoute);
   private tournamentService = inject(TournamentService);
   private bracketService = inject(BracketService);
+  private communityService = inject(CommunityService);
   authService = inject(AuthService);
 
   tournament = signal<Tournament | null>(null);
+  community = signal<Community | null>(null);
   loading = signal(true);
   error = signal('');
   startingTournament = signal(false);
@@ -78,10 +82,25 @@ export class TournamentDetail implements OnInit {
         ];
         this.loading.set(false);
         this.loadParticipants(slug);
+        if (tournament.community_id) {
+          this.loadCommunity(tournament.community_id);
+        }
       },
       error: (err) => {
         this.error.set(err.error?.error || 'Failed to load tournament');
         this.loading.set(false);
+      }
+    });
+  }
+
+  loadCommunity(communityId: number): void {
+    this.communityService.getCommunityById(communityId).subscribe({
+      next: (community) => {
+        this.community.set(community);
+      },
+      error: () => {
+        // Silently fail - community display is optional
+        this.community.set(null);
       }
     });
   }

@@ -13,6 +13,10 @@ export class TournamentService {
     return this.http.get<Tournament[]>(this.baseUrl);
   }
 
+  getTournamentsByCommunity(communityId: number): Observable<Tournament[]> {
+    return this.http.get<Tournament[]>(`${this.baseUrl}/community/${communityId}`);
+  }
+
   getTournament(slug: string): Observable<Tournament> {
     return this.http.get<Tournament>(`${this.baseUrl}/${slug}`);
   }

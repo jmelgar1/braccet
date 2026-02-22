@@ -92,10 +92,12 @@ func createMatch(tournamentID uint64, round, position int, p1, p2 *domain.Partic
 	if p1 != nil {
 		match.Participant1ID = &p1.ID
 		match.Participant1Name = &p1.Name
+		match.Seed1 = &p1.Seed
 	}
 	if p2 != nil {
 		match.Participant2ID = &p2.ID
 		match.Participant2Name = &p2.Name
+		match.Seed2 = &p2.Seed
 	}
 
 	// Set status based on participants

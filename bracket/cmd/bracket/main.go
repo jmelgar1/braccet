@@ -6,9 +6,17 @@ import (
 	"os"
 
 	"github.com/braccet/bracket/internal/api"
+	"github.com/braccet/bracket/internal/client"
 	"github.com/braccet/bracket/internal/config"
 	"github.com/braccet/bracket/internal/repository"
 )
+
+func getEnv(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
+}
 
 func main() {
 	// Load database configuration
@@ -23,8 +31,14 @@ func main() {
 	repo := repository.NewMatchRepository(db)
 	setRepo := repository.NewSetRepository(db)
 
+	// Create clients for cross-service communication
+	tournamentServiceURL := getEnv("TOURNAMENT_SERVICE_URL", "http://localhost:8081")
+	communityServiceURL := getEnv("COMMUNITY_SERVICE_URL", "http://localhost:8084")
+	tournamentClient := client.NewTournamentClient(tournamentServiceURL)
+	communityClient := client.NewCommunityClient(communityServiceURL)
+
 	// Create router
-	router := api.NewRouter(repo, setRepo)
+	router := api.NewRouter(repo, setRepo, tournamentClient, communityClient)
 
 	// Get port from environment
 	port := os.Getenv("SERVICE_PORT")

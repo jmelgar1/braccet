@@ -69,6 +69,57 @@
             placeholder="Describe your tournament..."
           ></textarea>
         </div>
+
+        <!-- Community -->
+        <div>
+          <label for="community" class="block text-sm font-medium text-gray-700 mb-1">
+            Community
+          </label>
+          <select
+            id="community"
+            name="community"
+            [ngModel]="communityId()"
+            (ngModelChange)="communityId.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            [disabled]="loadingCommunities()"
+          >
+            <option [ngValue]="null">No community (personal tournament)</option>
+            @for (community of communities(); track community.id) {
+              <option [ngValue]="community.id">{{ community.name }}</option>
+            }
+          </select>
+          <p class="text-sm text-gray-500 mt-1">Optionally assign this tournament to one of your communities</p>
+        </div>
+
+        <!-- ELO Rating System (only shows when community is selected) -->
+        @if (communityId()) {
+          <div>
+            <label for="eloSystem" class="block text-sm font-medium text-gray-700 mb-1">
+              ELO Rating System
+            </label>
+            <select
+              id="eloSystem"
+              name="eloSystem"
+              [ngModel]="eloSystemId()"
+              (ngModelChange)="eloSystemId.set($event)"
+              class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              [disabled]="loadingEloSystems()"
+            >
+              <option [ngValue]="null">No ELO tracking</option>
+              @for (system of eloSystems(); track system.id) {
+                <option [ngValue]="system.id">
+                  {{ system.name }}
+                  @if (system.is_default) { (default) }
+                </option>
+              }
+            </select>
+            @if (eloSystems().length === 0 && !loadingEloSystems()) {
+              <p class="text-sm text-gray-500 mt-1">No rating systems configured for this community</p>
+            } @else {
+              <p class="text-sm text-gray-500 mt-1">Match results will update player ratings in this system</p>
+            }
+          </div>
+        }
       </div>
     </div>
 

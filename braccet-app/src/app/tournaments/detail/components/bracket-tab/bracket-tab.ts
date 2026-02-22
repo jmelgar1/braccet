@@ -27,6 +27,7 @@ export class BracketTab {
   // Modal state
   selectedMatch = signal<Match | null>(null);
   showModal = signal(false);
+  isEditMode = signal(false);
 
   @ViewChild(MatchResultModal) matchModal?: MatchResultModal;
 
@@ -90,27 +91,46 @@ export class BracketTab {
 
   onMatchClicked(match: Match): void {
     this.selectedMatch.set(match);
+    this.isEditMode.set(false);
+    this.showModal.set(true);
+  }
+
+  onMatchEditClicked(match: Match): void {
+    this.selectedMatch.set(match);
+    this.isEditMode.set(true);
     this.showModal.set(true);
   }
 
   closeModal(): void {
     this.selectedMatch.set(null);
     this.showModal.set(false);
+    this.isEditMode.set(false);
   }
 
   onResultSubmitted(event: MatchResultEvent): void {
-    this.bracketService.reportResult(event.matchId, {
-      sets: event.sets
-    }).subscribe({
-      next: () => {
-        this.closeModal();
-        this.loadBracket(this.tournament().id);
-      },
-      error: (err) => {
-        const errorMsg = err.error?.error || 'Failed to save result';
-        this.matchModal?.setError(errorMsg);
-      }
-    });
+    const request = { sets: event.sets };
+
+    const handleSuccess = () => {
+      this.closeModal();
+      this.loadBracket(this.tournament().id);
+    };
+
+    const handleError = (err: { error?: { error?: string } }) => {
+      const errorMsg = err.error?.error || 'Failed to save result';
+      this.matchModal?.setError(errorMsg);
+    };
+
+    if (this.isEditMode()) {
+      this.bracketService.editResult(event.matchId, request).subscribe({
+        next: handleSuccess,
+        error: handleError
+      });
+    } else {
+      this.bracketService.reportResult(event.matchId, request).subscribe({
+        next: handleSuccess,
+        error: handleError
+      });
+    }
   }
 
   onMatchReopened(match: Match): void {

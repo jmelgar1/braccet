@@ -31,8 +31,15 @@ func main() {
 	}
 	bracketClient := client.NewBracketClient(bracketServiceURL)
 
+	// Initialize community service client
+	communityServiceURL := os.Getenv("COMMUNITY_SERVICE_URL")
+	if communityServiceURL == "" {
+		communityServiceURL = "http://localhost:8084"
+	}
+	communityClient := client.NewCommunityClient(communityServiceURL)
+
 	// Create router
-	router := api.NewRouter(tournamentRepo, participantRepo, bracketClient)
+	router := api.NewRouter(tournamentRepo, participantRepo, bracketClient, communityClient)
 
 	// Get port from environment
 	port := os.Getenv("PORT")

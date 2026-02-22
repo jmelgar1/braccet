@@ -1,4 +1,4 @@
-import { Component, input, output, signal, computed } from '@angular/core';
+import { Component, input, output, signal, computed, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Match, SetScore } from '../../models/bracket.model';
 
@@ -15,6 +15,7 @@ export interface MatchResultEvent {
 })
 export class MatchResultModal {
   match = input.required<Match>();
+  editMode = input(false);
 
   close = output<void>();
   resultSubmitted = output<MatchResultEvent>();
@@ -27,8 +28,25 @@ export class MatchResultModal {
   submitting = signal(false);
   error = signal('');
 
+  constructor() {
+    // Pre-populate sets when in edit mode with existing match data
+    effect(() => {
+      const m = this.match();
+      const isEdit = this.editMode();
+      if (isEdit && m.status === 'completed' && m.sets && m.sets.length > 0) {
+        this.sets.set(m.sets.map(s => ({
+          set_number: s.set_number,
+          participant1_score: s.participant1_score,
+          participant2_score: s.participant2_score
+        })));
+      }
+    });
+  }
+
   isEditable = computed(() => {
     const status = this.match().status;
+    // Allow editing completed matches when in edit mode
+    if (this.editMode() && status === 'completed') return true;
     return status === 'ready' || status === 'in_progress';
   });
 

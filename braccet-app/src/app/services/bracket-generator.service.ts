@@ -139,8 +139,9 @@ export class BracketGeneratorService {
       matches.push({
         round: 1,
         position: index + 1,
-        seed1,
-        seed2,
+        // Only show seed if participant exists (bye slots get 0)
+        seed1: participant1 ? seed1 : 0,
+        seed2: participant2 ? seed2 : 0,
         participant1Name: participant1?.display_name,
         participant2Name: participant2?.display_name,
         isBye
@@ -161,10 +162,46 @@ export class BracketGeneratorService {
       }
     }
 
+    // Advance BYE winners to their next round matches
+    this.advanceByeWinners(matches);
+
     return {
       totalRounds: rounds,
       bracketSize,
       matches
     };
+  }
+
+  /**
+   * Advances participants who have BYEs to their next round matches.
+   * Modifies matches array in place.
+   */
+  private advanceByeWinners(matches: PreviewMatch[]): void {
+    // Find all BYE matches in round 1
+    const byeMatches = matches.filter(m => m.round === 1 && m.isBye);
+
+    for (const byeMatch of byeMatches) {
+      // Determine the winner (the participant who exists)
+      const winnerName = byeMatch.participant1Name || byeMatch.participant2Name;
+      const winnerSeed = byeMatch.seed1 || byeMatch.seed2;
+
+      if (!winnerName) continue;
+
+      // Find the next round match
+      // Position in next round: Math.ceil(position / 2)
+      const nextPosition = Math.ceil(byeMatch.position / 2);
+      const nextMatch = matches.find(m => m.round === 2 && m.position === nextPosition);
+
+      if (!nextMatch) continue;
+
+      // Determine which slot: odd positions -> slot 1, even positions -> slot 2
+      if (byeMatch.position % 2 === 1) {
+        nextMatch.participant1Name = winnerName;
+        nextMatch.seed1 = winnerSeed;
+      } else {
+        nextMatch.participant2Name = winnerName;
+        nextMatch.seed2 = winnerSeed;
+      }
+    }
   }
 }

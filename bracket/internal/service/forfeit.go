@@ -90,8 +90,9 @@ func (s *forfeitService) advanceForfeitWinner(ctx context.Context, completedMatc
 		return err
 	}
 
-	// Determine winner's name
+	// Determine winner's name and seed
 	winnerName := s.getParticipantName(completedMatch, winnerID)
+	winnerSeed := s.getParticipantSeed(completedMatch, winnerID)
 
 	// Determine which slot in the next match (based on position in current round)
 	// Odd positions go to slot 1, even positions go to slot 2
@@ -100,7 +101,7 @@ func (s *forfeitService) advanceForfeitWinner(ctx context.Context, completedMatc
 		slot = 2
 	}
 
-	if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, winnerID, winnerName); err != nil {
+	if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, winnerID, winnerName, winnerSeed); err != nil {
 		return err
 	}
 
@@ -133,4 +134,18 @@ func (s *forfeitService) getParticipantName(match *domain.Match, participantID u
 		}
 	}
 	return ""
+}
+
+func (s *forfeitService) getParticipantSeed(match *domain.Match, participantID uint64) int {
+	if match.Participant1ID != nil && *match.Participant1ID == participantID {
+		if match.Seed1 != nil {
+			return *match.Seed1
+		}
+	}
+	if match.Participant2ID != nil && *match.Participant2ID == participantID {
+		if match.Seed2 != nil {
+			return *match.Seed2
+		}
+	}
+	return 0
 }

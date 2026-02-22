@@ -240,6 +240,111 @@ func (h *MatchHandler) Reopen(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type EditResultResponse struct {
+	Match          *MatchResponse   `json:"match"`
+	CascadeMatches []*MatchResponse `json:"cascade_matches,omitempty"`
+	WinnerChanged  bool             `json:"winner_changed"`
+}
+
+func (h *MatchHandler) EditResult(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid match ID")
+		return
+	}
+
+	// Get user ID from context (requires auth middleware)
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	// Get match to find tournament ID
+	match, err := h.repo.GetByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrMatchNotFound) {
+			writeError(w, http.StatusNotFound, "match not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Verify user is tournament organizer
+	isOrganizer, err := h.verifyOrganizer(match.TournamentID, userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to verify permissions")
+		return
+	}
+	if !isOrganizer {
+		writeError(w, http.StatusForbidden, "only the tournament organizer can edit match results")
+		return
+	}
+
+	var req ReportResultRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Sets) == 0 {
+		writeError(w, http.StatusBadRequest, "at least one set is required")
+		return
+	}
+
+	// Validate set numbers are sequential starting from 1
+	for i, set := range req.Sets {
+		if set.SetNumber != i+1 {
+			writeError(w, http.StatusBadRequest, "set numbers must be sequential starting from 1")
+			return
+		}
+	}
+
+	// Convert request to domain model
+	sets := make([]domain.SetScore, len(req.Sets))
+	for i, s := range req.Sets {
+		sets[i] = domain.SetScore{
+			SetNumber:         s.SetNumber,
+			Participant1Score: s.Participant1Score,
+			Participant2Score: s.Participant2Score,
+		}
+	}
+
+	result := domain.MatchResult{Sets: sets}
+
+	editResponse, err := h.matchSvc.EditResult(r.Context(), id, result)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrMatchNotFound):
+			writeError(w, http.StatusNotFound, "match not found")
+		case errors.Is(err, service.ErrMatchNotCompleted):
+			writeError(w, http.StatusBadRequest, "match is not completed")
+		case errors.Is(err, service.ErrSetsTied):
+			writeError(w, http.StatusBadRequest, "sets are tied - there must be a clear winner")
+		case errors.Is(err, service.ErrNoSets):
+			writeError(w, http.StatusBadRequest, "at least one set is required")
+		default:
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	// Convert cascade matches to response format
+	cascadeResponses := make([]*MatchResponse, len(editResponse.CascadeMatches))
+	for i, m := range editResponse.CascadeMatches {
+		cascadeResponses[i] = toMatchResponse(m)
+	}
+
+	response := EditResultResponse{
+		Match:          toMatchResponse(editResponse.Match),
+		CascadeMatches: cascadeResponses,
+		WinnerChanged:  editResponse.WinnerChanged,
+	}
+
+	json.NewEncoder(w).Encode(response)
+}
+
 // verifyOrganizer checks if the user is the organizer of the tournament
 func (h *MatchHandler) verifyOrganizer(tournamentID, userID uint64) (bool, error) {
 	tournamentServiceURL := os.Getenv("TOURNAMENT_SERVICE_URL")

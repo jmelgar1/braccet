@@ -7,7 +7,7 @@
           <div class="matches-column">
             @for (match of roundData.matches; track match.position) {
               <div class="match-wrapper">
-                <div class="match-with-action">
+                <div class="match-with-action" [class.no-action]="!showActionArea(match)">
                   <div class="match"
                      [class.bye]="isBye(match)"
                      [class.tbd]="isMatchTBD(match)"
@@ -41,21 +41,45 @@
                   @if (showActionArea(match)) {
                     <div class="match-action"
                          [class.completed]="isCompleted(match)"
-                         [class.hoverable]="canReopenMatch(match)">
-                      @if (isCompleted(match)) {
+                         [class.bye-action]="isBye(match)">
+                      @if (isBye(match)) {
+                        <span class="bye-label">BYE</span>
+                      } @else if (isCompleted(match)) {
                         <div class="score-display">
-                          <div class="score-cell top">{{ getParticipant1Score(match) }}</div>
-                          <div class="score-cell bottom">{{ getParticipant2Score(match) }}</div>
+                          <div class="score-cell top" [class.winner]="isWinner(match, getParticipant1Id(match))">{{ getParticipant1Score(match) }}</div>
+                          <div class="score-cell bottom" [class.winner]="isWinner(match, getParticipant2Id(match))">{{ getParticipant2Score(match) }}</div>
                         </div>
-                        @if (canReopenMatch(match)) {
-                          <button class="reopen-btn" (click)="onReopenClick(match, $event)">
-                            <img src="reopen-match.png" alt="Reopen match" class="reopen-icon" />
-                          </button>
-                        }
                       } @else {
                         <button class="report-btn" (click)="onReportClick(match, $event)">
                           <img src="edit-match.png" alt="Report score" class="report-icon" />
                         </button>
+                      }
+                    </div>
+                  }
+                  @if (!isBye(match) && !isPreview()) {
+                    <div class="match-hover-area" [class.completed]="isCompleted(match)">
+                      @if (canEditMatch(match)) {
+                        <button class="edit-btn" (click)="onEditClick(match, $event)">
+                          <img src="/edit-match.png" alt="Edit score" class="edit-icon" />
+                        </button>
+                      }
+                      @if (canReopenMatch(match)) {
+                        <button class="reopen-btn" (click)="onReopenClick(match, $event)">
+                          <img src="/reopen-match.png" alt="Reopen match" class="reopen-icon" />
+                        </button>
+                      }
+                      <button class="details-btn" (click)="onDetailsClick(match, $event)">
+                        <img src="/match-details.png" alt="Match details" class="details-icon" />
+                      </button>
+                      @if (isCompleted(match) && getSets(match).length > 0) {
+                        <div class="sets-display">
+                          @for (set of getSets(match); track $index) {
+                            <div class="set-column">
+                              <div class="set-score top" [class.set-winner]="set.p1 > set.p2">{{ set.p1 }}</div>
+                              <div class="set-score bottom" [class.set-winner]="set.p2 > set.p1">{{ set.p2 }}</div>
+                            </div>
+                          }
+                        </div>
                       }
                     </div>
                   }
@@ -76,5 +100,59 @@
 } @else {
   <div class="no-bracket">
     <p class="text-gray-500 text-sm">No bracket to display</p>
+  </div>
+}
+
+<!-- Match Details Modal -->
+@if (showDetailsModal && selectedMatch) {
+  <div class="modal-overlay" (click)="closeDetailsModal()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Match Details</h3>
+        <button class="modal-close" (click)="closeDetailsModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <!-- Matchup Cards -->
+        <div class="matchup-container">
+          <div class="participant-card" [class.winner]="isWinner(selectedMatch, getParticipant1Id(selectedMatch))">
+            <img src="/profile-icon.png" alt="Team logo" class="card-logo" />
+            <span class="card-name">{{ getParticipant1Display(selectedMatch) }}</span>
+            @if (isCompleted(selectedMatch)) {
+              <span class="card-score">{{ getParticipant1Score(selectedMatch) }}</span>
+            }
+          </div>
+          <div class="vs-badge">VS</div>
+          <div class="participant-card" [class.winner]="isWinner(selectedMatch, getParticipant2Id(selectedMatch))">
+            <img src="/profile-icon.png" alt="Team logo" class="card-logo" />
+            <span class="card-name">{{ getParticipant2Display(selectedMatch) }}</span>
+            @if (isCompleted(selectedMatch)) {
+              <span class="card-score">{{ getParticipant2Score(selectedMatch) }}</span>
+            }
+          </div>
+        </div>
+
+        <!-- Scoreboard -->
+        @if (isCompleted(selectedMatch) && getSets(selectedMatch).length > 0) {
+          <div class="scoreboard">
+            <div class="scoreboard-row" [class.winner]="isWinner(selectedMatch, getParticipant1Id(selectedMatch))">
+              <span class="scoreboard-name">{{ getParticipant1Display(selectedMatch) }}</span>
+              <div class="scoreboard-sets">
+                @for (set of getSets(selectedMatch); track $index) {
+                  <span class="scoreboard-set" [class.set-winner]="set.p1 > set.p2">{{ set.p1 }}</span>
+                }
+              </div>
+            </div>
+            <div class="scoreboard-row" [class.winner]="isWinner(selectedMatch, getParticipant2Id(selectedMatch))">
+              <span class="scoreboard-name">{{ getParticipant2Display(selectedMatch) }}</span>
+              <div class="scoreboard-sets">
+                @for (set of getSets(selectedMatch); track $index) {
+                  <span class="scoreboard-set" [class.set-winner]="set.p2 > set.p1">{{ set.p2 }}</span>
+                }
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
   </div>
 }

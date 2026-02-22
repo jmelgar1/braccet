@@ -1,5 +1,6 @@
 import { Component, input, output, inject, signal, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { Tournament, UpdateTournamentRequest } from '../../../../models/tournament.model';
 import { TournamentService } from '../../../../services/tournament.service';
 
@@ -10,6 +11,7 @@ import { TournamentService } from '../../../../services/tournament.service';
 })
 export class SettingsTab {
   private tournamentService = inject(TournamentService);
+  private router = inject(Router);
 
   tournament = input.required<Tournament>();
   tournamentUpdated = output<Tournament>();
@@ -24,6 +26,7 @@ export class SettingsTab {
   registrationOpen = signal(false);
 
   saving = signal(false);
+  deleting = signal(false);
   error = signal('');
   success = signal('');
 
@@ -79,6 +82,27 @@ export class SettingsTab {
       error: (err) => {
         this.error.set(err.error?.error || 'Failed to update tournament');
         this.saving.set(false);
+      }
+    });
+  }
+
+  deleteTournament(): void {
+    const t = this.tournament();
+
+    if (!confirm(`Are you sure you want to delete "${t.name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    this.deleting.set(true);
+    this.error.set('');
+
+    this.tournamentService.deleteTournament(t.slug).subscribe({
+      next: () => {
+        this.router.navigate(['/tournaments']);
+      },
+      error: (err) => {
+        this.error.set(err.error?.error || 'Failed to delete tournament');
+        this.deleting.set(false);
       }
     });
   }

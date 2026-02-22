@@ -59,6 +59,22 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres-community:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: community_user
+      POSTGRES_PASSWORD: community_pass
+      POSTGRES_DB: braccet_community
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_community_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U community_user -d braccet_community"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   pgadmin:
     image: dpage/pgadmin4:latest
     environment:
@@ -72,9 +88,11 @@ services:
       - postgres-auth
       - postgres-tournament
       - postgres-bracket
+      - postgres-community
 
 volumes:
   postgres_auth_data:
   postgres_tournament_data:
   postgres_bracket_data:
+  postgres_community_data:
   pgadmin_data:

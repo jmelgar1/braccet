@@ -18,6 +18,8 @@ export interface Match {
   participant2_id?: number;
   participant1_name?: string;
   participant2_name?: string;
+  seed1?: number;
+  seed2?: number;
   sets: SetScore[];
   participant1_sets: number;
   participant2_sets: number;
@@ -44,4 +46,10 @@ export interface CreateBracketRequest {
 
 export interface ReportResultRequest {
   sets: SetScore[];
+}
+
+export interface EditResultResponse {
+  match: Match;
+  cascade_matches?: Match[];
+  winner_changed: boolean;
 }
