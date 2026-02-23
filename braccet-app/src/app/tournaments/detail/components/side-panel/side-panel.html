@@ -26,6 +26,7 @@
           [refreshKey]="bracketRefreshKey()"
           [isOrganizer]="isOrganizer()"
           (tournamentEnded)="onTournamentUpdated($event)"
+          (tournamentReset)="onTournamentUpdated($event)"
         />
       }
       @case ('participants') {

@@ -239,6 +239,55 @@ func toPreviewResponse(tournamentID uint64, matches []*domain.Match, format stri
 		}
 	}
 
+	// Generate preview stages with default names
+	var stages []*StageResponse
+
+	if format == "double_elimination" {
+		losersRounds := engine.LosersRounds(totalRounds)
+
+		// Winners bracket stages
+		for round := 1; round <= totalRounds; round++ {
+			stages = append(stages, &StageResponse{
+				TournamentID: tournamentID,
+				BracketType:  string(domain.BracketWinners),
+				Round:        round,
+				StageName:    domain.DefaultStageName(domain.BracketWinners, round, totalRounds),
+				BestOf:       1,
+			})
+		}
+
+		// Losers bracket stages
+		for round := 1; round <= losersRounds; round++ {
+			stages = append(stages, &StageResponse{
+				TournamentID: tournamentID,
+				BracketType:  string(domain.BracketLosers),
+				Round:        round,
+				StageName:    domain.DefaultStageName(domain.BracketLosers, round, losersRounds),
+				BestOf:       1,
+			})
+		}
+
+		// Grand final stage
+		stages = append(stages, &StageResponse{
+			TournamentID: tournamentID,
+			BracketType:  string(domain.BracketGrandFinal),
+			Round:        1,
+			StageName:    domain.DefaultStageName(domain.BracketGrandFinal, 1, 1),
+			BestOf:       1,
+		})
+	} else {
+		// Single elimination - use empty bracket type for simple names (Final, Semifinals, etc.)
+		for round := 1; round <= totalRounds; round++ {
+			stages = append(stages, &StageResponse{
+				TournamentID: tournamentID,
+				BracketType:  string(domain.BracketWinners),
+				Round:        round,
+				StageName:    domain.DefaultStageName("", round, totalRounds),
+				BestOf:       1,
+			})
+		}
+	}
+
 	resp := &BracketResponse{
 		TournamentID: tournamentID,
 		Format:       format,
@@ -246,7 +295,7 @@ func toPreviewResponse(tournamentID uint64, matches []*domain.Match, format stri
 		CurrentRound: 1,
 		IsComplete:   false,
 		Matches:      matchResponses,
-		Stages:       []*StageResponse{},
+		Stages:       stages,
 	}
 
 	// For double elimination, calculate winners and losers rounds
@@ -485,4 +534,21 @@ func toMatchResponse(m *domain.Match) *MatchResponse {
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+// Delete removes all bracket data for a tournament (matches, sets, stages) and reverts ELO.
+// This is used when resetting a tournament back to registration phase.
+func (h *BracketHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	if err := h.bracketSvc.DeleteBracket(r.Context(), tournamentID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -26,7 +26,7 @@ func NewRouter(
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
 	// Create services
-	bracketSvc := service.NewBracketService(repo, stageRepo)
+	bracketSvc := service.NewBracketServiceWithCommunity(repo, stageRepo, communityClient)
 	matchSvc := service.NewMatchService(repo, setRepo, tournamentClient, communityClient)
 	forfeitSvc := service.NewForfeitService(repo)
 	stageSvc := service.NewStageService(stageRepo)
@@ -45,6 +45,7 @@ func NewRouter(
 	r.Post("/brackets/preview", bracketHandler.Preview) // Preview without persistence (same BYE logic as Generate)
 	r.Get("/brackets/{tournamentId}", bracketHandler.GetState)
 	r.Get("/brackets/{tournamentId}/matches", bracketHandler.ListMatches)
+	r.Delete("/brackets/{tournamentId}", bracketHandler.Delete) // Delete bracket and revert ELO (for tournament reset)
 
 	// Match routes (nested under /brackets)
 	r.Get("/brackets/matches/{id}", matchHandler.Get)

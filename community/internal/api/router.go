@@ -54,6 +54,7 @@ func NewRouter(
 			r.Post("/process-match", eloHandler.ProcessMatch)
 			r.Get("/systems/{id}", eloHandler.GetSystemByID)
 			r.Post("/bulk-ratings", eloHandler.GetBulkMemberRatings)
+			r.Delete("/tournament/{tournamentId}", eloHandler.RevertTournamentElo)
 		})
 	})
 

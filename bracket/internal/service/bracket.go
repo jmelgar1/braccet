@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 
+	"github.com/braccet/bracket/internal/client"
 	"github.com/braccet/bracket/internal/domain"
 	"github.com/braccet/bracket/internal/engine"
 	"github.com/braccet/bracket/internal/repository"
@@ -11,15 +12,22 @@ import (
 type BracketService interface {
 	GenerateSingleElimination(ctx context.Context, tournamentID uint64, participants []domain.Participant) (*BracketState, error)
 	GenerateDoubleElimination(ctx context.Context, tournamentID uint64, participants []domain.Participant) (*BracketState, error)
+	DeleteBracket(ctx context.Context, tournamentID uint64) error
 }
 
 type bracketService struct {
-	repo      repository.MatchRepository
-	stageRepo repository.StageRepository
+	repo            repository.MatchRepository
+	stageRepo       repository.StageRepository
+	communityClient client.CommunityClient
 }
 
 func NewBracketService(repo repository.MatchRepository, stageRepo repository.StageRepository) BracketService {
 	return &bracketService{repo: repo, stageRepo: stageRepo}
+}
+
+// NewBracketServiceWithCommunity creates a bracket service with community client for ELO operations
+func NewBracketServiceWithCommunity(repo repository.MatchRepository, stageRepo repository.StageRepository, communityClient client.CommunityClient) BracketService {
+	return &bracketService{repo: repo, stageRepo: stageRepo, communityClient: communityClient}
 }
 
 // GenerateSingleElimination creates a single elimination bracket and persists it.
@@ -48,10 +56,10 @@ func (s *bracketService) GenerateSingleElimination(ctx context.Context, tourname
 		return nil, err
 	}
 
-	// Create default stages for the bracket
+	// Create default stages for the bracket (single elimination uses simple names)
 	state := buildBracketState(tournamentID, matches)
 	if s.stageRepo != nil && state.TotalRounds > 0 {
-		if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketWinners, state.TotalRounds); err != nil {
+		if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketWinners, state.TotalRounds, false); err != nil {
 			return nil, err
 		}
 	}
@@ -92,7 +100,7 @@ func (s *bracketService) GenerateDoubleElimination(ctx context.Context, tourname
 		return nil, err
 	}
 
-	// Create default stages for all bracket types
+	// Create default stages for all bracket types (double elimination uses prefixed names)
 	if s.stageRepo != nil {
 		bracketSize := engine.CalculateBracketSize(len(participants))
 		winnersRounds := engine.TotalRounds(bracketSize)
@@ -100,20 +108,20 @@ func (s *bracketService) GenerateDoubleElimination(ctx context.Context, tourname
 
 		// Winners bracket stages
 		if winnersRounds > 0 {
-			if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketWinners, winnersRounds); err != nil {
+			if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketWinners, winnersRounds, true); err != nil {
 				return nil, err
 			}
 		}
 
 		// Losers bracket stages
 		if losersRounds > 0 {
-			if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketLosers, losersRounds); err != nil {
+			if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketLosers, losersRounds, true); err != nil {
 				return nil, err
 			}
 		}
 
 		// Grand final stage
-		if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketGrandFinal, 1); err != nil {
+		if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketGrandFinal, 1, true); err != nil {
 			return nil, err
 		}
 	}
@@ -432,4 +440,30 @@ func buildBracketState(tournamentID uint64, matches []*domain.Match) *BracketSta
 	}
 
 	return state
+}
+
+// DeleteBracket deletes all bracket data for a tournament and reverts ELO changes.
+// This is used when resetting a tournament back to registration phase.
+func (s *bracketService) DeleteBracket(ctx context.Context, tournamentID uint64) error {
+	// First, revert ELO changes if community client is configured
+	if s.communityClient != nil {
+		if err := s.communityClient.RevertTournamentElo(ctx, tournamentID); err != nil {
+			// Log but continue - ELO might not be configured for this tournament
+			// The community service will handle "no history" gracefully
+		}
+	}
+
+	// Delete all matches (match_sets are deleted via ON DELETE CASCADE)
+	if err := s.repo.DeleteByTournament(ctx, tournamentID); err != nil {
+		return err
+	}
+
+	// Delete all bracket stages
+	if s.stageRepo != nil {
+		if err := s.stageRepo.DeleteByTournament(ctx, tournamentID); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

@@ -11,7 +11,8 @@ type StageRepository interface {
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.BracketStage, error)
 	GetByRound(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, round int) (*domain.BracketStage, error)
 	Upsert(ctx context.Context, stage *domain.BracketStage) error
-	CreateDefaultStages(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, totalRounds int) error
+	CreateDefaultStages(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, totalRounds int, isDoubleElim bool) error
+	DeleteByTournament(ctx context.Context, tournamentID uint64) error
 }
 
 type stageRepository struct {
@@ -89,7 +90,7 @@ func (r *stageRepository) Upsert(ctx context.Context, stage *domain.BracketStage
 	).Scan(&stage.ID, &stage.CreatedAt, &stage.UpdatedAt)
 }
 
-func (r *stageRepository) CreateDefaultStages(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, totalRounds int) error {
+func (r *stageRepository) CreateDefaultStages(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, totalRounds int, isDoubleElim bool) error {
 	query := `
 		INSERT INTO bracket_stages (tournament_id, bracket_type, round, stage_name, best_of)
 		VALUES ($1, $2, $3, $4, $5)
@@ -102,7 +103,13 @@ func (r *stageRepository) CreateDefaultStages(ctx context.Context, tournamentID 
 	defer stmt.Close()
 
 	for round := 1; round <= totalRounds; round++ {
-		defaultName := domain.DefaultStageName(round, totalRounds)
+		// For single elimination, use empty bracket type to get simple names (Final, Semifinals, etc.)
+		// For double elimination, use the actual bracket type to get prefixed names (Winners Final, Losers Final, etc.)
+		namingType := bracketType
+		if !isDoubleElim {
+			namingType = ""
+		}
+		defaultName := domain.DefaultStageName(namingType, round, totalRounds)
 		_, err := stmt.ExecContext(ctx, tournamentID, bracketType, round, defaultName, 1)
 		if err != nil {
 			return err
@@ -110,4 +117,10 @@ func (r *stageRepository) CreateDefaultStages(ctx context.Context, tournamentID 
 	}
 
 	return nil
+}
+
+func (r *stageRepository) DeleteByTournament(ctx context.Context, tournamentID uint64) error {
+	query := `DELETE FROM bracket_stages WHERE tournament_id = $1`
+	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
 }

@@ -22,6 +22,8 @@ type MemberEloRatingRepository interface {
 	GetLeaderboard(ctx context.Context, systemID uint64, limit int) ([]*domain.MemberEloRating, error)
 	Update(ctx context.Context, r *domain.MemberEloRating) error
 	Delete(ctx context.Context, id uint64) error
+	DeleteByMemberAndSystem(ctx context.Context, memberID, systemID uint64) error
+	ApplyRatingReversion(ctx context.Context, memberID, systemID uint64, ratingChange int, wasWinner bool, floorRating int) error
 }
 
 type memberEloRatingRepository struct {
@@ -256,6 +258,59 @@ func (r *memberEloRatingRepository) Delete(ctx context.Context, id uint64) error
 	}
 	if rows == 0 {
 		return ErrMemberEloRatingNotFound
+	}
+
+	return nil
+}
+
+// DeleteByMemberAndSystem removes a rating record for a specific member and system.
+// This is used when reverting a tournament where a member had no prior games.
+func (r *memberEloRatingRepository) DeleteByMemberAndSystem(ctx context.Context, memberID, systemID uint64) error {
+	query := `DELETE FROM member_elo_ratings WHERE member_id = $1 AND elo_system_id = $2`
+	_, err := r.db.ExecContext(ctx, query, memberID, systemID)
+	return err
+}
+
+// ApplyRatingReversion reverses a single match's effect on a member's rating.
+// ratingChange is the original change that was applied (will be subtracted).
+// wasWinner indicates if this member won the original match (decrements games_won).
+// floorRating is the minimum rating allowed.
+func (r *memberEloRatingRepository) ApplyRatingReversion(ctx context.Context, memberID, systemID uint64, ratingChange int, wasWinner bool, floorRating int) error {
+	// Reverse the rating change, ensuring we don't go below floor
+	// Also decrement games_played, and games_won if they won
+	// Reset current_win_streak to 0 (too complex to recalculate accurately)
+	var query string
+	if wasWinner {
+		query = `
+			UPDATE member_elo_ratings SET
+				rating = GREATEST($1, rating - $2),
+				games_played = GREATEST(0, games_played - 1),
+				games_won = GREATEST(0, games_won - 1),
+				current_win_streak = 0
+			WHERE member_id = $3 AND elo_system_id = $4
+		`
+	} else {
+		query = `
+			UPDATE member_elo_ratings SET
+				rating = GREATEST($1, rating - $2),
+				games_played = GREATEST(0, games_played - 1),
+				current_win_streak = 0
+			WHERE member_id = $3 AND elo_system_id = $4
+		`
+	}
+
+	result, err := r.db.ExecContext(ctx, query, floorRating, ratingChange, memberID, systemID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// Member rating record doesn't exist - this is OK, they might not have played yet
+		return nil
 	}
 
 	return nil

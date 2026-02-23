@@ -53,6 +53,9 @@ type EloService interface {
 
 	// History
 	GetMemberHistory(ctx context.Context, memberID, systemID uint64, limit int) ([]*domain.EloHistory, error)
+
+	// Tournament reversal
+	RevertTournamentElo(ctx context.Context, tournamentID uint64) error
 }
 
 type eloService struct {
@@ -321,4 +324,89 @@ func (s *eloService) getOrCreateRating(ctx context.Context, memberID, systemID u
 	_ = s.historyRepo.Create(ctx, initialHistory) // Don't fail if history insert fails
 
 	return newRating, nil
+}
+
+// RevertTournamentElo reverses all ELO changes from a tournament.
+// This is used when resetting a tournament back to registration phase.
+func (s *eloService) RevertTournamentElo(ctx context.Context, tournamentID uint64) error {
+	// Get all history records for this tournament (ordered by created_at DESC)
+	history, err := s.historyRepo.GetByTournament(ctx, tournamentID)
+	if err != nil {
+		return err
+	}
+
+	// If no history, nothing to revert
+	if len(history) == 0 {
+		return nil
+	}
+
+	// Get the ELO system to know the floor rating
+	// All records should be from the same system, use the first one
+	system, err := s.systemRepo.GetByID(ctx, history[0].EloSystemID)
+	if err != nil {
+		return err
+	}
+
+	// Track which members we've processed to update their community_members stats
+	// Map: memberID -> {gamesReverted, winsReverted, newRating}
+	type memberStats struct {
+		gamesReverted int
+		winsReverted  int
+		newRating     *int
+	}
+	memberUpdates := make(map[uint64]*memberStats)
+
+	// Process each history record and reverse the rating change
+	for _, h := range history {
+		// Only process match-type changes (skip initial, decay, adjustment)
+		if h.ChangeType != domain.EloChangeMatch {
+			continue
+		}
+
+		wasWinner := h.IsWinner != nil && *h.IsWinner
+
+		// Apply the reversion to member_elo_ratings
+		if err := s.ratingRepo.ApplyRatingReversion(ctx, h.MemberID, h.EloSystemID, h.RatingChange, wasWinner, system.FloorRating); err != nil {
+			// Log but continue - we want to revert as much as possible
+			continue
+		}
+
+		// Track stats for community_members update
+		if _, ok := memberUpdates[h.MemberID]; !ok {
+			memberUpdates[h.MemberID] = &memberStats{}
+		}
+		memberUpdates[h.MemberID].gamesReverted++
+		if wasWinner {
+			memberUpdates[h.MemberID].winsReverted++
+		}
+	}
+
+	// Update community_members denormalized stats and clean up zero-game ratings
+	for memberID, stats := range memberUpdates {
+		// Get the current rating after all reversions
+		rating, err := s.ratingRepo.GetByMemberAndSystem(ctx, memberID, system.ID)
+		if err == nil {
+			// If games_played is 0, this member never played before this tournament
+			// Remove them from the leaderboard entirely
+			if rating.GamesPlayed == 0 {
+				_ = s.ratingRepo.DeleteByMemberAndSystem(ctx, memberID, system.ID)
+				stats.newRating = nil // Clear rating since record is deleted
+			} else {
+				stats.newRating = &rating.Rating
+			}
+		}
+
+		// Decrement stats for each game reverted
+		for i := 0; i < stats.gamesReverted; i++ {
+			wasWin := i < stats.winsReverted
+			_ = s.memberRepo.DecrementMatchStats(ctx, memberID, wasWin, stats.newRating)
+		}
+	}
+
+	// Delete all history records for this tournament
+	if err := s.historyRepo.DeleteByTournament(ctx, tournamentID); err != nil {
+		return err
+	}
+
+	return nil
 }

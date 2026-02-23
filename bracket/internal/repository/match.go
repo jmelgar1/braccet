@@ -22,6 +22,7 @@ type MatchRepository interface {
 	UpdateNextMatchLinks(ctx context.Context, matches []*domain.Match) error
 	ReopenMatch(ctx context.Context, matchID uint64) error
 	ClearParticipant(ctx context.Context, matchID uint64, slot int) error
+	DeleteByTournament(ctx context.Context, tournamentID uint64) error
 }
 
 type matchRepository struct {
@@ -320,4 +321,12 @@ func (r *matchRepository) ClearParticipant(ctx context.Context, matchID uint64, 
 	}
 
 	return nil
+}
+
+// DeleteByTournament deletes all matches for a tournament.
+// Note: match_sets are deleted via ON DELETE CASCADE.
+func (r *matchRepository) DeleteByTournament(ctx context.Context, tournamentID uint64) error {
+	query := `DELETE FROM matches WHERE tournament_id = $1`
+	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
 }

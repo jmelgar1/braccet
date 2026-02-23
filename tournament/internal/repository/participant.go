@@ -21,6 +21,7 @@ type ParticipantRepository interface {
 	UpdateCommunityMemberID(ctx context.Context, id uint64, communityMemberID uint64) error
 	Delete(ctx context.Context, id uint64) error
 	GetOrphanedCommunityMemberIDs(ctx context.Context, tournamentID uint64, communityID uint64) ([]uint64, error)
+	ResetAllStatuses(ctx context.Context, tournamentID uint64, status domain.ParticipantStatus) error
 }
 
 type participantRepository struct {
@@ -244,4 +245,12 @@ func (r *participantRepository) GetOrphanedCommunityMemberIDs(ctx context.Contex
 	}
 
 	return memberIDs, nil
+}
+
+// ResetAllStatuses resets the status of all participants in a tournament.
+// This is used when resetting a tournament back to registration phase.
+func (r *participantRepository) ResetAllStatuses(ctx context.Context, tournamentID uint64, status domain.ParticipantStatus) error {
+	query := `UPDATE participants SET status = $1 WHERE tournament_id = $2`
+	_, err := r.db.ExecContext(ctx, query, status, tournamentID)
+	return err
 }

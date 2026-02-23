@@ -109,7 +109,8 @@ export class BracketService {
       winnersRounds: state.winners_rounds,
       losersRounds: state.losers_rounds,
       bracketSize,
-      matches: state.matches
+      matches: state.matches,
+      stages: state.stages
     };
   }
 }

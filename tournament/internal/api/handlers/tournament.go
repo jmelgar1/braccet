@@ -365,6 +365,25 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		// Resetting tournament: in_progress -> registration
+		if newStatus == domain.StatusRegistration && tournament.Status == domain.StatusInProgress {
+			// 1. Delete bracket data (includes ELO reversion)
+			if err := h.bracketClient.DeleteBracket(r.Context(), tournament.ID); err != nil {
+				log.Printf("Error deleting bracket for tournament %d: %v", tournament.ID, err)
+				writeError(w, http.StatusInternalServerError, "failed to delete bracket data")
+				return
+			}
+
+			// 2. Reset all participant statuses to registered
+			if err := h.participantRepo.ResetAllStatuses(r.Context(), tournament.ID, domain.ParticipantRegistered); err != nil {
+				log.Printf("Error resetting participant statuses for tournament %d: %v", tournament.ID, err)
+				writeError(w, http.StatusInternalServerError, "failed to reset participant statuses")
+				return
+			}
+
+			// 3. Re-open registration
+			tournament.RegistrationOpen = true
+		}
 		// When starting a tournament, link participants to community members and close registration
 		if newStatus == domain.StatusInProgress && tournament.Status == domain.StatusRegistration {
 			// Automatically close registration when starting

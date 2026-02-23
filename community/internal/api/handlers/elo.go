@@ -743,3 +743,21 @@ func (h *EloHandler) GetBulkMemberRatings(w http.ResponseWriter, r *http.Request
 
 	writeJSON(w, http.StatusOK, responses)
 }
+
+// RevertTournamentElo reverts all ELO changes from a tournament
+// DELETE /internal/elo/tournament/{tournamentId}
+func (h *EloHandler) RevertTournamentElo(w http.ResponseWriter, r *http.Request) {
+	tournamentIDStr := chi.URLParam(r, "tournamentId")
+	tournamentID, err := strconv.ParseUint(tournamentIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid tournament ID")
+		return
+	}
+
+	if err := h.eloService.RevertTournamentElo(r.Context(), tournamentID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to revert tournament ELO: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

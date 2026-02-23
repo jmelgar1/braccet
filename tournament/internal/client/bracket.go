@@ -12,6 +12,7 @@ import (
 type BracketClient interface {
 	ProcessWithdrawal(ctx context.Context, tournamentID, participantID uint64) error
 	IsBracketComplete(ctx context.Context, tournamentID uint64) (bool, error)
+	DeleteBracket(ctx context.Context, tournamentID uint64) error
 }
 
 type bracketClient struct {
@@ -97,4 +98,27 @@ func (c *bracketClient) IsBracketComplete(ctx context.Context, tournamentID uint
 	}
 
 	return state.IsComplete, nil
+}
+
+// DeleteBracket deletes all bracket data for a tournament (matches, sets, stages) and reverts ELO.
+// This is used when resetting a tournament back to registration phase.
+func (c *bracketClient) DeleteBracket(ctx context.Context, tournamentID uint64) error {
+	url := fmt.Sprintf("%s/brackets/%d", c.baseURL, tournamentID)
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to call bracket service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 204 No Content is success, 404 is also acceptable (bracket may not exist)
+	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("bracket service returned status %d", resp.StatusCode)
+	}
+
+	return nil
 }

@@ -16,6 +16,7 @@ type EloHistoryRepository interface {
 	GetByMatch(ctx context.Context, matchID uint64) ([]*domain.EloHistory, error)
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.EloHistory, error)
 	DeleteByMatch(ctx context.Context, matchID uint64) error
+	DeleteByTournament(ctx context.Context, tournamentID uint64) error
 }
 
 type eloHistoryRepository struct {
@@ -154,5 +155,11 @@ func (r *eloHistoryRepository) GetByTournament(ctx context.Context, tournamentID
 func (r *eloHistoryRepository) DeleteByMatch(ctx context.Context, matchID uint64) error {
 	query := `DELETE FROM elo_history WHERE match_id = $1`
 	_, err := r.db.ExecContext(ctx, query, matchID)
+	return err
+}
+
+func (r *eloHistoryRepository) DeleteByTournament(ctx context.Context, tournamentID uint64) error {
+	query := `DELETE FROM elo_history WHERE tournament_id = $1`
+	_, err := r.db.ExecContext(ctx, query, tournamentID)
 	return err
 }

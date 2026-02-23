@@ -25,6 +25,8 @@ export class BracketTab {
 
   // Output for tournament ended event
   tournamentEnded = output<Tournament>();
+  // Output for tournament reset event
+  tournamentReset = output<Tournament>();
 
   bracketState = signal<BracketState | null>(null);
   loadingBracket = signal(false);
@@ -35,6 +37,8 @@ export class BracketTab {
   loadingPreview = signal(false);
   previewError = signal('');
   endingTournament = signal(false);
+  resettingTournament = signal(false);
+  showResetConfirm = signal(false);
 
   // Modal state
   selectedMatch = signal<Match | null>(null);
@@ -47,8 +51,21 @@ export class BracketTab {
 
   @ViewChild(MatchResultModal) matchModal?: MatchResultModal;
 
-  // Stages computed property
+  // Stages computed property - use bracket state stages for actual bracket, preview stages for preview mode
   stages = computed(() => this.bracketState()?.stages ?? []);
+
+  // Preview stages computed property - convert to BracketStage format for compatibility
+  previewStages = computed((): BracketStage[] => {
+    const preview = this.previewState();
+    if (!preview?.stages) return [];
+    return preview.stages.map(s => ({
+      tournament_id: s.tournament_id,
+      bracket_type: s.bracket_type,
+      round: s.round,
+      stage_name: s.stage_name,
+      best_of: s.best_of
+    }));
+  });
 
   // Get bestOf for the selected match based on its round and bracket type
   selectedMatchBestOf = computed(() => {
@@ -101,6 +118,11 @@ export class BracketTab {
   });
 
   showEndButton = computed(() => {
+    const t = this.tournament();
+    return this.isOrganizer() && t.status === 'in_progress';
+  });
+
+  showResetButton = computed(() => {
     const t = this.tournament();
     return this.isOrganizer() && t.status === 'in_progress';
   });
@@ -267,5 +289,34 @@ export class BracketTab {
   closeStageModal(): void {
     this.showStageModal.set(false);
     this.selectedStage.set(null);
+  }
+
+  showResetConfirmDialog(): void {
+    this.showResetConfirm.set(true);
+  }
+
+  cancelReset(): void {
+    this.showResetConfirm.set(false);
+  }
+
+  confirmResetTournament(): void {
+    const t = this.tournament();
+    if (!this.isOrganizer()) return;
+
+    this.showResetConfirm.set(false);
+    this.resettingTournament.set(true);
+    this.bracketError.set('');
+
+    this.tournamentService.updateTournament(t.slug, { status: 'registration' }).subscribe({
+      next: (updatedTournament) => {
+        this.resettingTournament.set(false);
+        this.bracketState.set(null); // Clear bracket state
+        this.tournamentReset.emit(updatedTournament);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to reset tournament');
+        this.resettingTournament.set(false);
+      }
+    });
   }
 }

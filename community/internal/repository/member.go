@@ -25,6 +25,7 @@ type MemberRepository interface {
 	DeleteMany(ctx context.Context, memberIDs []uint64) (int64, error)
 	GetLeaderboard(ctx context.Context, communityID uint64, limit int) ([]*domain.CommunityMember, error)
 	IncrementMatchStats(ctx context.Context, memberID uint64, won bool, newEloRating *int) error
+	DecrementMatchStats(ctx context.Context, memberID uint64, won bool, newEloRating *int) error
 	SearchByDisplayNamePrefix(ctx context.Context, communityID uint64, prefix string, limit int) ([]*domain.CommunityMember, error)
 	GetBulkIconURLs(ctx context.Context, memberIDs []uint64) (map[uint64]string, error)
 	GetBulkMemberData(ctx context.Context, memberIDs []uint64) (map[uint64]MemberData, error)
@@ -263,6 +264,44 @@ func (r *memberRepository) IncrementMatchStats(ctx context.Context, memberID uin
 		query = `
 			UPDATE community_members
 			SET matches_played = matches_played + 1,
+			    elo_rating = $1
+			WHERE id = $2
+		`
+	}
+	args = []any{newEloRating, memberID}
+
+	result, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrMemberNotFound
+	}
+
+	return nil
+}
+
+func (r *memberRepository) DecrementMatchStats(ctx context.Context, memberID uint64, won bool, newEloRating *int) error {
+	var query string
+	var args []any
+
+	if won {
+		query = `
+			UPDATE community_members
+			SET matches_played = GREATEST(0, matches_played - 1),
+			    matches_won = GREATEST(0, matches_won - 1),
+			    elo_rating = $1
+			WHERE id = $2
+		`
+	} else {
+		query = `
+			UPDATE community_members
+			SET matches_played = GREATEST(0, matches_played - 1),
 			    elo_rating = $1
 			WHERE id = $2
 		`

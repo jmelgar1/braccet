@@ -18,6 +18,14 @@ export interface PreviewMatch {
 // Union type for bracket data that can be either preview or actual matches
 export type BracketMatch = PreviewMatch | Match;
 
+export interface PreviewStage {
+  tournament_id: number;
+  bracket_type: string;
+  round: number;
+  stage_name: string;
+  best_of: number;
+}
+
 export interface BracketPreview {
   format: BracketFormat;
   totalRounds: number;
@@ -25,6 +33,7 @@ export interface BracketPreview {
   losersRounds?: number;
   bracketSize: number;
   matches: BracketMatch[];
+  stages?: PreviewStage[];
 }
 
 @Injectable({
