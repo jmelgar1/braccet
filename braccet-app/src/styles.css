@@ -1,10 +1,57 @@
 @import "tailwindcss";
 
+:root {
+  /* Backgrounds */
+  --bg-primary: #3b3b3b;
+  --bg-secondary: #2d2d2d;
+  --bg-card: #4a4a4a;
+  --bg-card-hover: #525252;
+  --bg-surface: #404040;
+  --bg-bracket-cell: #5a5a5a;
+  --bg-input: #505050;
+
+  /* Text */
+  --text-primary: #f3f4f6;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+
+  /* Borders */
+  --border-primary: #5a5a5a;
+  --border-secondary: #6b6b6b;
+
+  /* Accents (lightened for dark bg contrast) */
+  --accent-blue: #60a5fa;
+  --accent-blue-hover: #93c5fd;
+  --accent-green: #4ade80;
+  --accent-green-bg: #166534;
+  --accent-red: #f87171;
+  --accent-red-bg: #450a0a;
+
+  /* Overlay */
+  --overlay-bg: rgba(0, 0, 0, 0.7);
+  --zoom-controls-bg: rgba(58, 58, 58, 0.95);
+}
+
 @theme {
   --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Override Tailwind colors for dark theme */
+  --color-white: var(--bg-card);
+  --color-gray-50: var(--bg-secondary);
+  --color-gray-100: var(--bg-surface);
+  --color-gray-200: var(--border-primary);
+  --color-gray-300: var(--border-secondary);
+  --color-gray-400: var(--text-muted);
+  --color-gray-500: var(--text-muted);
+  --color-gray-600: var(--text-secondary);
+  --color-gray-700: var(--text-secondary);
+  --color-gray-800: var(--text-primary);
+  --color-gray-900: var(--text-primary);
 }
 
 body {
   margin: 0;
   font-family: var(--font-sans);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }

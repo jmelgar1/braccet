@@ -29,7 +29,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--zoom-controls-bg);
   padding: 0.375rem;
   border-radius: 0.5rem;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -42,22 +42,22 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  background: #f3f4f6;
-  border: 1px solid #d1d5db;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-secondary);
   border-radius: 0.375rem;
   cursor: pointer;
   font-size: 1rem;
-  color: #374151;
+  color: var(--text-secondary);
   transition: background-color 0.15s, border-color 0.15s;
 }
 
 .zoom-btn:hover {
-  background: #e5e7eb;
-  border-color: #9ca3af;
+  background: var(--border-primary);
+  border-color: var(--text-muted);
 }
 
 .zoom-btn:active {
-  background: #d1d5db;
+  background: var(--border-secondary);
 }
 
 .zoom-level {
@@ -65,7 +65,7 @@
   text-align: center;
   font-size: 0.75rem;
   font-weight: 500;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .bracket-grid {
@@ -95,10 +95,10 @@
   text-align: center;
   font-weight: 600;
   font-size: 0.875rem;
-  color: #374151;
+  color: var(--text-secondary);
   padding: 0.5rem;
   margin-bottom: 0.5rem;
-  background: #f3f4f6;
+  background: var(--bg-surface);
   border-radius: 0.375rem;
   display: flex;
   align-items: center;
@@ -113,14 +113,14 @@
 }
 
 .round-header.clickable:hover {
-  background-color: #e0e7ff;
-  border-color: #6366f1;
+  background-color: var(--bg-card-hover);
+  border-color: var(--accent-blue);
 }
 
 .round-header .edit-indicator {
   opacity: 0;
   transition: opacity 0.15s;
-  color: #6366f1;
+  color: var(--accent-blue);
   display: flex;
   align-items: center;
 }
@@ -145,8 +145,8 @@
 }
 
 .match {
-  background: #f3f4f6;
-  border: 1px solid #6b7280;
+  background: var(--bg-bracket-cell);
+  border: 1px solid var(--text-muted);
   border-radius: 0.375rem;
   overflow: hidden;
   width: 160px;
@@ -160,11 +160,11 @@
 }
 
 .match.bye .participant.top {
-  border-bottom: 1px dashed #22c55e;
+  border-bottom: 1px dashed var(--accent-green);
 }
 
 .match.tbd .participant {
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .participant {
@@ -176,11 +176,11 @@
 }
 
 .participant.top {
-  border-bottom: 1px solid #6b7280;
+  border-bottom: 1px solid var(--text-muted);
 }
 
 .participant.bye-slot {
-  color: #9ca3af;
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -190,8 +190,8 @@
   justify-content: center;
   width: 1.25rem;
   height: 1.25rem;
-  background: #e5e7eb;
-  color: #374151;
+  background: var(--border-primary);
+  color: var(--text-secondary);
   border-radius: 9999px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -227,7 +227,7 @@
   left: 0;
   width: calc(1.5rem + 1.5rem);
   height: 2px;
-  background: #d1d5db;
+  background: var(--border-secondary);
   transform: translateY(-50%);
 }
 
@@ -239,7 +239,7 @@
   left: calc(1.5rem + 1.5rem - 1px);
   width: 2px;
   bottom: 0;
-  background: #d1d5db;
+  background: var(--border-secondary);
 }
 
 /* Vertical line for even matches (2nd, 4th, 6th...) - goes UP to top */
@@ -250,7 +250,7 @@
   left: calc(1.5rem + 1.5rem - 1px);
   width: 2px;
   height: 50%;
-  background: #d1d5db;
+  background: var(--border-secondary);
 }
 
 /* Horizontal line from meeting point to next round - only on even matches */
@@ -260,7 +260,7 @@
   left: calc(1.5rem + 1.5rem);
   width: calc(1.5rem + 1px);
   height: 2px;
-  background: #d1d5db;
+  background: var(--border-secondary);
   display: block;
 }
 
@@ -302,7 +302,7 @@
 /* Forfeited participant styling */
 .participant.forfeited .name {
   text-decoration: line-through;
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .forfeit-badge {
@@ -312,8 +312,8 @@
   padding: 0 0.375rem;
   font-size: 0.625rem;
   font-weight: 600;
-  color: #dc2626;
-  background: #fee2e2;
+  color: var(--accent-red);
+  background: var(--accent-red-bg);
   border-radius: 0.25rem;
   margin-left: auto;
   flex-shrink: 0;
@@ -321,12 +321,12 @@
 
 /* Completed match styling */
 .match.completed {
-  border-color: #22c55e;
+  border-color: var(--accent-green);
 }
 
 /* Winner styling */
 .participant.winner {
-  background: #bbf7d0;
+  background: var(--accent-green-bg);
 }
 
 .participant.winner .name {
@@ -335,8 +335,8 @@
 
 /* Winner score styling */
 .score-cell.winner {
-  background: #bbf7d0;
-  color: #16a34a;
+  background: var(--accent-green-bg);
+  color: var(--accent-green);
 }
 
 /* Match with action area container */
@@ -363,14 +363,14 @@
   align-items: center;
   justify-content: center;
   width: 32px;
-  background: #e5e7eb;
-  border: 1px solid #6b7280;
+  background: var(--border-primary);
+  border: 1px solid var(--text-muted);
   border-left: none;
   border-radius: 0 0.375rem 0.375rem 0;
 }
 
 .match-action.completed {
-  border-color: #22c55e;
+  border-color: var(--accent-green);
 }
 
 /* Score cells that align with participants */
@@ -382,11 +382,11 @@
   width: 100%;
   font-size: 0.875rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 .score-cell.top {
-  border-bottom: 1px solid #6b7280;
+  border-bottom: 1px solid var(--text-muted);
 }
 
 /* Report score button */
@@ -429,8 +429,8 @@
   align-items: center;
   justify-content: center;
   padding: 0 6px;
-  background: #e5e7eb;
-  border: 1px solid #6b7280;
+  background: var(--border-primary);
+  border: 1px solid var(--text-muted);
   border-left: none;
   border-radius: 0 0.375rem 0.375rem 0;
   z-index: 10;
@@ -455,7 +455,7 @@
 }
 
 .match-hover-area.completed {
-  border-color: #22c55e;
+  border-color: var(--accent-green);
 }
 
 .reopen-btn {
@@ -486,7 +486,7 @@
 }
 
 .reopen-btn:hover {
-  background: #fee2e2;
+  background: var(--accent-red-bg);
 }
 
 /* Edit button */
@@ -511,7 +511,7 @@
 }
 
 .edit-btn:hover {
-  background: #fef3c7;
+  background: var(--bg-card-hover);
 }
 
 /* Sets display in reopen area */
@@ -535,12 +535,12 @@
   padding-left: 1px;
   font-size: 0.75rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-secondary);
   text-align: center;
 }
 
 .set-score.set-winner {
-  color: #22c55e;
+  color: var(--accent-green);
 }
 
 
@@ -556,7 +556,7 @@
   text-orientation: upright;
   font-size: 0.625rem;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--text-muted);
   letter-spacing: -1px;
 }
 
@@ -582,7 +582,7 @@
 }
 
 .details-btn:hover {
-  background: #dbeafe;
+  background: var(--bg-card-hover);
 }
 
 /* Modal styles */
@@ -598,7 +598,7 @@
 
 .modal-content {
   position: fixed;
-  background: white;
+  background: var(--bg-card);
   border-radius: 0.5rem;
   min-width: 300px;
   max-width: 400px;
@@ -611,7 +611,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .modal-header h3 {
@@ -625,11 +625,11 @@
   border: none;
   font-size: 1.5rem;
   cursor: pointer;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .modal-close:hover {
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 .modal-body {
@@ -650,15 +650,15 @@
   flex-direction: column;
   align-items: center;
   padding: 1rem;
-  background: #f3f4f6;
+  background: var(--bg-surface);
   border-radius: 0.5rem;
   min-width: 100px;
-  border: 2px solid #d1d5db;
+  border: 2px solid var(--border-secondary);
 }
 
 .participant-card.winner {
-  background: #bbf7d0;
-  border-color: #16a34a;
+  background: var(--accent-green-bg);
+  border-color: var(--accent-green);
 }
 
 .card-logo {
@@ -667,44 +667,44 @@
   border-radius: 50%;
   object-fit: cover;
   margin-bottom: 0.5rem;
-  background: #e5e7eb;
+  background: var(--border-primary);
 }
 
 .card-name {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-secondary);
   text-align: center;
   margin-bottom: 0.25rem;
 }
 
 .participant-card.winner .card-name {
-  color: #16a34a;
+  color: var(--accent-green);
   font-weight: 600;
 }
 
 .card-score {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #374151;
+  color: var(--text-secondary);
 }
 
 .participant-card.winner .card-score {
-  color: #16a34a;
+  color: var(--accent-green);
 }
 
 /* VS Badge */
 .vs-badge {
   font-size: 1rem;
   font-weight: 700;
-  color: #6b7280;
+  color: var(--text-muted);
   padding: 0.5rem;
 }
 
 /* Scoreboard */
 .scoreboard {
   margin-top: 1.5rem;
-  border: 2px solid #d1d5db;
+  border: 2px solid var(--border-secondary);
   border-radius: 0.5rem;
   overflow: hidden;
 }
@@ -713,22 +713,22 @@
   display: flex;
   align-items: center;
   padding: 0.5rem 0.75rem;
-  background: #f9fafb;
+  background: var(--bg-secondary);
 }
 
 .scoreboard-row:first-child {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--border-primary);
 }
 
 .scoreboard-row.winner {
-  background: #bbf7d0;
+  background: var(--accent-green-bg);
 }
 
 .scoreboard-name {
   flex: 1;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -736,7 +736,7 @@
 }
 
 .scoreboard-row.winner .scoreboard-name {
-  color: #16a34a;
+  color: var(--accent-green);
   font-weight: 600;
 }
 
@@ -753,13 +753,13 @@
   height: 28px;
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
-  background: #e5e7eb;
+  color: var(--text-secondary);
+  background: var(--border-primary);
   border-radius: 0.25rem;
 }
 
 .scoreboard-set.set-winner {
-  background: #22c55e;
-  color: white;
+  background: var(--accent-green);
+  color: var(--text-primary);
   font-weight: 600;
 }
