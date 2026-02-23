@@ -253,6 +253,16 @@
   display: none;
 }
 
+/* Spacer match - invisible placeholder for alignment */
+.match-wrapper.spacer {
+  visibility: hidden;
+}
+
+.match-spacer {
+  width: 192px;  /* Same as match-with-action.no-action .match */
+  height: 3.5rem;  /* Same as min-height of match-wrapper */
+}
+
 .no-bracket {
   display: flex;
   align-items: center;

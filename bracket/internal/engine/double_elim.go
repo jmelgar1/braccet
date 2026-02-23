@@ -39,8 +39,11 @@ func DoubleElimination(tournamentID uint64, participants []domain.Participant) (
 	winnersMatches := generateWinnersBracket(tournamentID, winnersRounds, pairings, seedMap)
 	allMatches = append(allMatches, winnersMatches...)
 
-	// Generate losers bracket
-	losersMatches := generateLosersBracket(tournamentID, bracketSize, losersRounds)
+	// Identify W-R1 BYE positions before generating losers bracket
+	winnersR1ByePositions := getWinnersR1ByePositions(winnersMatches)
+
+	// Generate losers bracket with BYE awareness
+	losersMatches := generateLosersBracket(tournamentID, bracketSize, losersRounds, winnersR1ByePositions)
 	allMatches = append(allMatches, losersMatches...)
 
 	// Generate grand final
@@ -102,16 +105,53 @@ func generateWinnersBracket(tournamentID uint64, totalRounds int, pairings [][2]
 	return matches
 }
 
+// getWinnersR1ByePositions identifies which W-R1 positions are BYEs.
+// A position is a BYE if one or both participants are missing.
+// Returns a set (map) of 1-indexed positions that are BYEs.
+func getWinnersR1ByePositions(winnersMatches []*domain.Match) map[int]bool {
+	byePositions := make(map[int]bool)
+
+	for _, m := range winnersMatches {
+		if m.Round != 1 {
+			continue
+		}
+		// A match is a BYE if either participant is nil
+		if m.Participant1ID == nil || m.Participant2ID == nil {
+			byePositions[m.Position] = true
+		}
+	}
+
+	return byePositions
+}
+
 // generateLosersBracket creates all losers bracket matches.
 // Losers bracket has 2*(N-1) rounds for N winners rounds.
 // Pattern alternates: major rounds (losers vs losers) and minor rounds (drop-ins).
-func generateLosersBracket(tournamentID uint64, bracketSize, losersRounds int) []*domain.Match {
+//
+// For L-R1, we skip creating matches where BOTH source W-R1 matches are BYEs,
+// since no participants will ever reach those matches.
+func generateLosersBracket(tournamentID uint64, bracketSize, losersRounds int, winnersR1ByePositions map[int]bool) []*domain.Match {
 	var matches []*domain.Match
 
 	for round := 1; round <= losersRounds; round++ {
 		numMatches := LosersMatchesInRound(bracketSize, round)
 
 		for pos := 1; pos <= numMatches; pos++ {
+			// For L-R1, check if this match is unreachable
+			if round == 1 {
+				// L-R1 match at position P receives losers from W-R1 positions (2P-1) and (2P)
+				source1Pos := 2*pos - 1
+				source2Pos := 2 * pos
+
+				source1IsBye := winnersR1ByePositions[source1Pos]
+				source2IsBye := winnersR1ByePositions[source2Pos]
+
+				// Skip this L-R1 match if BOTH sources are BYEs
+				if source1IsBye && source2IsBye {
+					continue
+				}
+			}
+
 			match := &domain.Match{
 				TournamentID: tournamentID,
 				BracketType:  domain.BracketLosers,
@@ -281,23 +321,30 @@ func linkLosersNextMatch(losers []*domain.Match) {
 		currentRound := byRound[round]
 		nextRound := byRound[round+1]
 
+		// Build a position map for next round matches (handles gaps)
+		nextByPosition := make(map[int]*domain.Match)
+		for _, nm := range nextRound {
+			nextByPosition[nm.Position] = nm
+		}
+
 		isOddRound := round%2 == 1
 
-		for i, match := range currentRound {
-			var nextMatchIdx int
+		for _, match := range currentRound {
+			var nextMatchPos int
 
 			if isOddRound {
-				// Odd rounds (major): matches halve in next round
-				// L-R1 match i goes to L-R2 match i (same index, drop-ins fill other slot)
-				nextMatchIdx = i
+				// Odd rounds (major): L-R(odd) match at position P goes to L-R(odd+1) at position P
+				// The drop-in from winners fills the other slot
+				nextMatchPos = match.Position
 			} else {
 				// Even rounds (minor with drop-ins): matches halve for next major round
-				nextMatchIdx = i / 2
+				// L-R(even) match at position P goes to L-R(even+1) at position ceil(P/2)
+				nextMatchPos = (match.Position + 1) / 2
 			}
 
-			if nextMatchIdx < len(nextRound) {
-				nextMatchID := nextRound[nextMatchIdx].ID
-				match.NextMatchID = &nextMatchID
+			nextMatch := nextByPosition[nextMatchPos]
+			if nextMatch != nil {
+				match.NextMatchID = &nextMatch.ID
 			}
 		}
 	}
@@ -331,18 +378,26 @@ func linkWinnersToLosers(winners, losers []*domain.Match) {
 			continue
 		}
 
+		// Build a position map for losers matches in this round
+		// This handles gaps when L-R1 matches are skipped due to double-BYEs
+		losersByPosition := make(map[int]*domain.Match)
+		for _, lm := range losersMatches {
+			losersByPosition[lm.Position] = lm
+		}
+
 		// Determine how winners matches map to losers matches
 		for i, wMatch := range winnersMatches {
-			var losersMatchIdx int
+			var losersMatchPos int
 			var losersSlot int // 1 or 2
 
 			if winnersRound == 1 {
 				// W-R1: Pairs of losers face each other in L-R1
-				// W-R1 matches 1,2 -> L-R1 match 1
-				// W-R1 matches 3,4 -> L-R1 match 2
-				losersMatchIdx = i / 2
+				// W-R1 matches at positions 1,2 -> L-R1 match at position 1
+				// W-R1 matches at positions 3,4 -> L-R1 match at position 2
+				// Use position-based calculation (positions are 1-indexed)
+				losersMatchPos = (wMatch.Position + 1) / 2
 				// Odd position -> slot 1, even position -> slot 2
-				if i%2 == 0 {
+				if wMatch.Position%2 == 1 {
 					losersSlot = 1
 				} else {
 					losersSlot = 2
@@ -354,21 +409,24 @@ func linkWinnersToLosers(winners, losers []*domain.Match) {
 				// - Odd winners rounds (3, 5, 7...): same index (respective side)
 				shouldFlip := winnersRound%2 == 0
 				if shouldFlip {
-					losersMatchIdx = len(losersMatches) - 1 - i
+					losersMatchPos = len(losersMatches) - i
 				} else {
-					losersMatchIdx = i
+					losersMatchPos = i + 1
 				}
 				losersSlot = 1
 			}
 
-			if losersMatchIdx < len(losersMatches) {
-				loserMatch := losersMatches[losersMatchIdx]
+			// Look up the losers match by position (may not exist if skipped)
+			loserMatch := losersByPosition[losersMatchPos]
+			if loserMatch != nil {
 				wMatch.LoserMatchID = &loserMatch.ID
 
 				// Store the slot info in a way we can use during advancement
 				// We'll compute this during match completion based on position parity
 				_ = losersSlot // Used during runtime advancement
 			}
+			// If loserMatch is nil, this W-R1 match's loser has nowhere to go
+			// because the corresponding L-R1 match was skipped (both sources were BYEs)
 		}
 	}
 }
@@ -427,12 +485,15 @@ func getMatchByRoundAndPosition(matches []*domain.Match, round, position int) *d
 	return nil
 }
 
-// processLosersBracketByes marks L-R1 slots as BYEs based on W-R1 BYE matches.
-// When a W-R1 match is a BYE (one participant missing), no loser drops down,
-// creating a corresponding BYE in the losers bracket.
+// processLosersBracketByes marks losers bracket slots as BYEs based on missing participants.
 //
-// BYEs are always placed in slot 2 (bottom) for consistent display.
-// The real loser will be placed in slot 1 (top) when they drop in.
+// For L-R1:
+// - When a W-R1 match is a BYE (one participant missing), no loser drops down
+// - If one slot is a BYE, mark slot 2 as BYE for consistent display
+// - Double-BYE cases are skipped during generation, so only single-BYE cases remain
+//
+// For L-R2:
+// - If the source L-R1 match doesn't exist (was skipped), slot 2 is a BYE
 //
 // Mapping: L-R1 match at position P receives losers from:
 //   - W-R1 match (2P-1) → normally slot 1
@@ -440,31 +501,55 @@ func getMatchByRoundAndPosition(matches []*domain.Match, round, position int) *d
 func processLosersBracketByes(winners, losers []*domain.Match) {
 	winnersR1 := getMatchesByRound(winners, 1)
 	losersR1 := getMatchesByRound(losers, 1)
+	losersR2 := getMatchesByRound(losers, 2)
 
-	if len(winnersR1) == 0 || len(losersR1) == 0 {
-		return
+	// Build a set of existing L-R1 positions for cascade checking
+	losersR1Positions := make(map[int]bool)
+	for _, lm := range losersR1 {
+		losersR1Positions[lm.Position] = true
 	}
 
-	for _, lMatch := range losersR1 {
-		// L-R1 match at position P receives losers from W-R1 matches (2P-1) and (2P)
-		slot1WIdx := 2*lMatch.Position - 2 // 0-indexed
-		slot2WIdx := 2*lMatch.Position - 1
-
-		var slot1IsBye, slot2IsBye bool
-
-		if slot1WIdx < len(winnersR1) {
-			slot1IsBye = isByeMatch(winnersR1[slot1WIdx])
-		}
-		if slot2WIdx < len(winnersR1) {
-			slot2IsBye = isByeMatch(winnersR1[slot2WIdx])
+	// Process L-R1 single-BYE cases
+	if len(winnersR1) > 0 && len(losersR1) > 0 {
+		// Index W-R1 matches by position for lookup
+		winnersR1ByPos := make(map[int]*domain.Match)
+		for _, wm := range winnersR1 {
+			winnersR1ByPos[wm.Position] = wm
 		}
 
-		if slot1IsBye && slot2IsBye {
-			// Both slots are BYEs - match is empty, mark completed with no winner
-			lMatch.Status = domain.MatchCompleted
-		} else if slot1IsBye || slot2IsBye {
-			// One BYE - always put it in slot 2 (bottom) for consistent display
-			// The real loser will go to slot 1 (top) when they drop in
+		for _, lMatch := range losersR1 {
+			// L-R1 match at position P receives losers from W-R1 positions (2P-1) and (2P)
+			slot1WPos := 2*lMatch.Position - 1
+			slot2WPos := 2 * lMatch.Position
+
+			slot1IsBye := false
+			slot2IsBye := false
+
+			if wm := winnersR1ByPos[slot1WPos]; wm != nil {
+				slot1IsBye = isByeMatch(wm)
+			}
+			if wm := winnersR1ByPos[slot2WPos]; wm != nil {
+				slot2IsBye = isByeMatch(wm)
+			}
+
+			// Note: double-BYE L-R1 matches are now skipped during generation,
+			// so we only handle single-BYE cases here
+			if slot1IsBye || slot2IsBye {
+				// One BYE - always put it in slot 2 (bottom) for consistent display
+				// The real loser will go to slot 1 (top) when they drop in
+				byeName := "BYE"
+				lMatch.Participant2Name = &byeName
+			}
+		}
+	}
+
+	// Process L-R2 cascade: if source L-R1 match doesn't exist, slot 2 is a BYE
+	for _, lMatch := range losersR2 {
+		// L-R2 match at position P receives winner from L-R1 at position P (slot 2)
+		sourceL1Pos := lMatch.Position
+		if !losersR1Positions[sourceL1Pos] {
+			// Source L-R1 match doesn't exist (was skipped due to double-BYE)
+			// Mark slot 2 as BYE - the W-R2 drop-in will be in slot 1
 			byeName := "BYE"
 			lMatch.Participant2Name = &byeName
 		}

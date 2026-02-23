@@ -29,7 +29,11 @@
           </div>
           <div class="matches-column">
             @for (match of roundData.matches; track match.position) {
-              <div class="match-wrapper">
+              <div class="match-wrapper" [class.spacer]="isSpacer(match)">
+                @if (isSpacer(match)) {
+                  <!-- Spacer: invisible placeholder for alignment -->
+                  <div class="match-spacer"></div>
+                } @else {
                 <div class="match-with-action" [class.no-action]="!showActionArea(match)">
                   <div class="match"
                      [class.bye]="isBye(match)"
@@ -110,6 +114,7 @@
                     </div>
                   }
                 </div>
+                }
                 <!-- Connector line to next round -->
                 @if (roundData.round < rounds().length) {
                   <div class="connector">

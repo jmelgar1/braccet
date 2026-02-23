@@ -50,14 +50,12 @@ func (r *mockMatchRepository) GetByTournament(ctx context.Context, tournamentID 
 	return matches, nil
 }
 
-func (r *mockMatchRepository) UpdateResult(ctx context.Context, matchID uint64, result domain.MatchResult) error {
+func (r *mockMatchRepository) UpdateResult(ctx context.Context, matchID uint64, winnerID uint64) error {
 	m, ok := r.matches[matchID]
 	if !ok {
 		return repository.ErrMatchNotFound
 	}
-	m.WinnerID = &result.WinnerID
-	m.Participant1Score = &result.Participant1Score
-	m.Participant2Score = &result.Participant2Score
+	m.WinnerID = &winnerID
 	m.Status = domain.MatchCompleted
 	return nil
 }
@@ -102,6 +100,129 @@ func (r *mockMatchRepository) UpdateNextMatchLinks(ctx context.Context, matches 
 		}
 	}
 	return nil
+}
+
+func (r *mockMatchRepository) GetPendingByParticipant(ctx context.Context, tournamentID, participantID uint64) ([]*domain.Match, error) {
+	var matches []*domain.Match
+	for _, m := range r.matches {
+		if m.TournamentID == tournamentID &&
+			(m.Status == domain.MatchPending || m.Status == domain.MatchReady || m.Status == domain.MatchInProgress) &&
+			((m.Participant1ID != nil && *m.Participant1ID == participantID) ||
+				(m.Participant2ID != nil && *m.Participant2ID == participantID)) {
+			matches = append(matches, m)
+		}
+	}
+	return matches, nil
+}
+
+func (r *mockMatchRepository) UpdateForfeit(ctx context.Context, matchID uint64, winnerID uint64) error {
+	m, ok := r.matches[matchID]
+	if !ok {
+		return repository.ErrMatchNotFound
+	}
+	m.WinnerID = &winnerID
+	m.ForfeitWinnerID = &winnerID
+	m.Status = domain.MatchCompleted
+	return nil
+}
+
+func (r *mockMatchRepository) ReopenMatch(ctx context.Context, matchID uint64) error {
+	m, ok := r.matches[matchID]
+	if !ok {
+		return repository.ErrMatchNotFound
+	}
+	m.WinnerID = nil
+	m.ForfeitWinnerID = nil
+	m.Status = domain.MatchReady
+	return nil
+}
+
+func (r *mockMatchRepository) ClearParticipant(ctx context.Context, matchID uint64, slot int) error {
+	m, ok := r.matches[matchID]
+	if !ok {
+		return repository.ErrMatchNotFound
+	}
+	if slot == 1 {
+		m.Participant1ID = nil
+		m.Participant1Name = nil
+		m.Participant1IconURL = nil
+		m.Seed1 = nil
+	} else {
+		m.Participant2ID = nil
+		m.Participant2Name = nil
+		m.Participant2IconURL = nil
+		m.Seed2 = nil
+	}
+	return nil
+}
+
+// mockSetRepository implements repository.SetRepository for testing
+type mockSetRepository struct {
+	sets map[uint64][]domain.Set
+}
+
+func newMockSetRepo() *mockSetRepository {
+	return &mockSetRepository{
+		sets: make(map[uint64][]domain.Set),
+	}
+}
+
+func (r *mockSetRepository) GetByMatchID(ctx context.Context, matchID uint64) ([]domain.Set, error) {
+	return r.sets[matchID], nil
+}
+
+func (r *mockSetRepository) GetByMatchIDs(ctx context.Context, matchIDs []uint64) (map[uint64][]domain.Set, error) {
+	result := make(map[uint64][]domain.Set)
+	for _, id := range matchIDs {
+		if sets, ok := r.sets[id]; ok {
+			result[id] = sets
+		}
+	}
+	return result, nil
+}
+
+func (r *mockSetRepository) CreateBatch(ctx context.Context, matchID uint64, sets []domain.SetScore) error {
+	domainSets := make([]domain.Set, len(sets))
+	for i, s := range sets {
+		domainSets[i] = domain.Set{
+			MatchID:           matchID,
+			SetNumber:         s.SetNumber,
+			Participant1Score: s.Participant1Score,
+			Participant2Score: s.Participant2Score,
+		}
+	}
+	r.sets[matchID] = domainSets
+	return nil
+}
+
+func (r *mockSetRepository) DeleteByMatchID(ctx context.Context, matchID uint64) error {
+	delete(r.sets, matchID)
+	return nil
+}
+
+// newTestService creates a MatchService with mock dependencies for testing.
+// TournamentClient and CommunityClient are nil (not needed for basic match tests).
+func newTestService(repo *mockMatchRepository) (MatchService, *mockSetRepository) {
+	setRepo := newMockSetRepo()
+	return NewMatchService(repo, setRepo, nil, nil), setRepo
+}
+
+// resultForP1 creates a MatchResult where participant 1 wins (2-0 in sets)
+func resultForP1() domain.MatchResult {
+	return domain.MatchResult{
+		Sets: []domain.SetScore{
+			{SetNumber: 1, Participant1Score: 2, Participant2Score: 0},
+		},
+	}
+}
+
+// resultForP2 creates a MatchResult where participant 2 wins (0-2 in sets)
+func resultForP2() domain.MatchResult {
+	return domain.MatchResult{
+		Sets: []domain.SetScore{
+			{SetNumber: 1, Participant1Score: 0, Participant2Score: 2},
+		},
+	}
 }
 
 // Helper to create a simple 4-player bracket for testing
@@ -154,17 +275,11 @@ func createTestBracket(repo *mockMatchRepository) []*domain.Match {
 func TestReportResult_Success(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
-	// Report result for match 1 (seed 1 vs seed 4)
-	result := domain.MatchResult{
-		WinnerID:          1,
-		Participant1Score: 2,
-		Participant2Score: 0,
-	}
-
-	err := svc.ReportResult(ctx, 1, result)
+	// Report result for match 1 (seed 1 vs seed 4) - P1 wins
+	err := svc.ReportResult(ctx, 1, resultForP1())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,14 +303,14 @@ func TestReportResult_Success(t *testing.T) {
 func TestReportResult_BothMatchesComplete_FinalReady(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
-	// Report result for match 1
-	svc.ReportResult(ctx, 1, domain.MatchResult{WinnerID: 1})
+	// Report result for match 1 - P1 wins
+	svc.ReportResult(ctx, 1, resultForP1())
 
-	// Report result for match 2
-	err := svc.ReportResult(ctx, 2, domain.MatchResult{WinnerID: 2})
+	// Report result for match 2 - P1 wins (which is participant 2 in this match)
+	err := svc.ReportResult(ctx, 2, resultForP1())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -216,27 +331,30 @@ func TestReportResult_BothMatchesComplete_FinalReady(t *testing.T) {
 func TestReportResult_InvalidWinner(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
-	// Try to report with invalid winner
-	result := domain.MatchResult{WinnerID: 999}
+	// Try to report with tied sets (no winner)
+	result := domain.MatchResult{
+		Sets: []domain.SetScore{
+			{SetNumber: 1, Participant1Score: 1, Participant2Score: 1},
+		},
+	}
 	err := svc.ReportResult(ctx, 1, result)
 
-	if err != ErrInvalidWinner {
-		t.Errorf("expected ErrInvalidWinner, got %v", err)
+	if err != ErrSetsTied {
+		t.Errorf("expected ErrSetsTied, got %v", err)
 	}
 }
 
 func TestReportResult_MatchNotReady(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
 	// Try to report result for pending match (the final)
-	result := domain.MatchResult{WinnerID: 1}
-	err := svc.ReportResult(ctx, 3, result)
+	err := svc.ReportResult(ctx, 3, resultForP1())
 
 	if err != ErrMatchNotReady {
 		t.Errorf("expected ErrMatchNotReady, got %v", err)
@@ -246,14 +364,14 @@ func TestReportResult_MatchNotReady(t *testing.T) {
 func TestReportResult_AlreadyComplete(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
 	// Report result once
-	svc.ReportResult(ctx, 1, domain.MatchResult{WinnerID: 1})
+	svc.ReportResult(ctx, 1, resultForP1())
 
 	// Try to report again
-	err := svc.ReportResult(ctx, 1, domain.MatchResult{WinnerID: 4})
+	err := svc.ReportResult(ctx, 1, resultForP2())
 
 	if err != ErrMatchAlreadyComplete {
 		t.Errorf("expected ErrMatchAlreadyComplete, got %v", err)
@@ -263,7 +381,7 @@ func TestReportResult_AlreadyComplete(t *testing.T) {
 func TestStartMatch(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
 	// Start match 1
@@ -281,7 +399,7 @@ func TestStartMatch(t *testing.T) {
 func TestStartMatch_NotReady(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
 	// Try to start the final (which is pending)
@@ -295,7 +413,7 @@ func TestStartMatch_NotReady(t *testing.T) {
 func TestGetBracketState_Initial(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
 	state, err := svc.GetBracketState(ctx, 1)
@@ -320,13 +438,13 @@ func TestGetBracketState_Initial(t *testing.T) {
 func TestGetBracketState_Complete(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
-	// Complete all matches
-	svc.ReportResult(ctx, 1, domain.MatchResult{WinnerID: 1})
-	svc.ReportResult(ctx, 2, domain.MatchResult{WinnerID: 2})
-	svc.ReportResult(ctx, 3, domain.MatchResult{WinnerID: 1})
+	// Complete all matches - P1 wins match 1, P1 (which is player 2) wins match 2, P1 wins final
+	svc.ReportResult(ctx, 1, resultForP1())
+	svc.ReportResult(ctx, 2, resultForP1())
+	svc.ReportResult(ctx, 3, resultForP1())
 
 	state, _ := svc.GetBracketState(ctx, 1)
 
@@ -341,14 +459,14 @@ func TestGetBracketState_Complete(t *testing.T) {
 func TestReportResult_InProgressMatch(t *testing.T) {
 	repo := newMockRepo()
 	createTestBracket(repo)
-	svc := NewMatchService(repo)
+	svc, _ := newTestService(repo)
 	ctx := context.Background()
 
 	// Start match first
 	svc.StartMatch(ctx, 1)
 
-	// Now report result
-	err := svc.ReportResult(ctx, 1, domain.MatchResult{WinnerID: 1})
+	// Now report result - P1 wins
+	err := svc.ReportResult(ctx, 1, resultForP1())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

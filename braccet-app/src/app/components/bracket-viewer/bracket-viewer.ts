@@ -219,13 +219,40 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     const p = this.preview();
     if (!p) return [];
 
+    const bt = this.bracketType();
     const roundsArray: { round: number; matches: DisplayMatch[]; isStraight: boolean }[] = [];
 
     for (let r = 1; r <= p.totalRounds; r++) {
-      const roundMatches = p.matches.filter(m => m.round === r);
+      let roundMatches = p.matches.filter(m => m.round === r);
       const nextRoundMatches = p.matches.filter(m => m.round === r + 1);
+
       // "Straight" means same number of matches in current and next round (no merging)
-      const isStraight = roundMatches.length === nextRoundMatches.length && roundMatches.length > 0;
+      // In losers bracket: L-R1/L-R2 are straight, L-R3/L-R4 are straight, etc.
+      let isStraight = roundMatches.length === nextRoundMatches.length && roundMatches.length > 0;
+
+      // For losers bracket "straight" rounds where current has fewer matches than next,
+      // add spacer entries for missing positions to maintain alignment
+      if (bt === 'losers' && r % 2 === 1 && nextRoundMatches.length > roundMatches.length) {
+        // This round should have the same number of matches as the next round
+        // but some were skipped. Add spacers for missing positions.
+        const expectedCount = nextRoundMatches.length;
+
+        const matchesWithSpacers: DisplayMatch[] = [];
+        for (let pos = 1; pos <= expectedCount; pos++) {
+          const existingMatch = roundMatches.find(m => m.position === pos);
+          if (existingMatch) {
+            matchesWithSpacers.push(existingMatch);
+          } else {
+            // Add a spacer match for the missing position
+            matchesWithSpacers.push(this.createSpacerMatch(r, pos));
+          }
+        }
+        roundMatches = matchesWithSpacers;
+
+        // After adding spacers, this is now a straight round
+        isStraight = true;
+      }
+
       roundsArray.push({
         round: r,
         matches: roundMatches,
@@ -235,6 +262,19 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
 
     return roundsArray;
   });
+
+  // Create a spacer match for alignment purposes (invisible in rendering)
+  private createSpacerMatch(round: number, position: number): DisplayMatch {
+    return {
+      round,
+      position,
+      bracket_type: 'losers' as any,
+      seed1: 0,
+      seed2: 0,
+      isBye: false,
+      isSpacer: true // Flag to identify spacer matches
+    } as PreviewMatch & { isSpacer: boolean };
+  }
 
   getRoundLabel(round: number): string {
     // Check for custom stage name first
@@ -375,7 +415,17 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     return null;
   }
 
+  // Check if this is a spacer match (invisible placeholder for alignment)
+  isSpacer(match: DisplayMatch): boolean {
+    return 'isSpacer' in match && (match as any).isSpacer === true;
+  }
+
   isBye(match: DisplayMatch): boolean {
+    // Spacer matches are not BYEs
+    if (this.isSpacer(match)) {
+      return false;
+    }
+
     // PreviewMatch has explicit isBye flag
     if ('isBye' in match) {
       return match.isBye;
@@ -388,17 +438,19 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
       return false;
     }
 
-    // For actual Match: BYE only occurs in round 1
-    if (match.round !== 1) {
-      return false;
-    }
-
-    // For losers bracket round 1: check if participant2_name is "BYE"
-    // (backend always puts BYE in slot 2 for losers bracket)
+    // For losers bracket: check if participant2_name is "BYE" in any round
+    // Backend puts BYE in slot 2 for:
+    // - L-R1: when one W-R1 source is a BYE
+    // - L-R2+: when source L-R(n-1) match was skipped (cascade effect)
     if (bt === 'losers') {
       if ('participant2_name' in match && match.participant2_name === 'BYE') {
         return true;
       }
+      return false;
+    }
+
+    // For winners bracket: BYE only occurs in round 1
+    if (match.round !== 1) {
       return false;
     }
 
