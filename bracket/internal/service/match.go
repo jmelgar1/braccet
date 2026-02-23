@@ -269,8 +269,21 @@ func (s *matchService) GetBracketState(ctx context.Context, tournamentID uint64)
 		Matches:      matches,
 	}
 
-	// Find total rounds and current round
+	// Check if this is a double elimination bracket (has grand final match)
+	var grandFinalMatch *domain.Match
 	for _, m := range matches {
+		if m.BracketType == domain.BracketGrandFinal {
+			grandFinalMatch = m
+			break
+		}
+	}
+
+	// Find total rounds (from winners bracket only for double elim)
+	for _, m := range matches {
+		// For double elim, only count winners bracket rounds for totalRounds
+		if grandFinalMatch != nil && m.BracketType != domain.BracketWinners {
+			continue
+		}
 		if m.Round > state.TotalRounds {
 			state.TotalRounds = m.Round
 		}
@@ -284,12 +297,21 @@ func (s *matchService) GetBracketState(ctx context.Context, tournamentID uint64)
 		}
 	}
 
-	// Check if complete (final match has winner)
-	for _, m := range matches {
-		if m.Round == state.TotalRounds && m.WinnerID != nil {
+	// Check if complete
+	if grandFinalMatch != nil {
+		// Double elimination: complete when grand final has a winner
+		if grandFinalMatch.WinnerID != nil {
 			state.IsComplete = true
-			state.ChampionID = m.WinnerID
-			break
+			state.ChampionID = grandFinalMatch.WinnerID
+		}
+	} else {
+		// Single elimination: complete when final match (highest round) has winner
+		for _, m := range matches {
+			if m.Round == state.TotalRounds && m.WinnerID != nil {
+				state.IsComplete = true
+				state.ChampionID = m.WinnerID
+				break
+			}
 		}
 	}
 
@@ -422,6 +444,15 @@ func (s *matchService) determineSlot(sourceMatch, targetMatch *domain.Match, isL
 		// W-R(N>1) losers drop into even losers rounds as slot 1 (top)
 		// They face advancing losers bracket winners in slot 2 (bottom)
 		return 1
+	}
+
+	// For grand final: winners final winner → slot 1, losers final winner → slot 2
+	if targetMatch.BracketType == domain.BracketGrandFinal {
+		if sourceMatch.BracketType == domain.BracketWinners {
+			return 1
+		}
+		// Losers bracket winner goes to slot 2
+		return 2
 	}
 
 	// For winners advancing within losers bracket to even rounds (drop-in rounds)

@@ -300,10 +300,7 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     if ('seed1' in match && match.seed1 && match.seed1 > 0) {
       return `Seed ${match.seed1}`;
     }
-    // If this is a bye match and slot 1 is empty, show BYE
-    if (this.isBye(match) && !this.hasParticipant1(match)) {
-      return 'BYE';
-    }
+    // BYE is ONLY displayed in the bottom slot (participant 2), never in the top slot
     return 'TBD';
   }
 
@@ -456,8 +453,10 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
   }
 
   // Check if participant is the winner
+  // BYE matches don't show winner styling - advancing due to BYE isn't a "win"
   isWinner(match: DisplayMatch, participantId: number | undefined): boolean {
     if (!participantId) return false;
+    if (this.isBye(match)) return false;
     if ('winner_id' in match && match.winner_id) {
       return match.winner_id === participantId;
     }

@@ -42,6 +42,7 @@ func NewRouter(
 
 	// Bracket routes
 	r.Post("/brackets", bracketHandler.Generate)
+	r.Post("/brackets/preview", bracketHandler.Preview) // Preview without persistence (same BYE logic as Generate)
 	r.Get("/brackets/{tournamentId}", bracketHandler.GetState)
 	r.Get("/brackets/{tournamentId}/matches", bracketHandler.ListMatches)
 

@@ -52,7 +52,7 @@
                       </div>
                     </div>
                     <div class="participant bottom"
-                         [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD'"
+                         [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD' || getParticipant2Display(match) === 'BYE'"
                          [class.forfeited]="isParticipant2Forfeited(match)"
                          [class.winner]="isWinner(match, getParticipant2Id(match))">
                       <span class="seed-cell">{{ getSeed2(match) || '' }}</span>

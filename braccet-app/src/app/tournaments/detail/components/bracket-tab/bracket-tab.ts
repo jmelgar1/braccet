@@ -1,6 +1,6 @@
 import { Component, input, computed, inject, signal, effect, ViewChild, output } from '@angular/core';
 import { Tournament, Participant } from '../../../../models/tournament.model';
-import { BracketGeneratorService, BracketPreview } from '../../../../services/bracket-generator.service';
+import { BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
 import { TournamentService } from '../../../../services/tournament.service';
 import { BracketState, BracketStage, Match, BracketType } from '../../../../models/bracket.model';
@@ -15,7 +15,6 @@ import { EditStageModal } from '../../../../components/edit-stage-modal/edit-sta
   templateUrl: './bracket-tab.html'
 })
 export class BracketTab {
-  private bracketGenerator = inject(BracketGeneratorService);
   private bracketService = inject(BracketService);
   private tournamentService = inject(TournamentService);
 
@@ -30,6 +29,11 @@ export class BracketTab {
   bracketState = signal<BracketState | null>(null);
   loadingBracket = signal(false);
   bracketError = signal('');
+
+  // Preview state (loaded from backend API)
+  previewState = signal<BracketPreview | null>(null);
+  loadingPreview = signal(false);
+  previewError = signal('');
   endingTournament = signal(false);
 
   // Modal state
@@ -74,25 +78,16 @@ export class BracketTab {
     return t.format === 'double_elimination';
   });
 
-  // Preview is generated client-side from participants
+  // Preview loaded from backend API (same logic as actual bracket generation)
   preview = computed<BracketPreview | null>(() => {
     const t = this.tournament();
-    const p = this.participants();
 
     // Only show preview if tournament is not in_progress/completed (no real bracket yet)
     if (t.status === 'in_progress' || t.status === 'completed') {
       return null;
     }
 
-    if (p.length < 2) {
-      return null;
-    }
-
-    // Generate appropriate preview based on format
-    if (t.format === 'double_elimination') {
-      return this.bracketGenerator.generateDoubleElimPreview(p);
-    }
-    return this.bracketGenerator.generatePreview(p);
+    return this.previewState();
   });
 
   isPreviewMode = computed(() => {
@@ -126,6 +121,44 @@ export class BracketTab {
       // Only reload if key > 0 (not initial) and bracket is active
       if (key > 0 && (t.status === 'in_progress' || t.status === 'completed')) {
         this.loadBracket(t.id);
+      }
+    });
+
+    // Load preview from backend when tournament is in draft/registration mode
+    effect(() => {
+      const t = this.tournament();
+      const p = this.participants();
+
+      // Only load preview if tournament is not in_progress/completed
+      if (t.status === 'in_progress' || t.status === 'completed') {
+        this.previewState.set(null);
+        return;
+      }
+
+      // Need at least 2 participants
+      if (p.length < 2) {
+        this.previewState.set(null);
+        return;
+      }
+
+      this.loadPreview(t.id, t.format, p);
+    });
+  }
+
+  private loadPreview(tournamentId: number, format: string, participants: Participant[]): void {
+    this.loadingPreview.set(true);
+    this.previewError.set('');
+
+    const bracketFormat = format === 'double_elimination' ? 'double_elimination' : 'single_elimination';
+
+    this.bracketService.getPreview(tournamentId, bracketFormat, participants).subscribe({
+      next: (preview) => {
+        this.previewState.set(preview);
+        this.loadingPreview.set(false);
+      },
+      error: (err) => {
+        this.previewError.set(err.error?.error || 'Failed to load preview');
+        this.loadingPreview.set(false);
       }
     });
   }
