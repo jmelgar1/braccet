@@ -10,6 +10,7 @@ export interface Tournament {
   format: 'single_elimination' | 'double_elimination';
   status: 'registration' | 'in_progress' | 'completed' | 'cancelled';
   max_participants?: number;
+  participant_count?: number;
   registration_open: boolean;
   starts_at?: string;
   starts_at_tentative: boolean;

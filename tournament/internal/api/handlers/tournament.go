@@ -72,6 +72,7 @@ type TournamentResponse struct {
 	Format           string  `json:"format"`
 	Status           string  `json:"status"`
 	MaxParticipants  *uint   `json:"max_participants,omitempty"`
+	ParticipantCount *int    `json:"participant_count,omitempty"`
 	RegistrationOpen bool    `json:"registration_open"`
 	StartsAt         *string `json:"starts_at,omitempty"`
 	CreatedAt        string  `json:"created_at"`
@@ -145,7 +146,13 @@ func (h *TournamentHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	response := make([]TournamentResponse, len(tournaments))
 	for i, t := range tournaments {
-		response[i] = toTournamentResponse(t)
+		resp := toTournamentResponse(t)
+		// Fetch participant count for each tournament
+		count, err := h.participantRepo.CountByTournament(r.Context(), t.ID)
+		if err == nil {
+			resp.ParticipantCount = &count
+		}
+		response[i] = resp
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -169,7 +176,13 @@ func (h *TournamentHandler) ListByCommunity(w http.ResponseWriter, r *http.Reque
 
 	response := make([]TournamentResponse, len(tournaments))
 	for i, t := range tournaments {
-		response[i] = toTournamentResponse(t)
+		resp := toTournamentResponse(t)
+		// Fetch participant count for each tournament
+		count, err := h.participantRepo.CountByTournament(r.Context(), t.ID)
+		if err == nil {
+			resp.ParticipantCount = &count
+		}
+		response[i] = resp
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -352,8 +365,11 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		// When starting a tournament, link participants to community members
+		// When starting a tournament, link participants to community members and close registration
 		if newStatus == domain.StatusInProgress && tournament.Status == domain.StatusRegistration {
+			// Automatically close registration when starting
+			tournament.RegistrationOpen = false
+
 			if tournament.CommunityID != nil {
 				if err := h.linkParticipantsToCommunity(r.Context(), tournament); err != nil {
 					log.Printf("Error linking participants to community: %v", err)
@@ -362,12 +378,21 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// Close registration for any non-registration status
+		if newStatus != domain.StatusRegistration {
+			tournament.RegistrationOpen = false
+		}
 		tournament.Status = newStatus
 	}
 	if req.MaxParticipants != nil {
 		tournament.MaxParticipants = req.MaxParticipants
 	}
 	if req.RegistrationOpen != nil {
+		// Only allow opening registration if tournament is in registration status
+		if *req.RegistrationOpen && tournament.Status != domain.StatusRegistration {
+			writeError(w, http.StatusBadRequest, "cannot open registration for a tournament that is not in registration status")
+			return
+		}
 		tournament.RegistrationOpen = *req.RegistrationOpen
 	}
 	if req.StartsAt != nil {

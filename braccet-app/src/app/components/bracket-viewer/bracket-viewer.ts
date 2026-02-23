@@ -14,7 +14,7 @@ interface BracketData {
 @Component({
   selector: 'app-bracket-viewer',
   templateUrl: './bracket-viewer.html',
-  styleUrl: './bracket-viewer.css'
+  styleUrls: ['../shared/bracket-common.css', './bracket-viewer.css']
 })
 export class BracketViewer implements AfterViewInit, OnDestroy {
   // ViewChild references for panzoom
@@ -78,7 +78,7 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     });
 
     const panzoomConfig = {
-      minScale: 0.25,
+      minScale: 0.1,  // Lowered to allow larger brackets to fit
       maxScale: 3,
       excludeClass: 'panzoom-exclude',
       cursor: 'grab',
@@ -197,15 +197,18 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     const grid = this.bracketGridRef.nativeElement;
     const container = this.containerRef.nativeElement;
 
-    // For single elimination, fit to width - the bracket is horizontal
-    // Use scrollWidth to get the full content width
+    // Scale to fit full bracket width in viewport
     const scaleX = container.clientWidth / grid.scrollWidth;
+    const fitScale = Math.max(scaleX, 0.1);  // Lower minimum for large brackets
 
-    // Clamp to minScale
-    const minScale = 0.25;
-    const fitScale = Math.max(scaleX, minScale);
+    // Calculate pan to position top-left at (0, 0)
+    // With transform-origin at center, scaling shifts the top-left corner
+    // Formula: pan = dimension * (scale - 1) / (2 * scale)
+    const panX = grid.scrollWidth * (fitScale - 1) / (2 * fitScale);
+    const panY = grid.scrollHeight * (fitScale - 1) / (2 * fitScale);
 
     this.panzoomInstance.zoom(fitScale, { animate: false });
+    this.panzoomInstance.pan(panX, panY, { animate: false });
   }
 
   getZoomPercent(): string {
@@ -380,11 +383,29 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     if ('isBye' in match) {
       return match.isBye;
     }
-    // For actual Match: BYE only occurs in round 1 when exactly one participant has an ID
-    // Later rounds with one participant are just waiting for opponent (TBD), not BYE
+
+    const bt = this.bracketType();
+
+    // Grand final is never a BYE
+    if (bt === 'grand_final') {
+      return false;
+    }
+
+    // For actual Match: BYE only occurs in round 1
     if (match.round !== 1) {
       return false;
     }
+
+    // For losers bracket round 1: check if participant2_name is "BYE"
+    // (backend always puts BYE in slot 2 for losers bracket)
+    if (bt === 'losers') {
+      if ('participant2_name' in match && match.participant2_name === 'BYE') {
+        return true;
+      }
+      return false;
+    }
+
+    // For winners bracket round 1: BYE when exactly one participant has an ID
     // Note: backend uses omitempty, so missing participant won't have the property at all
     const hasP1 = 'participant1_id' in match && match.participant1_id != null;
     const hasP2 = 'participant2_id' in match && match.participant2_id != null;
@@ -486,10 +507,10 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     return false;
   }
 
-  // Check if action area should be shown (not TBD, and not preview; BYE matches show "BYE" label)
+  // Check if action area should be shown (not TBD, not preview, not BYE)
   showActionArea(match: DisplayMatch): boolean {
     if (this.isPreview()) return false;
-    if (this.isBye(match)) return true;
+    if (this.isBye(match)) return false;
     return !this.isMatchTBD(match);
   }
 

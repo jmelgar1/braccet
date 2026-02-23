@@ -314,6 +314,7 @@ func (s *matchService) advanceLoser(ctx context.Context, completedMatch *domain.
 
 // advanceParticipantToMatch places a participant into a specified match slot.
 // isLoser determines slot assignment for double elimination brackets.
+// If the target match has a BYE in the other slot, the participant auto-advances.
 func (s *matchService) advanceParticipantToMatch(ctx context.Context, sourceMatch *domain.Match, participantID uint64, targetMatchID uint64, isLoser bool) error {
 	targetMatch, err := s.repo.GetByID(ctx, targetMatchID)
 	if err != nil {
@@ -353,13 +354,33 @@ func (s *matchService) advanceParticipantToMatch(ctx context.Context, sourceMatc
 		return err
 	}
 
-	// Refresh target match to check if both participants are now set
+	// Refresh target match to check current state
 	targetMatch, err = s.repo.GetByID(ctx, targetMatch.ID)
 	if err != nil {
 		return err
 	}
 
-	// If both participants are set, mark as ready
+	// Check if the other slot is a BYE (name == "BYE" and ID == nil)
+	otherSlotIsBye := s.isSlotBye(targetMatch, 3-slot) // 3-slot gives us the other slot (1->2, 2->1)
+
+	if otherSlotIsBye {
+		// Auto-advance: this participant wins the match immediately
+		if err := s.repo.UpdateResult(ctx, targetMatch.ID, participantID); err != nil {
+			return err
+		}
+
+		// Advance winner to next match if there is one
+		if targetMatch.NextMatchID != nil {
+			// Update targetMatch with winner info for advanceWinner
+			targetMatch.WinnerID = &participantID
+			if err := s.advanceWinner(ctx, targetMatch, participantID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// If both participants are set (no BYE), mark as ready
 	if targetMatch.Participant1ID != nil && targetMatch.Participant2ID != nil {
 		if err := s.repo.UpdateStatus(ctx, targetMatch.ID, domain.MatchReady); err != nil {
 			return err
@@ -369,10 +390,28 @@ func (s *matchService) advanceParticipantToMatch(ctx context.Context, sourceMatc
 	return nil
 }
 
+// isSlotBye checks if a specific slot in a match is a BYE.
+// A slot is a BYE if it has the name "BYE" and no participant ID.
+func (s *matchService) isSlotBye(match *domain.Match, slot int) bool {
+	if slot == 1 {
+		return match.Participant1ID == nil &&
+			match.Participant1Name != nil &&
+			*match.Participant1Name == "BYE"
+	}
+	return match.Participant2ID == nil &&
+		match.Participant2Name != nil &&
+		*match.Participant2Name == "BYE"
+}
+
 // determineSlot determines which slot (1 or 2) a participant should occupy in the target match.
 func (s *matchService) determineSlot(sourceMatch, targetMatch *domain.Match, isLoser bool) int {
 	// For losers advancing to losers bracket from winners bracket
 	if isLoser && sourceMatch.BracketType == domain.BracketWinners {
+		// Check if target match has a BYE in slot 2 - if so, real loser goes to slot 1
+		if s.isSlotBye(targetMatch, 2) {
+			return 1
+		}
+
 		// W-R1 losers face each other in L-R1: use position parity
 		if sourceMatch.Round == 1 {
 			if sourceMatch.Position%2 == 1 {
@@ -380,11 +419,20 @@ func (s *matchService) determineSlot(sourceMatch, targetMatch *domain.Match, isL
 			}
 			return 2
 		}
-		// W-R(N>1) losers drop into L-R(2*(N-1)) as slot 2 (facing L-bracket winners)
-		return 2
+		// W-R(N>1) losers drop into even losers rounds as slot 1 (top)
+		// They face advancing losers bracket winners in slot 2 (bottom)
+		return 1
 	}
 
-	// For winners advancing within winners bracket or losers bracket
+	// For winners advancing within losers bracket to even rounds (drop-in rounds)
+	// They should fill slot 2 (bottom), letting the drop-in fill slot 1 (top)
+	if sourceMatch.BracketType == domain.BracketLosers && targetMatch.BracketType == domain.BracketLosers {
+		if targetMatch.Round%2 == 0 {
+			return 2
+		}
+	}
+
+	// For winners advancing within winners bracket or losers bracket (odd rounds)
 	// Standard rule: odd positions go to slot 1, even positions go to slot 2
 	if sourceMatch.Position%2 == 1 {
 		return 1
@@ -592,6 +640,58 @@ func (s *matchService) reopenMatchCascade(ctx context.Context, match *domain.Mat
 			// Update next match status
 			if err := s.updateMatchStatusAfterClear(ctx, *match.NextMatchID); err != nil {
 				return err
+			}
+		}
+	}
+
+	// For double elimination: cascade the loser to losers bracket
+	if match.BracketType == domain.BracketWinners && match.LoserMatchID != nil && match.WinnerID != nil {
+		loserID := s.getLoserID(match, *match.WinnerID)
+		if loserID != 0 {
+			loserMatch, err := s.repo.GetByID(ctx, *match.LoserMatchID)
+			if err != nil {
+				return err
+			}
+
+			// Determine which slot the loser occupied in loser match
+			// W-R1 losers: position parity (odd → slot 1, even → slot 2)
+			// W-R(N>1) losers: always slot 1 (top)
+			var loserSlot int
+			if match.Round == 1 {
+				if match.Position%2 == 1 {
+					loserSlot = 1
+				} else {
+					loserSlot = 2
+				}
+			} else {
+				loserSlot = 1
+			}
+
+			// Check if loser was actually placed in loser match
+			loserInLoserMatch := false
+			if loserSlot == 1 && loserMatch.Participant1ID != nil && *loserMatch.Participant1ID == loserID {
+				loserInLoserMatch = true
+			} else if loserSlot == 2 && loserMatch.Participant2ID != nil && *loserMatch.Participant2ID == loserID {
+				loserInLoserMatch = true
+			}
+
+			if loserInLoserMatch {
+				// If loser match was completed, recursively reopen it first
+				if loserMatch.Status == domain.MatchCompleted {
+					if err := s.reopenMatchCascade(ctx, loserMatch, reopened); err != nil {
+						return err
+					}
+				}
+
+				// Clear the participant slot in loser match
+				if err := s.repo.ClearParticipant(ctx, *match.LoserMatchID, loserSlot); err != nil {
+					return err
+				}
+
+				// Update loser match status
+				if err := s.updateMatchStatusAfterClear(ctx, *match.LoserMatchID); err != nil {
+					return err
+				}
 			}
 		}
 	}

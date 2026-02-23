@@ -301,9 +301,9 @@ func (r *matchRepository) ReopenMatch(ctx context.Context, matchID uint64) error
 func (r *matchRepository) ClearParticipant(ctx context.Context, matchID uint64, slot int) error {
 	var query string
 	if slot == 1 {
-		query = `UPDATE matches SET participant1_id = NULL, participant1_name = NULL, participant1_icon_url = NULL WHERE id = $1`
+		query = `UPDATE matches SET participant1_id = NULL, participant1_name = NULL, participant1_icon_url = NULL, seed1 = NULL WHERE id = $1`
 	} else {
-		query = `UPDATE matches SET participant2_id = NULL, participant2_name = NULL, participant2_icon_url = NULL WHERE id = $1`
+		query = `UPDATE matches SET participant2_id = NULL, participant2_name = NULL, participant2_icon_url = NULL, seed2 = NULL WHERE id = $1`
 	}
 
 	res, err := r.db.ExecContext(ctx, query, matchID)

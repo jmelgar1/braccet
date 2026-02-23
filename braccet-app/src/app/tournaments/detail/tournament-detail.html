@@ -7,14 +7,14 @@
         <div class="text-gray-500">Loading tournament...</div>
       </div>
     } @else if (error()) {
-      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6 text-sm">
+      <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-6 text-sm">
         {{ error() }}
       </div>
     } @else if (tournament()) {
       <!-- Tournament Info Card with Header -->
-      <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-4">
+      <div class="bg-white rounded-lg shadow border border-gray-200 px-4 py-2 mb-4">
         <!-- Card Header: Name, Status, Start Button -->
-        <div class="flex justify-between items-center mb-3 pb-3 border-b border-gray-200">
+        <div class="flex justify-between items-center mb-2 pb-2 border-b border-gray-200">
           <div class="flex items-center gap-3">
             <h1 class="text-xl font-bold text-gray-900">{{ tournament()!.name }}</h1>
             <span [class]="'px-2 py-0.5 rounded-full text-xs font-medium ' + getStatusColor(tournament()!.status)">
@@ -25,7 +25,7 @@
             <button
               (click)="startTournament()"
               [disabled]="startingTournament()"
-              class="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
+              class="px-4 py-1.5 bg-green-400 text-gray-900 rounded-lg hover:bg-green-500 disabled:opacity-50 text-sm font-medium">
               @if (startingTournament()) {
                 Starting...
               } @else {
@@ -41,7 +41,7 @@
             <div class="flex items-center gap-2">
               <span class="text-gray-500">Community:</span>
               <a [routerLink]="['/communities', community()!.slug]"
-                 class="font-medium text-blue-600 hover:text-blue-800">
+                 class="font-medium text-blue-400 hover:text-blue-500">
                 {{ community()!.name }}
               </a>
             </div>
@@ -91,7 +91,7 @@
 
           <div class="flex items-center gap-2">
             <span class="text-gray-500">Registration:</span>
-            <span [class]="'font-medium ' + (tournament()!.registration_open ? 'text-green-600' : 'text-gray-900')">
+            <span [class]="'font-medium ' + (tournament()!.registration_open ? 'text-green-400' : 'text-gray-900')">
               {{ tournament()!.registration_open ? 'Open' : 'Closed' }}
             </span>
           </div>

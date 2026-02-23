@@ -17,7 +17,7 @@
         <button
           (click)="selfRegister()"
           [disabled]="addingParticipant()"
-          class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
+          class="px-4 py-2 bg-green-400 text-gray-900 rounded-lg hover:bg-green-500 disabled:opacity-50 text-sm font-medium">
           @if (addingParticipant()) {
             Joining...
           } @else {
@@ -29,7 +29,7 @@
       @if (currentUserParticipant() && !isOrganizer()) {
         <button
           (click)="leaveTournament()"
-          class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium">
+          class="px-4 py-2 bg-red-400 text-gray-900 rounded-lg hover:bg-red-500 text-sm font-medium">
           Leave Tournament
         </button>
       }
@@ -38,7 +38,7 @@
 
   <!-- Error message -->
   @if (error()) {
-    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
+    <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-4 text-sm">
       {{ error() }}
     </div>
   }
@@ -73,7 +73,7 @@
           <!-- Selected member indicator -->
           @if (selectedMember() && !isSearching()) {
             <div class="absolute right-3 top-1/2 -translate-y-1/2">
-              <span class="text-green-600 text-xs font-medium">Existing member</span>
+              <span class="text-green-400 text-xs font-medium">Existing member</span>
             </div>
           }
 
@@ -95,7 +95,7 @@
         <button
           (click)="addParticipant()"
           [disabled]="!newParticipantName.trim() || addingParticipant()"
-          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium whitespace-nowrap">
+          class="px-4 py-2 bg-blue-400 text-gray-900 rounded-lg hover:bg-blue-500 disabled:opacity-50 text-sm font-medium whitespace-nowrap">
           @if (addingParticipant()) {
             Adding...
           } @else {
@@ -129,33 +129,33 @@
               @if (participant.icon_url) {
                 <img [src]="participant.icon_url" [alt]="participant.display_name" class="w-8 h-8 rounded-full object-cover" />
               } @else {
-                <span class="w-8 h-8 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full text-sm font-semibold">
+                <span class="w-8 h-8 flex items-center justify-center bg-blue-100 text-blue-400 rounded-full text-sm font-semibold">
                   {{ participant.display_name.charAt(0).toUpperCase() }}
                 </span>
               }
               <span class="flex-1 text-gray-900">
                 {{ participant.display_name }}
                 @if (participant.region) {
-                  <span class="text-xs text-blue-600 ml-1">[{{ participant.region }}]</span>
+                  <span class="text-xs text-blue-400 ml-1">[{{ participant.region }}]</span>
                 }
                 @if (participant.elo_rating) {
                   <span class="text-xs text-gray-500 ml-1">({{ participant.elo_rating }})</span>
                 }
                 @if (participant.user_id === authService.user()?.id) {
-                  <span class="text-xs text-blue-600 ml-1">(You)</span>
+                  <span class="text-xs text-blue-400 ml-1">(You)</span>
                 }
               </span>
               <span class="px-2 py-1 text-xs rounded-full"
                     [class.bg-gray-100]="participant.status !== 'withdrawn'"
                     [class.text-gray-700]="participant.status !== 'withdrawn'"
                     [class.bg-red-100]="participant.status === 'withdrawn'"
-                    [class.text-red-700]="participant.status === 'withdrawn'">
+                    [class.text-red-400]="participant.status === 'withdrawn'">
                 {{ participant.status }}
               </span>
               @if (canEdit(participant)) {
                 <button
                   (click)="openEditModal(participant); $event.stopPropagation()"
-                  class="text-blue-600 hover:text-blue-800 text-sm ml-2">
+                  class="text-blue-400 hover:text-blue-500 text-sm ml-2">
                   Edit
                 </button>
               }
@@ -169,7 +169,7 @@
               @if (tournament().status === 'registration') {
                 <button
                   (click)="removeParticipant(participant); $event.stopPropagation()"
-                  class="text-red-600 hover:text-red-800 text-sm ml-2">
+                  class="text-red-400 hover:text-red-500 text-sm ml-2">
                   Remove
                 </button>
               }
@@ -198,20 +198,20 @@
                       @if (participant.icon_url) {
                         <img [src]="participant.icon_url" [alt]="participant.display_name" class="w-6 h-6 rounded-full object-cover" />
                       } @else {
-                        <span class="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                        <span class="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-400 rounded-full text-xs font-semibold">
                           {{ participant.display_name.charAt(0).toUpperCase() }}
                         </span>
                       }
                       <span>
                         {{ participant.display_name }}
                         @if (participant.region) {
-                          <span class="text-xs text-blue-600 ml-1">[{{ participant.region }}]</span>
+                          <span class="text-xs text-blue-400 ml-1">[{{ participant.region }}]</span>
                         }
                         @if (participant.elo_rating) {
                           <span class="text-xs text-gray-500 ml-1">({{ participant.elo_rating }})</span>
                         }
                         @if (participant.user_id === authService.user()?.id) {
-                          <span class="text-xs text-blue-600 ml-1">(You)</span>
+                          <span class="text-xs text-blue-400 ml-1">(You)</span>
                         }
                       </span>
                     </div>
@@ -221,7 +221,7 @@
                           [class.bg-gray-100]="participant.status !== 'withdrawn'"
                           [class.text-gray-700]="participant.status !== 'withdrawn'"
                           [class.bg-red-100]="participant.status === 'withdrawn'"
-                          [class.text-red-700]="participant.status === 'withdrawn'">
+                          [class.text-red-400]="participant.status === 'withdrawn'">
                       {{ participant.status }}
                     </span>
                   </td>

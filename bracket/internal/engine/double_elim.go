@@ -60,6 +60,9 @@ func DoubleElimination(tournamentID uint64, participants []domain.Participant) (
 		}
 	}
 
+	// Process byes in losers bracket round 1 (based on W-R1 BYEs)
+	processLosersBracketByes(winnersMatches, losersMatches)
+
 	return allMatches, nil
 }
 
@@ -345,10 +348,17 @@ func linkWinnersToLosers(winners, losers []*domain.Match) {
 					losersSlot = 2
 				}
 			} else {
-				// W-R(N>1): Losers drop into L-R(2*(N-1)) as slot 2
-				// They face winners advancing from previous losers round
-				losersMatchIdx = i
-				losersSlot = 2
+				// W-R(N>1): Losers drop into L-R(2*(N-1)) as slot 1 (top)
+				// Alternating pattern to avoid rematches:
+				// - Even winners rounds (2, 4, 6...): flip index (opposite side)
+				// - Odd winners rounds (3, 5, 7...): same index (respective side)
+				shouldFlip := winnersRound%2 == 0
+				if shouldFlip {
+					losersMatchIdx = len(losersMatches) - 1 - i
+				} else {
+					losersMatchIdx = i
+				}
+				losersSlot = 1
 			}
 
 			if losersMatchIdx < len(losersMatches) {
@@ -417,6 +427,70 @@ func getMatchByRoundAndPosition(matches []*domain.Match, round, position int) *d
 	return nil
 }
 
+// processLosersBracketByes marks L-R1 slots as BYEs based on W-R1 BYE matches.
+// When a W-R1 match is a BYE (one participant missing), no loser drops down,
+// creating a corresponding BYE in the losers bracket.
+//
+// BYEs are always placed in slot 2 (bottom) for consistent display.
+// The real loser will be placed in slot 1 (top) when they drop in.
+//
+// Mapping: L-R1 match at position P receives losers from:
+//   - W-R1 match (2P-1) → normally slot 1
+//   - W-R1 match (2P)   → normally slot 2
+func processLosersBracketByes(winners, losers []*domain.Match) {
+	winnersR1 := getMatchesByRound(winners, 1)
+	losersR1 := getMatchesByRound(losers, 1)
+
+	if len(winnersR1) == 0 || len(losersR1) == 0 {
+		return
+	}
+
+	for _, lMatch := range losersR1 {
+		// L-R1 match at position P receives losers from W-R1 matches (2P-1) and (2P)
+		slot1WIdx := 2*lMatch.Position - 2 // 0-indexed
+		slot2WIdx := 2*lMatch.Position - 1
+
+		var slot1IsBye, slot2IsBye bool
+
+		if slot1WIdx < len(winnersR1) {
+			slot1IsBye = isByeMatch(winnersR1[slot1WIdx])
+		}
+		if slot2WIdx < len(winnersR1) {
+			slot2IsBye = isByeMatch(winnersR1[slot2WIdx])
+		}
+
+		if slot1IsBye && slot2IsBye {
+			// Both slots are BYEs - match is empty, mark completed with no winner
+			lMatch.Status = domain.MatchCompleted
+		} else if slot1IsBye || slot2IsBye {
+			// One BYE - always put it in slot 2 (bottom) for consistent display
+			// The real loser will go to slot 1 (top) when they drop in
+			byeName := "BYE"
+			lMatch.Participant2Name = &byeName
+		}
+	}
+}
+
+// isByeMatch returns true if the match was a BYE (completed with one participant missing).
+func isByeMatch(m *domain.Match) bool {
+	return m.Status == domain.MatchCompleted &&
+		(m.Participant1ID == nil || m.Participant2ID == nil)
+}
+
+// getMatchesByRound returns matches for a specific round, sorted by position.
+func getMatchesByRound(matches []*domain.Match, round int) []*domain.Match {
+	var result []*domain.Match
+	for _, m := range matches {
+		if m.Round == round {
+			result = append(result, m)
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Position < result[j].Position
+	})
+	return result
+}
+
 // GetDoubleElimBracketState builds a BracketState summary from a list of matches for double elimination.
 func GetDoubleElimBracketState(tournamentID uint64, matches []*domain.Match) *BracketState {
 	if len(matches) == 0 {
@@ -473,7 +547,7 @@ func DetermineLoserSlot(winnersMatch *domain.Match, losersRound int) int {
 		return 2
 	}
 
-	// For W-R(N>1) losers entering L-R(2*(N-1)) (minor/drop-in round):
-	// They always enter as slot 2 (facing L-bracket winners in slot 1)
-	return 2
+	// For W-R(N>1) losers entering L-R(2*(N-1)) (drop-in round):
+	// They always enter as slot 1 (top), with L-bracket winners in slot 2 (bottom)
+	return 1
 }

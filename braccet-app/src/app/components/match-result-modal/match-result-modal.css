@@ -176,8 +176,8 @@
   justify-content: flex-end;
   gap: 0.75rem;
   padding: 1rem 1.25rem;
-  border-top: 1px solid #e5e7eb;
-  background: #f9fafb;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
   border-radius: 0 0 0.5rem 0.5rem;
 }
 
@@ -208,14 +208,14 @@
   font-weight: 500;
   border: none;
   border-radius: 0.375rem;
-  background: #3b82f6;
-  color: white;
+  background: var(--btn-blue);
+  color: var(--btn-text);
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #2563eb;
+  background: var(--btn-blue-hover);
 }
 
 .btn-primary:disabled {
@@ -230,7 +230,7 @@
   justify-content: space-between;
   margin-bottom: 1rem;
   padding: 0.75rem;
-  background: #f9fafb;
+  background: var(--bg-secondary);
   border-radius: 0.5rem;
 }
 
@@ -282,7 +282,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
-  background: #f9fafb;
+  background: var(--bg-secondary);
   border-radius: 0.375rem;
 }
 
@@ -308,7 +308,7 @@
 
 .score-input.winner {
   border-color: #22c55e;
-  background: #f0fdf4;
+  border-width: 2px;
 }
 
 .remove-set-btn {
@@ -347,9 +347,9 @@
 }
 
 .add-set-btn:hover:not(:disabled) {
-  border-color: #3b82f6;
-  color: #3b82f6;
-  background: #eff6ff;
+  border-color: var(--btn-blue);
+  color: var(--btn-blue);
+  background: var(--bg-surface);
 }
 
 .add-set-btn:disabled {

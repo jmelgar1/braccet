@@ -16,7 +16,7 @@ interface BracketData {
   standalone: true,
   imports: [BracketViewer],
   templateUrl: './double-elim-bracket.html',
-  styleUrl: './double-elim-bracket.css'
+  styleUrls: ['../shared/bracket-common.css', './double-elim-bracket.css']
 })
 export class DoubleElimBracket implements AfterViewInit, OnDestroy {
   // ViewChild references for panzoom
@@ -256,7 +256,7 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
     });
 
     const panzoomConfig = {
-      minScale: 0.25,
+      minScale: 0.1,  // Lowered to allow larger brackets to fit
       maxScale: 3,
       excludeClass: 'panzoom-exclude',
       cursor: 'grab',
@@ -401,33 +401,24 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
       boundingRect: container.getBoundingClientRect()
     });
 
-    // Calculate scale to fit entire bracket in view
+    // Scale to fit full bracket width in viewport
     const scaleX = container.clientWidth / content.scrollWidth;
-    const scaleY = container.clientHeight / content.scrollHeight;
-    const fitScale = Math.min(scaleX, scaleY);
+    const fitScale = Math.max(scaleX, 0.1);  // Lower minimum for large brackets
 
     console.log('[DoubleElimBracket] fitToView() - Scale calculations:', {
       scaleX,
-      scaleY,
-      fitScale,
-      minScaleUsed: fitScale === scaleX ? 'scaleX' : 'scaleY'
+      fitScale
     });
 
-    // Use width-based scale if height-based would be below minScale (0.25)
-    const minScale = 0.25;
-    const actualFitScale = fitScale < minScale ? scaleX : fitScale;
+    // Calculate pan to position top-left at (0, 0)
+    // With transform-origin at center, scaling shifts the top-left corner
+    // Formula: pan = dimension * (scale - 1) / (2 * scale)
+    const panX = content.scrollWidth * (fitScale - 1) / (2 * fitScale);
+    const panY = content.scrollHeight * (fitScale - 1) / (2 * fitScale);
 
-    console.log('[DoubleElimBracket] fitToView() - Actual fit scale:', {
-      minScale,
-      fitScaleBelowMin: fitScale < minScale,
-      actualFitScale,
-      usedScaleType: fitScale < minScale ? 'scaleX (fallback)' : 'fitScale'
-    });
-
-    // Only apply zoom - panzoom automatically centers the view when zooming,
-    // which positions the bracket correctly without needing manual pan
-    console.log('[DoubleElimBracket] fitToView() - Applying zoom:', actualFitScale);
-    this.panzoomInstance.zoom(actualFitScale, { animate: false });
+    console.log('[DoubleElimBracket] fitToView() - Applying zoom:', fitScale, 'pan:', { panX, panY });
+    this.panzoomInstance.zoom(fitScale, { animate: false });
+    this.panzoomInstance.pan(panX, panY, { animate: false });
     console.log('[DoubleElimBracket] fitToView() - Complete');
   }
 

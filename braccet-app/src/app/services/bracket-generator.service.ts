@@ -306,6 +306,9 @@ export class BracketGeneratorService {
     // Advance BYE winners in winners bracket only
     this.advanceByeWinners(matches.filter(m => m.bracket_type === 'winners'));
 
+    // Mark losers bracket round 1 BYEs based on winners bracket BYEs
+    this.markLosersBracketByes(matches);
+
     return {
       format: 'double_elimination',
       totalRounds: winnersRounds,
@@ -348,6 +351,47 @@ export class BracketGeneratorService {
         nextMatch.participant2Name = winnerName;
         nextMatch.participant2IconURL = winnerIconURL;
         nextMatch.seed2 = winnerSeed;
+      }
+    }
+  }
+
+  /**
+   * Marks losers bracket round 1 BYEs based on winners bracket round 1 BYEs.
+   * When a W-R1 match is a BYE, no loser drops down, creating a BYE in L-R1.
+   * BYEs are always placed in slot 2 (bottom) for consistent display.
+   *
+   * Mapping: L-R1 match at position P receives losers from:
+   *   - W-R1 match (2P-1) -> normally slot 1
+   *   - W-R1 match (2P)   -> normally slot 2
+   */
+  private markLosersBracketByes(matches: PreviewMatch[]): void {
+    const winnersR1 = matches
+      .filter(m => m.bracket_type === 'winners' && m.round === 1)
+      .sort((a, b) => a.position - b.position);
+
+    const losersR1 = matches
+      .filter(m => m.bracket_type === 'losers' && m.round === 1)
+      .sort((a, b) => a.position - b.position);
+
+    if (winnersR1.length === 0 || losersR1.length === 0) {
+      return;
+    }
+
+    for (const lMatch of losersR1) {
+      // L-R1 match at position P receives losers from W-R1 matches (2P-1) and (2P)
+      const slot1WIdx = 2 * lMatch.position - 2; // 0-indexed
+      const slot2WIdx = 2 * lMatch.position - 1;
+
+      const slot1IsBye = slot1WIdx < winnersR1.length && winnersR1[slot1WIdx].isBye;
+      const slot2IsBye = slot2WIdx < winnersR1.length && winnersR1[slot2WIdx].isBye;
+
+      if (slot1IsBye && slot2IsBye) {
+        // Both slots are BYEs - match is empty (effectively completed)
+        lMatch.isBye = true;
+      } else if (slot1IsBye || slot2IsBye) {
+        // One BYE - always put it in slot 2 (bottom) for consistent display
+        lMatch.isBye = true;
+        lMatch.participant2Name = 'BYE';
       }
     }
   }

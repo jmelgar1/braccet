@@ -20,12 +20,23 @@
   --border-secondary: #6b6b6b;
 
   /* Accents (lightened for dark bg contrast) */
-  --accent-blue: #60a5fa;
-  --accent-blue-hover: #93c5fd;
-  --accent-green: #4ade80;
+  --accent-blue: #93c5fd;
+  --accent-blue-hover: #bfdbfe;
+  --accent-green: #86efac;
   --accent-green-bg: #166534;
-  --accent-red: #f87171;
+  --accent-red: #fca5a5;
   --accent-red-bg: #450a0a;
+
+  /* Button Colors (brighter for dark bg contrast - WCAG AA compliant) */
+  --btn-blue: #93c5fd;
+  --btn-blue-hover: #bfdbfe;
+  --btn-green: #86efac;
+  --btn-green-hover: #bbf7d0;
+  --btn-red: #fca5a5;
+  --btn-red-hover: #fecaca;
+  --btn-orange: #fdba74;
+  --btn-orange-hover: #fed7aa;
+  --btn-text: #1f2937;
 
   /* Overlay */
   --overlay-bg: rgba(0, 0, 0, 0.7);
@@ -47,6 +58,16 @@
   --color-gray-700: var(--text-secondary);
   --color-gray-800: var(--text-primary);
   --color-gray-900: var(--text-primary);
+
+  /* Button color overrides for dark theme contrast */
+  --color-blue-400: var(--btn-blue);
+  --color-blue-500: var(--btn-blue-hover);
+  --color-green-400: var(--btn-green);
+  --color-green-500: var(--btn-green-hover);
+  --color-red-400: var(--btn-red);
+  --color-red-500: var(--btn-red-hover);
+  --color-orange-600: var(--btn-orange);
+  --color-orange-800: var(--btn-orange-hover);
 }
 
 body {

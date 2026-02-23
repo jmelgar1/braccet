@@ -5,7 +5,7 @@
       <h1 class="text-2xl font-bold text-gray-900">Tournaments</h1>
       <button
         (click)="onCreateTournament()"
-        class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg transition-colors">
+        class="bg-blue-400 hover:bg-blue-500 text-gray-900 font-medium px-4 py-2 rounded-lg transition-colors">
         Create Tournament
       </button>
     </div>
@@ -19,7 +19,7 @@
 
     <!-- Error state -->
     @if (error()) {
-      <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+      <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-4">
         {{ error() }}
       </div>
     }
@@ -36,34 +36,76 @@
           @for (tournament of tournaments(); track tournament.id) {
             <div class="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow cursor-pointer"
                  (click)="onTournamentClick(tournament.slug)">
-              <div class="flex justify-between items-start">
-                <div>
+              <!-- Header: Name and Status -->
+              <div class="flex justify-between items-start mb-2">
+                <div class="flex items-center gap-3">
                   <h2 class="text-lg font-semibold text-gray-900">{{ tournament.name }}</h2>
-                  @if (tournament.description) {
-                    <p class="text-gray-600 text-sm mt-1">{{ tournament.description }}</p>
-                  }
-                  <div class="flex gap-4 mt-2 text-sm text-gray-500">
-                    <span class="capitalize">{{ tournament.format.replace('_', ' ') }}</span>
-                    <span class="px-2 py-0.5 rounded-full text-xs font-medium"
-                          [class]="tournament.status === 'registration' ? 'bg-blue-100 text-blue-700' :
-                                   tournament.status === 'in_progress' ? 'bg-green-100 text-green-700' :
-                                   tournament.status === 'completed' ? 'bg-purple-100 text-purple-700' :
-                                   'bg-red-100 text-red-700'">
-                      {{ tournament.status.replace('_', ' ') }}
+                  <span class="px-2 py-0.5 rounded-full text-xs font-medium"
+                        [class]="tournament.status === 'registration' ? 'bg-blue-100 text-blue-400' :
+                                 tournament.status === 'in_progress' ? 'bg-green-100 text-green-400' :
+                                 tournament.status === 'completed' ? 'bg-purple-100 text-purple-400' :
+                                 'bg-red-100 text-red-400'">
+                    {{ tournament.status.replace('_', ' ') }}
+                  </span>
+                </div>
+                <button
+                  (click)="deleteTournament(tournament.slug, tournament.name, $event)"
+                  class="text-red-400 hover:text-red-500 text-sm font-medium">
+                  Delete
+                </button>
+              </div>
+
+              <!-- Details row -->
+              <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
+                @if (tournament.game) {
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-gray-500">Game:</span>
+                    <span class="font-medium text-gray-900">{{ tournament.game }}</span>
+                  </div>
+                }
+
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500">Format:</span>
+                  <span class="font-medium text-gray-900">
+                    {{ tournament.format === 'single_elimination' ? 'Single Elim' : 'Double Elim' }}
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500">Participants:</span>
+                  <span class="font-medium text-gray-900">
+                    {{ tournament.participant_count || 0 }}@if (tournament.max_participants) { / {{ tournament.max_participants }}}
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500">Registration:</span>
+                  <span [class]="'font-medium ' + (tournament.registration_open ? 'text-green-500' : 'text-gray-500')">
+                    {{ tournament.registration_open ? 'Open' : 'Closed' }}
+                  </span>
+                </div>
+
+                @if (tournament.starts_at) {
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-gray-500">
+                      Starts@if (tournament.starts_at_tentative) {<span class="text-yellow-600 text-xs ml-0.5">(Tentative)</span>}:
+                    </span>
+                    <span class="font-medium text-gray-900">
+                      {{ tournament.starts_at | date:'MMM d, y h:mm a' }}
                     </span>
                   </div>
-                </div>
-                <div class="flex items-center gap-3">
-                  <span class="text-sm text-gray-400">
-                    {{ tournament.created_at | date:'mediumDate' }}
-                  </span>
-                  <button
-                    (click)="deleteTournament(tournament.slug, tournament.name, $event)"
-                    class="text-red-500 hover:text-red-700 text-sm font-medium">
-                    Delete
-                  </button>
+                }
+
+                <div class="flex items-center gap-1.5 text-gray-400">
+                  <span>Created:</span>
+                  <span>{{ tournament.created_at | date:'mediumDate' }}</span>
                 </div>
               </div>
+
+              <!-- Description -->
+              @if (tournament.description) {
+                <p class="text-gray-600 text-sm mt-2 pt-2 border-t border-gray-100">{{ tournament.description }}</p>
+              }
             </div>
           }
         </div>

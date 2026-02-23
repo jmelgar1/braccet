@@ -40,40 +40,37 @@
                          [class.bye-slot]="!getParticipant1Display(match) || getParticipant1Display(match) === 'TBD'"
                          [class.forfeited]="isParticipant1Forfeited(match)"
                          [class.winner]="isWinner(match, getParticipant1Id(match))">
-                      @if (getSeed1(match)) {
-                        <span class="seed">{{ getSeed1(match) }}</span>
-                      }
-                      @if (getIconURL1(match)) {
-                        <img [src]="getIconURL1(match)" alt="" class="participant-icon" />
-                      }
-                      <span class="name">{{ getParticipant1Display(match) }}</span>
-                      @if (isParticipant1Forfeited(match)) {
-                        <span class="forfeit-badge">WD</span>
-                      }
+                      <span class="seed-cell">{{ getSeed1(match) || '' }}</span>
+                      <div class="participant-info">
+                        @if (getIconURL1(match)) {
+                          <img [src]="getIconURL1(match)" alt="" class="participant-icon" />
+                        }
+                        <span class="name">{{ getParticipant1Display(match) }}</span>
+                        @if (isParticipant1Forfeited(match)) {
+                          <span class="forfeit-badge">WD</span>
+                        }
+                      </div>
                     </div>
                     <div class="participant bottom"
                          [class.bye-slot]="!getParticipant2Display(match) || getParticipant2Display(match) === 'TBD'"
                          [class.forfeited]="isParticipant2Forfeited(match)"
                          [class.winner]="isWinner(match, getParticipant2Id(match))">
-                      @if (getSeed2(match)) {
-                        <span class="seed">{{ getSeed2(match) }}</span>
-                      }
-                      @if (getIconURL2(match)) {
-                        <img [src]="getIconURL2(match)" alt="" class="participant-icon" />
-                      }
-                      <span class="name">{{ getParticipant2Display(match) }}</span>
-                      @if (isParticipant2Forfeited(match)) {
-                        <span class="forfeit-badge">WD</span>
-                      }
+                      <span class="seed-cell">{{ getSeed2(match) || '' }}</span>
+                      <div class="participant-info">
+                        @if (getIconURL2(match)) {
+                          <img [src]="getIconURL2(match)" alt="" class="participant-icon" />
+                        }
+                        <span class="name">{{ getParticipant2Display(match) }}</span>
+                        @if (isParticipant2Forfeited(match)) {
+                          <span class="forfeit-badge">WD</span>
+                        }
+                      </div>
                     </div>
                   </div>
                   @if (showActionArea(match)) {
                     <div class="match-action"
-                         [class.completed]="isCompleted(match)"
-                         [class.bye-action]="isBye(match)">
-                      @if (isBye(match)) {
-                        <span class="bye-label">BYE</span>
-                      } @else if (isCompleted(match)) {
+                         [class.completed]="isCompleted(match)">
+                      @if (isCompleted(match)) {
                         <div class="score-display">
                           <div class="score-cell top" [class.winner]="isWinner(match, getParticipant1Id(match))">{{ getParticipant1Score(match) }}</div>
                           <div class="score-cell bottom" [class.winner]="isWinner(match, getParticipant2Id(match))">{{ getParticipant2Score(match) }}</div>

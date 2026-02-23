@@ -1,6 +1,6 @@
 <div class="h-full flex flex-col">
   <!-- Header -->
-  <div class="flex justify-between items-center mb-4">
+  <div class="flex justify-between items-center mb-2">
     <h3 class="text-lg font-semibold text-gray-900">
       Bracket
       @if (isPreviewMode()) {
@@ -13,7 +13,7 @@
         [disabled]="!canEndTournament() || endingTournament()"
         class="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
         [class]="canEndTournament() && !endingTournament()
-          ? 'bg-purple-600 text-white hover:bg-purple-700'
+          ? 'bg-purple-400 text-white hover:bg-purple-500'
           : 'bg-gray-200 text-gray-400 cursor-not-allowed'"
       >
         @if (endingTournament()) {
@@ -27,7 +27,7 @@
 
   <!-- Error message -->
   @if (bracketError()) {
-    <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
+    <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-4 text-sm">
       {{ bracketError() }}
     </div>
   }
