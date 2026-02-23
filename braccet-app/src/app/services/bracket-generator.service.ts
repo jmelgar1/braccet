@@ -1,9 +1,11 @@
 import { Injectable } from '@angular/core';
 import { Participant } from '../models/tournament.model';
+import { BracketType, BracketFormat, Match } from '../models/bracket.model';
 
 export interface PreviewMatch {
   round: number;
   position: number;
+  bracket_type: BracketType;
   seed1: number;
   seed2: number;
   participant1Name?: string;
@@ -13,10 +15,16 @@ export interface PreviewMatch {
   isBye: boolean;
 }
 
+// Union type for bracket data that can be either preview or actual matches
+export type BracketMatch = PreviewMatch | Match;
+
 export interface BracketPreview {
+  format: BracketFormat;
   totalRounds: number;
+  winnersRounds?: number;
+  losersRounds?: number;
   bracketSize: number;
-  matches: PreviewMatch[];
+  matches: BracketMatch[];
 }
 
 @Injectable({
@@ -108,13 +116,43 @@ export class BracketGeneratorService {
   }
 
   /**
-   * Generates a bracket preview from a list of participants.
+   * Returns the number of rounds in the losers bracket.
+   * Formula: 2 * (winnersRounds - 1)
+   */
+  losersRounds(winnersRounds: number): number {
+    if (winnersRounds <= 1) {
+      return 0;
+    }
+    return 2 * (winnersRounds - 1);
+  }
+
+  /**
+   * Returns the number of matches in a losers bracket round.
+   * Pattern: R1 and R2 have bracketSize/4 matches, R3 and R4 have bracketSize/8, etc.
+   */
+  losersMatchesInRound(bracketSize: number, round: number): number {
+    if (round < 1 || bracketSize < 4) {
+      return 0;
+    }
+
+    // Pair number: rounds 1-2 are pair 1, rounds 3-4 are pair 2, etc.
+    const pairNum = Math.ceil(round / 2);
+
+    // Matches in this pair = bracketSize / 2^(pairNum+1)
+    const matches = Math.floor(bracketSize / Math.pow(2, pairNum + 1));
+
+    return matches < 1 ? 1 : matches;
+  }
+
+  /**
+   * Generates a single elimination bracket preview from a list of participants.
    * Participants should be ordered by seed (index 0 = seed 1).
    */
   generatePreview(participants: Participant[]): BracketPreview {
     const count = participants.length;
     if (count < 2) {
       return {
+        format: 'single_elimination',
         totalRounds: 0,
         bracketSize: 0,
         matches: []
@@ -141,6 +179,7 @@ export class BracketGeneratorService {
       matches.push({
         round: 1,
         position: index + 1,
+        bracket_type: 'winners',
         // Only show seed if participant exists (bye slots get 0)
         seed1: participant1 ? seed1 : 0,
         seed2: participant2 ? seed2 : 0,
@@ -159,6 +198,7 @@ export class BracketGeneratorService {
         matches.push({
           round,
           position: pos,
+          bracket_type: 'winners',
           seed1: 0, // TBD
           seed2: 0, // TBD
           isBye: false
@@ -170,7 +210,107 @@ export class BracketGeneratorService {
     this.advanceByeWinners(matches);
 
     return {
+      format: 'single_elimination',
       totalRounds: rounds,
+      bracketSize,
+      matches
+    };
+  }
+
+  /**
+   * Generates a double elimination bracket preview from a list of participants.
+   * Participants should be ordered by seed (index 0 = seed 1).
+   */
+  generateDoubleElimPreview(participants: Participant[]): BracketPreview {
+    const count = participants.length;
+    if (count < 2) {
+      return {
+        format: 'double_elimination',
+        totalRounds: 0,
+        bracketSize: 0,
+        matches: []
+      };
+    }
+
+    const bracketSize = this.calculateBracketSize(count);
+    const winnersRounds = this.totalRounds(bracketSize);
+    const losRounds = this.losersRounds(winnersRounds);
+    const pairings = this.generateSeedPairings(bracketSize);
+
+    const matches: PreviewMatch[] = [];
+
+    // Generate winners bracket round 1 matches
+    pairings.forEach((pair, index) => {
+      const seed1 = pair[0];
+      const seed2 = pair[1];
+
+      const participant1 = seed1 <= count ? participants[seed1 - 1] : null;
+      const participant2 = seed2 <= count ? participants[seed2 - 1] : null;
+
+      const isBye = !participant1 || !participant2;
+
+      matches.push({
+        round: 1,
+        position: index + 1,
+        bracket_type: 'winners',
+        seed1: participant1 ? seed1 : 0,
+        seed2: participant2 ? seed2 : 0,
+        participant1Name: participant1?.display_name,
+        participant2Name: participant2?.display_name,
+        participant1IconURL: participant1?.icon_url,
+        participant2IconURL: participant2?.icon_url,
+        isBye
+      });
+    });
+
+    // Generate winners bracket subsequent rounds
+    for (let round = 2; round <= winnersRounds; round++) {
+      const matchCount = this.matchesInRound(bracketSize, round);
+      for (let pos = 1; pos <= matchCount; pos++) {
+        matches.push({
+          round,
+          position: pos,
+          bracket_type: 'winners',
+          seed1: 0,
+          seed2: 0,
+          isBye: false
+        });
+      }
+    }
+
+    // Generate losers bracket matches
+    for (let round = 1; round <= losRounds; round++) {
+      const matchCount = this.losersMatchesInRound(bracketSize, round);
+      for (let pos = 1; pos <= matchCount; pos++) {
+        matches.push({
+          round,
+          position: pos,
+          bracket_type: 'losers',
+          seed1: 0,
+          seed2: 0,
+          isBye: false
+        });
+      }
+    }
+
+    // Generate grand final
+    matches.push({
+      round: 1,
+      position: 1,
+      bracket_type: 'grand_final',
+      seed1: 0,
+      seed2: 0,
+      isBye: false
+    });
+
+    // Advance BYE winners in winners bracket only
+    this.advanceByeWinners(matches.filter(m => m.bracket_type === 'winners'));
+
+    return {
+      format: 'double_elimination',
+      totalRounds: winnersRounds,
+      winnersRounds,
+      losersRounds: losRounds,
       bracketSize,
       matches
     };

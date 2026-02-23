@@ -107,6 +107,16 @@ func (s *matchService) ReportResult(ctx context.Context, matchID uint64, result 
 		}
 	}
 
+	// For double elimination: advance loser to losers bracket
+	if match.BracketType == domain.BracketWinners && match.LoserMatchID != nil {
+		loserID := s.getLoserID(match, winnerID)
+		if loserID != 0 {
+			if err := s.advanceLoser(ctx, match, loserID); err != nil {
+				return err
+			}
+		}
+	}
+
 	// Process ELO update asynchronously (don't fail the match if ELO fails)
 	go s.processEloUpdate(context.Background(), match, winnerID)
 
@@ -288,62 +298,98 @@ func (s *matchService) GetBracketState(ctx context.Context, tournamentID uint64)
 
 // advanceWinner places the winner into their next match.
 func (s *matchService) advanceWinner(ctx context.Context, completedMatch *domain.Match, winnerID uint64) error {
-	nextMatch, err := s.repo.GetByID(ctx, *completedMatch.NextMatchID)
+	// For double elimination, also determine slot based on bracket type
+	return s.advanceParticipantToMatch(ctx, completedMatch, winnerID, *completedMatch.NextMatchID, false)
+}
+
+// advanceLoser places the loser from a winners bracket match into the losers bracket.
+// Only applies to winners bracket matches with a LoserMatchID set.
+func (s *matchService) advanceLoser(ctx context.Context, completedMatch *domain.Match, loserID uint64) error {
+	if completedMatch.LoserMatchID == nil {
+		return nil // No losers bracket destination
+	}
+
+	return s.advanceParticipantToMatch(ctx, completedMatch, loserID, *completedMatch.LoserMatchID, true)
+}
+
+// advanceParticipantToMatch places a participant into a specified match slot.
+// isLoser determines slot assignment for double elimination brackets.
+func (s *matchService) advanceParticipantToMatch(ctx context.Context, sourceMatch *domain.Match, participantID uint64, targetMatchID uint64, isLoser bool) error {
+	targetMatch, err := s.repo.GetByID(ctx, targetMatchID)
 	if err != nil {
 		return err
 	}
 
-	// Determine winner's name, icon URL, and seed
-	winnerName := ""
-	winnerIconURL := ""
-	winnerSeed := 0
-	if completedMatch.Participant1ID != nil && *completedMatch.Participant1ID == winnerID {
-		if completedMatch.Participant1Name != nil {
-			winnerName = *completedMatch.Participant1Name
+	// Determine participant's name, icon URL, and seed
+	name := ""
+	iconURL := ""
+	seed := 0
+	if sourceMatch.Participant1ID != nil && *sourceMatch.Participant1ID == participantID {
+		if sourceMatch.Participant1Name != nil {
+			name = *sourceMatch.Participant1Name
 		}
-		if completedMatch.Participant1IconURL != nil {
-			winnerIconURL = *completedMatch.Participant1IconURL
+		if sourceMatch.Participant1IconURL != nil {
+			iconURL = *sourceMatch.Participant1IconURL
 		}
-		if completedMatch.Seed1 != nil {
-			winnerSeed = *completedMatch.Seed1
+		if sourceMatch.Seed1 != nil {
+			seed = *sourceMatch.Seed1
 		}
 	} else {
-		if completedMatch.Participant2Name != nil {
-			winnerName = *completedMatch.Participant2Name
+		if sourceMatch.Participant2Name != nil {
+			name = *sourceMatch.Participant2Name
 		}
-		if completedMatch.Participant2IconURL != nil {
-			winnerIconURL = *completedMatch.Participant2IconURL
+		if sourceMatch.Participant2IconURL != nil {
+			iconURL = *sourceMatch.Participant2IconURL
 		}
-		if completedMatch.Seed2 != nil {
-			winnerSeed = *completedMatch.Seed2
+		if sourceMatch.Seed2 != nil {
+			seed = *sourceMatch.Seed2
 		}
 	}
 
-	// Determine which slot in the next match (based on position in current round)
-	// Odd positions go to slot 1, even positions go to slot 2
-	slot := 1
-	if completedMatch.Position%2 == 0 {
-		slot = 2
-	}
+	// Determine which slot in the target match
+	slot := s.determineSlot(sourceMatch, targetMatch, isLoser)
 
-	if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, winnerID, winnerName, winnerIconURL, winnerSeed); err != nil {
+	if err := s.repo.SetParticipant(ctx, targetMatch.ID, slot, participantID, name, iconURL, seed); err != nil {
 		return err
 	}
 
-	// Refresh next match to check if both participants are now set
-	nextMatch, err = s.repo.GetByID(ctx, nextMatch.ID)
+	// Refresh target match to check if both participants are now set
+	targetMatch, err = s.repo.GetByID(ctx, targetMatch.ID)
 	if err != nil {
 		return err
 	}
 
 	// If both participants are set, mark as ready
-	if nextMatch.Participant1ID != nil && nextMatch.Participant2ID != nil {
-		if err := s.repo.UpdateStatus(ctx, nextMatch.ID, domain.MatchReady); err != nil {
+	if targetMatch.Participant1ID != nil && targetMatch.Participant2ID != nil {
+		if err := s.repo.UpdateStatus(ctx, targetMatch.ID, domain.MatchReady); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// determineSlot determines which slot (1 or 2) a participant should occupy in the target match.
+func (s *matchService) determineSlot(sourceMatch, targetMatch *domain.Match, isLoser bool) int {
+	// For losers advancing to losers bracket from winners bracket
+	if isLoser && sourceMatch.BracketType == domain.BracketWinners {
+		// W-R1 losers face each other in L-R1: use position parity
+		if sourceMatch.Round == 1 {
+			if sourceMatch.Position%2 == 1 {
+				return 1
+			}
+			return 2
+		}
+		// W-R(N>1) losers drop into L-R(2*(N-1)) as slot 2 (facing L-bracket winners)
+		return 2
+	}
+
+	// For winners advancing within winners bracket or losers bracket
+	// Standard rule: odd positions go to slot 1, even positions go to slot 2
+	if sourceMatch.Position%2 == 1 {
+		return 1
+	}
+	return 2
 }
 
 func isParticipant(match *domain.Match, participantID uint64) bool {
@@ -354,6 +400,20 @@ func isParticipant(match *domain.Match, participantID uint64) bool {
 		return true
 	}
 	return false
+}
+
+// getLoserID returns the ID of the losing participant (the one who isn't the winner).
+func (s *matchService) getLoserID(match *domain.Match, winnerID uint64) uint64 {
+	if match.Participant1ID != nil && *match.Participant1ID == winnerID {
+		if match.Participant2ID != nil {
+			return *match.Participant2ID
+		}
+	} else if match.Participant2ID != nil && *match.Participant2ID == winnerID {
+		if match.Participant1ID != nil {
+			return *match.Participant1ID
+		}
+	}
+	return 0
 }
 
 // computeWinnerFromSets determines the winner based on sets won.

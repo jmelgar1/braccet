@@ -1,8 +1,19 @@
 @if (preview()) {
-  <div class="bracket-container">
-    <div class="bracket-grid" [style.--rounds]="rounds().length">
+  <div class="bracket-container" #panzoomContainer [class.panzoom-enabled]="enablePanzoom()">
+    <!-- Zoom Controls (only when panzoom is enabled) -->
+    @if (enablePanzoom()) {
+      <div class="zoom-controls panzoom-exclude">
+        <button class="zoom-btn" (click)="zoomIn()" title="Zoom in">+</button>
+        <button class="zoom-btn" (click)="zoomOut()" title="Zoom out">−</button>
+        <button class="zoom-btn" (click)="resetZoom()" title="Reset to 100%">⟲</button>
+        <button class="zoom-btn fit-btn" (click)="fitToView()" title="Fit to view">⊡</button>
+        <span class="zoom-level">{{ getZoomPercent() }}</span>
+      </div>
+    }
+
+    <div class="bracket-grid" #bracketGrid [style.--rounds]="rounds().length">
       @for (roundData of rounds(); track roundData.round) {
-        <div class="round" [attr.data-round]="roundData.round">
+        <div class="round" [attr.data-round]="roundData.round" [class.straight-round]="roundData.isStraight">
           <div class="round-header"
                [class.clickable]="isStageClickable()"
                (click)="onStageHeaderClick(roundData.round)">

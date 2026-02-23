@@ -1,6 +1,60 @@
 .bracket-container {
-  overflow-x: auto;
+  position: relative;
+}
+
+/* When panzoom is enabled, apply panzoom-specific styles */
+.bracket-container.panzoom-enabled {
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
   padding: 1rem;
+}
+
+/* Zoom Controls */
+.zoom-controls {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 0.375rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 20;
+}
+
+.zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #374151;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.zoom-btn:hover {
+  background: #e5e7eb;
+  border-color: #9ca3af;
+}
+
+.zoom-btn:active {
+  background: #d1d5db;
+}
+
+.zoom-level {
+  min-width: 3rem;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #6b7280;
 }
 
 .bracket-grid {
@@ -8,6 +62,15 @@
   gap: 3rem;
   min-width: fit-content;
   align-items: stretch;
+}
+
+/* Cursor states only when panzoom is enabled */
+.panzoom-enabled .bracket-grid {
+  cursor: grab;
+}
+
+.panzoom-enabled .bracket-grid:active {
+  cursor: grabbing;
 }
 
 .round {
@@ -77,6 +140,7 @@
   overflow: hidden;
   width: 160px;
   flex-shrink: 0;
+  cursor: pointer;
 }
 
 .match.bye {
@@ -191,6 +255,29 @@
 
 /* Hide line-h on odd matches */
 .match-wrapper:nth-child(odd) .connector .line-h {
+  display: none;
+}
+
+/* When there's only one match in the round, no vertical line needed - just straight horizontal */
+.match-wrapper:only-child .connector::after {
+  display: none;
+}
+
+.match-wrapper:only-child .connector .line-h {
+  display: none;
+}
+
+/* Straight rounds: same number of matches in current and next round (no merging) */
+/* Hide vertical lines and extend horizontal line to reach next match */
+.straight-round .match-wrapper .connector::before {
+  width: calc(1.5rem + 3rem);  /* connector width + full gap */
+}
+
+.straight-round .match-wrapper .connector::after {
+  display: none;
+}
+
+.straight-round .match-wrapper .connector .line-h {
   display: none;
 }
 

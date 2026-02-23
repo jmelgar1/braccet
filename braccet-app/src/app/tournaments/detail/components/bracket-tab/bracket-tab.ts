@@ -3,14 +3,15 @@ import { Tournament, Participant } from '../../../../models/tournament.model';
 import { BracketGeneratorService, BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
 import { TournamentService } from '../../../../services/tournament.service';
-import { BracketState, BracketStage, Match } from '../../../../models/bracket.model';
+import { BracketState, BracketStage, Match, BracketType } from '../../../../models/bracket.model';
 import { BracketViewer } from '../../../../components/bracket-viewer/bracket-viewer';
+import { DoubleElimBracket } from '../../../../components/double-elim-bracket/double-elim-bracket';
 import { MatchResultModal, MatchResultEvent } from '../../../../components/match-result-modal/match-result-modal';
 import { EditStageModal } from '../../../../components/edit-stage-modal/edit-stage-modal';
 
 @Component({
   selector: 'app-bracket-tab',
-  imports: [BracketViewer, MatchResultModal, EditStageModal],
+  imports: [BracketViewer, DoubleElimBracket, MatchResultModal, EditStageModal],
   templateUrl: './bracket-tab.html'
 })
 export class BracketTab {
@@ -45,14 +46,32 @@ export class BracketTab {
   // Stages computed property
   stages = computed(() => this.bracketState()?.stages ?? []);
 
-  // Get bestOf for the selected match based on its round
+  // Get bestOf for the selected match based on its round and bracket type
   selectedMatchBestOf = computed(() => {
     const match = this.selectedMatch();
     const stagesData = this.stages();
     if (!match || stagesData.length === 0) return 1;
 
-    const stage = stagesData.find(s => s.round === match.round);
+    // For double elimination, also match on bracket_type
+    const stage = stagesData.find(s =>
+      s.round === match.round &&
+      (!match.bracket_type || s.bracket_type === match.bracket_type)
+    );
     return stage?.best_of ?? 1;
+  });
+
+  // Check if tournament uses double elimination
+  isDoubleElimination = computed(() => {
+    const t = this.tournament();
+    const bracket = this.bracketState();
+
+    // Check bracket state format first (for in-progress tournaments)
+    if (bracket?.format === 'double_elimination') {
+      return true;
+    }
+
+    // Fall back to tournament format (for preview)
+    return t.format === 'double_elimination';
   });
 
   // Preview is generated client-side from participants
@@ -69,6 +88,10 @@ export class BracketTab {
       return null;
     }
 
+    // Generate appropriate preview based on format
+    if (t.format === 'double_elimination') {
+      return this.bracketGenerator.generateDoubleElimPreview(p);
+    }
     return this.bracketGenerator.generatePreview(p);
   });
 
@@ -197,7 +220,7 @@ export class BracketTab {
     });
   }
 
-  onStageClicked(event: { round: number; stage: BracketStage }): void {
+  onStageClicked(event: { round: number; stage: BracketStage; bracketType?: BracketType }): void {
     this.selectedStage.set(event.stage);
     this.showStageModal.set(true);
   }

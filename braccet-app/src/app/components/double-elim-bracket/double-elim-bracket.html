@@ -1,0 +1,78 @@
+<div class="double-elim-wrapper" #panzoomContainer>
+  <!-- Zoom Controls -->
+  <div class="zoom-controls panzoom-exclude">
+    <button class="zoom-btn" (click)="zoomIn()" title="Zoom in">+</button>
+    <button class="zoom-btn" (click)="zoomOut()" title="Zoom out">−</button>
+    <button class="zoom-btn" (click)="resetZoom()" title="Reset to 100%">⟲</button>
+    <button class="zoom-btn fit-btn" (click)="fitToView()" title="Fit to view">⊡</button>
+    <span class="zoom-level">{{ getZoomPercent() }}</span>
+  </div>
+
+  <div class="double-elim-container" #bracketContent>
+    <!-- Winners Bracket + Grand Final (combined container) -->
+    <div class="winners-container">
+      <div class="section-header">
+        <h3>Winners Bracket</h3>
+      </div>
+      <div class="winners-row">
+        <!-- Winners Bracket Section -->
+        @if (winnersBracketData()) {
+          <div class="bracket-section winners">
+            <app-bracket-viewer
+              [preview]="winnersBracketData()"
+              [isPreview]="isPreview()"
+              [isOrganizer]="isOrganizer()"
+              [stages]="winnersStages()"
+              [bracketType]="'winners'"
+              [enablePanzoom]="false"
+              (matchClicked)="onMatchClicked($event)"
+              (matchReopened)="onMatchReopened($event)"
+              (matchEditClicked)="onMatchEditClicked($event)"
+              (stageClicked)="onWinnersStageClicked($event)"
+            />
+          </div>
+        }
+
+        <!-- Grand Final Section (visually part of winners) -->
+        @if (grandFinalBracketData() && grandFinalMatches().length > 0) {
+          <div class="bracket-section grand-final">
+            <app-bracket-viewer
+              [preview]="grandFinalBracketData()"
+              [isPreview]="isPreview()"
+              [isOrganizer]="isOrganizer()"
+              [stages]="grandFinalStages()"
+              [bracketType]="'grand_final'"
+              [enablePanzoom]="false"
+              (matchClicked)="onMatchClicked($event)"
+              (matchReopened)="onMatchReopened($event)"
+              (matchEditClicked)="onMatchEditClicked($event)"
+              (stageClicked)="onGrandFinalStageClicked($event)"
+            />
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Losers Bracket Section -->
+    @if (losersBracketData()) {
+      <div class="bracket-section losers">
+        <div class="section-header">
+          <h3>Losers Bracket</h3>
+        </div>
+        <app-bracket-viewer
+          [preview]="losersBracketData()"
+          [isPreview]="isPreview()"
+          [isOrganizer]="isOrganizer()"
+          [stages]="losersStages()"
+          [isLosersBracket]="true"
+          [bracketType]="'losers'"
+          [enablePanzoom]="false"
+          (matchClicked)="onMatchClicked($event)"
+          (matchReopened)="onMatchReopened($event)"
+          (matchEditClicked)="onMatchEditClicked($event)"
+          (stageClicked)="onLosersStageClicked($event)"
+        />
+      </div>
+    }
+  </div>
+</div>

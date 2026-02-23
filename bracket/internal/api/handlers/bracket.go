@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/braccet/bracket/internal/domain"
+	"github.com/braccet/bracket/internal/engine"
 	"github.com/braccet/bracket/internal/repository"
 	"github.com/braccet/bracket/internal/service"
 )
@@ -37,13 +38,16 @@ type GenerateBracketRequest struct {
 }
 
 type BracketResponse struct {
-	TournamentID uint64            `json:"tournament_id"`
-	TotalRounds  int               `json:"total_rounds"`
-	CurrentRound int               `json:"current_round"`
-	IsComplete   bool              `json:"is_complete"`
-	ChampionID   *uint64           `json:"champion_id,omitempty"`
-	Matches      []*MatchResponse  `json:"matches"`
-	Stages       []*StageResponse  `json:"stages"`
+	TournamentID  uint64           `json:"tournament_id"`
+	Format        string           `json:"format"`
+	TotalRounds   int              `json:"total_rounds"`
+	WinnersRounds int              `json:"winners_rounds,omitempty"`
+	LosersRounds  int              `json:"losers_rounds,omitempty"`
+	CurrentRound  int              `json:"current_round"`
+	IsComplete    bool             `json:"is_complete"`
+	ChampionID    *uint64          `json:"champion_id,omitempty"`
+	Matches       []*MatchResponse `json:"matches"`
+	Stages        []*StageResponse `json:"stages"`
 }
 
 type StageResponse struct {
@@ -80,6 +84,7 @@ type MatchResponse struct {
 	ForfeitWinnerID     *uint64       `json:"forfeit_winner_id,omitempty"`
 	Status              string        `json:"status"`
 	NextMatchID         *uint64       `json:"next_match_id,omitempty"`
+	LoserMatchID        *uint64       `json:"loser_match_id,omitempty"`
 }
 
 func (h *BracketHandler) Generate(w http.ResponseWriter, r *http.Request) {
@@ -99,18 +104,25 @@ func (h *BracketHandler) Generate(w http.ResponseWriter, r *http.Request) {
 		req.Format = "single_elimination"
 	}
 
-	if req.Format != "single_elimination" {
-		writeError(w, http.StatusBadRequest, "only single_elimination format is currently supported")
+	var state *service.BracketState
+	var err error
+
+	switch req.Format {
+	case "single_elimination":
+		state, err = h.bracketSvc.GenerateSingleElimination(r.Context(), req.TournamentID, req.Participants)
+	case "double_elimination":
+		state, err = h.bracketSvc.GenerateDoubleElimination(r.Context(), req.TournamentID, req.Participants)
+	default:
+		writeError(w, http.StatusBadRequest, "unsupported format: must be 'single_elimination' or 'double_elimination'")
 		return
 	}
 
-	state, err := h.bracketSvc.GenerateSingleElimination(r.Context(), req.TournamentID, req.Participants)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	resp := toBracketResponse(state)
+	resp := toBracketResponseWithFormat(state, nil, req.Format)
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(resp)
 }
@@ -202,10 +214,22 @@ func (h *BracketHandler) ListMatches(w http.ResponseWriter, r *http.Request) {
 }
 
 func toBracketResponse(state *service.BracketState) *BracketResponse {
-	return toBracketResponseWithStages(state, nil)
+	return toBracketResponseWithFormat(state, nil, "single_elimination")
 }
 
 func toBracketResponseWithStages(state *service.BracketState, stages []*domain.BracketStage) *BracketResponse {
+	// Detect format from matches
+	format := "single_elimination"
+	for _, m := range state.Matches {
+		if m.BracketType == domain.BracketLosers || m.BracketType == domain.BracketGrandFinal {
+			format = "double_elimination"
+			break
+		}
+	}
+	return toBracketResponseWithFormat(state, stages, format)
+}
+
+func toBracketResponseWithFormat(state *service.BracketState, stages []*domain.BracketStage, format string) *BracketResponse {
 	matches := make([]*MatchResponse, len(state.Matches))
 	for i, m := range state.Matches {
 		matches[i] = toMatchResponse(m)
@@ -226,8 +250,9 @@ func toBracketResponseWithStages(state *service.BracketState, stages []*domain.B
 		}
 	}
 
-	return &BracketResponse{
+	resp := &BracketResponse{
 		TournamentID: state.TournamentID,
+		Format:       format,
 		TotalRounds:  state.TotalRounds,
 		CurrentRound: state.CurrentRound,
 		IsComplete:   state.IsComplete,
@@ -235,6 +260,14 @@ func toBracketResponseWithStages(state *service.BracketState, stages []*domain.B
 		Matches:      matches,
 		Stages:       stageResponses,
 	}
+
+	// For double elimination, calculate winners and losers rounds
+	if format == "double_elimination" {
+		resp.WinnersRounds = state.TotalRounds
+		resp.LosersRounds = engine.LosersRounds(state.TotalRounds)
+	}
+
+	return resp
 }
 
 func toMatchResponse(m *domain.Match) *MatchResponse {
@@ -274,6 +307,7 @@ func toMatchResponse(m *domain.Match) *MatchResponse {
 		ForfeitWinnerID:     m.ForfeitWinnerID,
 		Status:              string(m.Status),
 		NextMatchID:         m.NextMatchID,
+		LoserMatchID:        m.LoserMatchID,
 	}
 }
 

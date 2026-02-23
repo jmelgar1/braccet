@@ -1,6 +1,7 @@
-import { Component, input, computed, output } from '@angular/core';
+import { Component, input, computed, output, AfterViewInit, OnDestroy, ElementRef, ViewChild, signal } from '@angular/core';
 import { PreviewMatch, BracketPreview } from '../../services/bracket-generator.service';
-import { Match, BracketStage } from '../../models/bracket.model';
+import { Match, BracketStage, BracketType } from '../../models/bracket.model';
+import Panzoom, { PanzoomObject } from '@panzoom/panzoom';
 
 type DisplayMatch = PreviewMatch | Match;
 
@@ -15,11 +16,22 @@ interface BracketData {
   templateUrl: './bracket-viewer.html',
   styleUrl: './bracket-viewer.css'
 })
-export class BracketViewer {
+export class BracketViewer implements AfterViewInit, OnDestroy {
+  // ViewChild references for panzoom
+  @ViewChild('panzoomContainer') containerRef!: ElementRef<HTMLElement>;
+  @ViewChild('bracketGrid') bracketGridRef!: ElementRef<HTMLElement>;
+
+  // Panzoom instance and state
+  private panzoomInstance: PanzoomObject | null = null;
+  currentScale = signal(1);
+
   preview = input<BracketData | null>(null);
   isPreview = input(true);
   isOrganizer = input(false);
   stages = input<BracketStage[]>([]);
+  isLosersBracket = input(false);
+  bracketType = input<BracketType>('winners');
+  enablePanzoom = input(true);  // Set to false when used inside DoubleElimBracket
 
   matchClicked = output<Match>();
   matchReopened = output<Match>();
@@ -30,17 +42,106 @@ export class BracketViewer {
   showDetailsModal = false;
   selectedMatch: DisplayMatch | null = null;
 
+  // Lifecycle hooks for panzoom
+  ngAfterViewInit(): void {
+    if (this.enablePanzoom() && this.bracketGridRef?.nativeElement) {
+      this.initPanzoom();
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.destroyPanzoom();
+  }
+
+  private initPanzoom(): void {
+    const element = this.bracketGridRef.nativeElement;
+
+    this.panzoomInstance = Panzoom(element, {
+      minScale: 0.25,
+      maxScale: 3,
+      contain: 'outside',
+      excludeClass: 'panzoom-exclude',
+      cursor: 'grab',
+    });
+
+    // Bind mouse wheel zoom (Ctrl+wheel or Shift+wheel)
+    this.containerRef.nativeElement.addEventListener('wheel', this.handleWheel);
+
+    // Track scale changes
+    element.addEventListener('panzoomchange', this.handlePanzoomChange);
+
+    // Auto-fit to view on load (use setTimeout to ensure DOM is ready)
+    setTimeout(() => this.fitToView(), 0);
+  }
+
+  private destroyPanzoom(): void {
+    if (this.panzoomInstance) {
+      this.containerRef?.nativeElement.removeEventListener('wheel', this.handleWheel);
+      this.bracketGridRef?.nativeElement.removeEventListener('panzoomchange', this.handlePanzoomChange);
+      this.panzoomInstance.destroy();
+      this.panzoomInstance = null;
+    }
+  }
+
+  private handleWheel = (event: WheelEvent): void => {
+    if (event.ctrlKey || event.shiftKey) {
+      event.preventDefault();
+      this.panzoomInstance?.zoomWithWheel(event);
+    }
+  };
+
+  private handlePanzoomChange = (event: Event): void => {
+    const detail = (event as CustomEvent).detail;
+    this.currentScale.set(detail.scale);
+  };
+
+  // Public methods for zoom controls
+  zoomIn(): void {
+    this.panzoomInstance?.zoomIn();
+  }
+
+  zoomOut(): void {
+    this.panzoomInstance?.zoomOut();
+  }
+
+  resetZoom(): void {
+    this.panzoomInstance?.reset({ animate: true });
+  }
+
+  fitToView(): void {
+    if (!this.panzoomInstance || !this.bracketGridRef || !this.containerRef) return;
+
+    const grid = this.bracketGridRef.nativeElement;
+    const container = this.containerRef.nativeElement;
+
+    // Calculate scale to fit entire bracket in view
+    const scaleX = container.clientWidth / grid.scrollWidth;
+    const scaleY = container.clientHeight / grid.scrollHeight;
+    const fitScale = Math.min(scaleX, scaleY); // Allow zooming below 100%
+
+    this.panzoomInstance.zoom(fitScale, { animate: true });
+    this.panzoomInstance.pan(0, 0, { animate: true });
+  }
+
+  getZoomPercent(): string {
+    return Math.round(this.currentScale() * 100) + '%';
+  }
+
   rounds = computed(() => {
     const p = this.preview();
     if (!p) return [];
 
-    const roundsArray: { round: number; matches: DisplayMatch[] }[] = [];
+    const roundsArray: { round: number; matches: DisplayMatch[]; isStraight: boolean }[] = [];
 
     for (let r = 1; r <= p.totalRounds; r++) {
       const roundMatches = p.matches.filter(m => m.round === r);
+      const nextRoundMatches = p.matches.filter(m => m.round === r + 1);
+      // "Straight" means same number of matches in current and next round (no merging)
+      const isStraight = roundMatches.length === nextRoundMatches.length && roundMatches.length > 0;
       roundsArray.push({
         round: r,
-        matches: roundMatches
+        matches: roundMatches,
+        isStraight
       });
     }
 
@@ -57,6 +158,29 @@ export class BracketViewer {
 
     // Fallback to computed name
     const total = this.preview()?.totalRounds ?? 0;
+    const bt = this.bracketType();
+
+    // Grand final
+    if (bt === 'grand_final') {
+      return 'Grand Final';
+    }
+
+    // Losers bracket has different naming
+    if (this.isLosersBracket() || bt === 'losers') {
+      if (round === total) return 'Losers Final';
+      if (round === total - 1) return 'Losers Semis';
+      return `Losers Round ${round}`;
+    }
+
+    // Winners bracket in double elimination
+    if (bt === 'winners') {
+      if (round === total) return 'Winners Final';
+      if (round === total - 1) return 'Winners Semis';
+      if (round === total - 2) return 'Winners Quarters';
+      return `Winners Round ${round}`;
+    }
+
+    // Single elimination (default)
     if (round === total) return 'Final';
     if (round === total - 1) return 'Semifinals';
     if (round === total - 2) return 'Quarterfinals';

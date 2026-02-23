@@ -48,7 +48,11 @@
               This is a preview based on current seeding. The actual bracket will be generated when the tournament starts.
             </p>
           </div>
-          <app-bracket-viewer [preview]="preview()" [isPreview]="true" />
+          @if (isDoubleElimination()) {
+            <app-double-elim-bracket [preview]="preview()" [isPreview]="true" />
+          } @else {
+            <app-bracket-viewer [preview]="preview()" [isPreview]="true" />
+          }
         } @else if (participants().length < 2) {
           <div class="flex items-center justify-center h-full text-gray-500">
             <div class="text-center">
@@ -64,19 +68,39 @@
       } @else {
         <!-- Actual bracket mode -->
         @if (bracketState()) {
-          <app-bracket-viewer
-            [preview]="{
-              totalRounds: bracketState()!.total_rounds,
-              matches: bracketState()!.matches
-            }"
-            [isPreview]="false"
-            [isOrganizer]="isOrganizer()"
-            [stages]="stages()"
-            (matchClicked)="onMatchClicked($event)"
-            (matchReopened)="onMatchReopened($event)"
-            (matchEditClicked)="onMatchEditClicked($event)"
-            (stageClicked)="onStageClicked($event)"
-          />
+          @if (isDoubleElimination()) {
+            <app-double-elim-bracket
+              [preview]="{
+                format: 'double_elimination',
+                totalRounds: bracketState()!.total_rounds,
+                winnersRounds: bracketState()!.winners_rounds,
+                losersRounds: bracketState()!.losers_rounds,
+                bracketSize: 0,
+                matches: bracketState()!.matches
+              }"
+              [isPreview]="false"
+              [isOrganizer]="isOrganizer()"
+              [stages]="stages()"
+              (matchClicked)="onMatchClicked($event)"
+              (matchReopened)="onMatchReopened($event)"
+              (matchEditClicked)="onMatchEditClicked($event)"
+              (stageClicked)="onStageClicked($event)"
+            />
+          } @else {
+            <app-bracket-viewer
+              [preview]="{
+                totalRounds: bracketState()!.total_rounds,
+                matches: bracketState()!.matches
+              }"
+              [isPreview]="false"
+              [isOrganizer]="isOrganizer()"
+              [stages]="stages()"
+              (matchClicked)="onMatchClicked($event)"
+              (matchReopened)="onMatchReopened($event)"
+              (matchEditClicked)="onMatchEditClicked($event)"
+              (stageClicked)="onStageClicked($event)"
+            />
+          }
         } @else {
           <div class="flex items-center justify-center h-full text-gray-500">
             <p>No bracket available</p>

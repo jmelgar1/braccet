@@ -11,10 +11,13 @@ export interface SetScore {
   participant2_score: number;
 }
 
+export type BracketType = 'winners' | 'losers' | 'grand_final';
+
 export interface Match {
   id: number;
   round: number;
   position: number;
+  bracket_type: BracketType;
   participant1_id?: number;
   participant2_id?: number;
   participant1_name?: string;
@@ -30,6 +33,7 @@ export interface Match {
   forfeit_winner_id?: number;
   status: string;
   next_match_id?: number;
+  loser_match_id?: number;
 }
 
 export interface BracketStage {
@@ -40,9 +44,14 @@ export interface BracketStage {
   best_of: number;
 }
 
+export type BracketFormat = 'single_elimination' | 'double_elimination';
+
 export interface BracketState {
   tournament_id: number;
+  format: BracketFormat;
   total_rounds: number;
+  winners_rounds?: number;
+  losers_rounds?: number;
   current_round: number;
   is_complete: boolean;
   champion_id?: number;
