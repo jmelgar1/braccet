@@ -221,8 +221,11 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
 
   // Lifecycle hooks for panzoom
   ngAfterViewInit(): void {
-    if (this.contentRef?.nativeElement) {
+    console.log('[DoubleElimBracket] ngAfterViewInit - contentRef:', !!this.contentRef, 'containerRef:', !!this.containerRef);
+    if (this.contentRef?.nativeElement && this.containerRef?.nativeElement) {
       this.initPanzoom();
+    } else {
+      console.error('[DoubleElimBracket] Missing refs - contentRef:', !!this.contentRef, 'containerRef:', !!this.containerRef);
     }
   }
 
@@ -232,88 +235,200 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
 
   private initPanzoom(): void {
     const element = this.contentRef.nativeElement;
+    const container = this.containerRef.nativeElement;
 
-    this.panzoomInstance = Panzoom(element, {
-      minScale: 0.25,
-      maxScale: 3,
-      contain: 'outside',
-      excludeClass: 'panzoom-exclude',
-      cursor: 'grab',
+    console.log('[DoubleElimBracket] initPanzoom() called');
+    console.log('[DoubleElimBracket] Content element dimensions:', {
+      scrollWidth: element.scrollWidth,
+      scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth,
+      clientHeight: element.clientHeight,
+      offsetWidth: element.offsetWidth,
+      offsetHeight: element.offsetHeight
+    });
+    console.log('[DoubleElimBracket] Container dimensions:', {
+      scrollWidth: container.scrollWidth,
+      scrollHeight: container.scrollHeight,
+      clientWidth: container.clientWidth,
+      clientHeight: container.clientHeight,
+      offsetWidth: container.offsetWidth,
+      offsetHeight: container.offsetHeight
     });
 
-    // Bind mouse wheel zoom (Ctrl+wheel or Shift+wheel)
-    this.containerRef.nativeElement.addEventListener('wheel', this.handleWheel);
+    const panzoomConfig = {
+      minScale: 0.25,
+      maxScale: 3,
+      excludeClass: 'panzoom-exclude',
+      cursor: 'grab',
+      disablePan: false,
+      disableZoom: false,
+    };
+    console.log('[DoubleElimBracket] Panzoom config:', panzoomConfig);
+
+    this.panzoomInstance = Panzoom(element, panzoomConfig);
+    console.log('[DoubleElimBracket] Panzoom instance created');
+
+    // Bind mouse wheel for zoom/pan (passive: false allows preventDefault)
+    this.containerRef.nativeElement.addEventListener('wheel', this.handleWheel, { passive: false });
+    console.log('[DoubleElimBracket] Wheel event listener attached');
 
     // Track scale changes
     element.addEventListener('panzoomchange', this.handlePanzoomChange);
+    console.log('[DoubleElimBracket] Panzoomchange event listener attached');
 
     // Auto-fit to view on load
+    console.log('[DoubleElimBracket] Scheduling fitToView() via setTimeout');
     setTimeout(() => this.fitToView(), 0);
   }
 
   private destroyPanzoom(): void {
+    console.log('[DoubleElimBracket] destroyPanzoom() called, instance exists:', !!this.panzoomInstance);
     if (this.panzoomInstance) {
       this.containerRef?.nativeElement.removeEventListener('wheel', this.handleWheel);
+      console.log('[DoubleElimBracket] Wheel event listener removed');
       this.contentRef?.nativeElement.removeEventListener('panzoomchange', this.handlePanzoomChange);
+      console.log('[DoubleElimBracket] Panzoomchange event listener removed');
       this.panzoomInstance.destroy();
+      console.log('[DoubleElimBracket] Panzoom instance destroyed');
       this.panzoomInstance = null;
     }
   }
 
   private handleWheel = (event: WheelEvent): void => {
+    console.log('[DoubleElimBracket] handleWheel() called:', {
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaZ: event.deltaZ,
+      deltaMode: event.deltaMode,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+      metaKey: event.metaKey,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      currentScale: this.currentScale()
+    });
+
     event.preventDefault();
 
     if (event.ctrlKey || event.shiftKey) {
       // Zoom with Ctrl/Shift + wheel
+      console.log('[DoubleElimBracket] Zoom triggered via Ctrl/Shift+wheel');
       this.panzoomInstance?.zoomWithWheel(event);
     } else {
       // Pan with regular wheel scroll
       const currentPan = this.panzoomInstance?.getPan();
+      console.log('[DoubleElimBracket] Pan mode - current pan position:', currentPan);
+
       if (currentPan && this.panzoomInstance) {
         // deltaY for vertical scroll, deltaX for horizontal (trackpad)
         const panX = currentPan.x - event.deltaX;
         const panY = currentPan.y - event.deltaY;
+        console.log('[DoubleElimBracket] Calculating new pan position:', {
+          currentX: currentPan.x,
+          currentY: currentPan.y,
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          newPanX: panX,
+          newPanY: panY
+        });
         this.panzoomInstance.pan(panX, panY, { animate: false });
+        console.log('[DoubleElimBracket] Pan applied');
+      } else {
+        console.log('[DoubleElimBracket] Pan skipped - no currentPan or panzoomInstance');
       }
     }
   };
 
   private handlePanzoomChange = (event: Event): void => {
     const detail = (event as CustomEvent).detail;
+    console.log('[DoubleElimBracket] handlePanzoomChange() - panzoom state changed:', {
+      scale: detail.scale,
+      x: detail.x,
+      y: detail.y,
+      isSVG: detail.isSVG,
+      originalEvent: detail.originalEvent?.type
+    });
     this.currentScale.set(detail.scale);
   };
 
   // Public methods for zoom controls
   zoomIn(): void {
+    console.log('[DoubleElimBracket] zoomIn() called, current scale:', this.currentScale());
     this.panzoomInstance?.zoomIn();
   }
 
   zoomOut(): void {
+    console.log('[DoubleElimBracket] zoomOut() called, current scale:', this.currentScale());
     this.panzoomInstance?.zoomOut();
   }
 
   resetZoom(): void {
+    console.log('[DoubleElimBracket] resetZoom() called, current scale:', this.currentScale());
     this.panzoomInstance?.reset({ animate: true });
   }
 
   fitToView(): void {
-    if (!this.panzoomInstance || !this.contentRef || !this.containerRef) return;
+    console.log('[DoubleElimBracket] fitToView() called');
+    console.log('[DoubleElimBracket] fitToView() - panzoomInstance exists:', !!this.panzoomInstance);
+    console.log('[DoubleElimBracket] fitToView() - contentRef exists:', !!this.contentRef);
+    console.log('[DoubleElimBracket] fitToView() - containerRef exists:', !!this.containerRef);
+
+    if (!this.panzoomInstance || !this.contentRef || !this.containerRef) {
+      console.log('[DoubleElimBracket] fitToView() - EARLY RETURN: missing refs');
+      return;
+    }
 
     const content = this.contentRef.nativeElement;
     const container = this.containerRef.nativeElement;
+
+    console.log('[DoubleElimBracket] fitToView() - Content dimensions:', {
+      scrollWidth: content.scrollWidth,
+      scrollHeight: content.scrollHeight,
+      clientWidth: content.clientWidth,
+      clientHeight: content.clientHeight,
+      offsetWidth: content.offsetWidth,
+      offsetHeight: content.offsetHeight,
+      boundingRect: content.getBoundingClientRect()
+    });
+
+    console.log('[DoubleElimBracket] fitToView() - Container dimensions:', {
+      scrollWidth: container.scrollWidth,
+      scrollHeight: container.scrollHeight,
+      clientWidth: container.clientWidth,
+      clientHeight: container.clientHeight,
+      offsetWidth: container.offsetWidth,
+      offsetHeight: container.offsetHeight,
+      boundingRect: container.getBoundingClientRect()
+    });
 
     // Calculate scale to fit entire bracket in view
     const scaleX = container.clientWidth / content.scrollWidth;
     const scaleY = container.clientHeight / content.scrollHeight;
     const fitScale = Math.min(scaleX, scaleY);
 
+    console.log('[DoubleElimBracket] fitToView() - Scale calculations:', {
+      scaleX,
+      scaleY,
+      fitScale,
+      minScaleUsed: fitScale === scaleX ? 'scaleX' : 'scaleY'
+    });
+
     // Use width-based scale if height-based would be below minScale (0.25)
     const minScale = 0.25;
     const actualFitScale = fitScale < minScale ? scaleX : fitScale;
 
+    console.log('[DoubleElimBracket] fitToView() - Actual fit scale:', {
+      minScale,
+      fitScaleBelowMin: fitScale < minScale,
+      actualFitScale,
+      usedScaleType: fitScale < minScale ? 'scaleX (fallback)' : 'fitScale'
+    });
+
     // Only apply zoom - panzoom automatically centers the view when zooming,
     // which positions the bracket correctly without needing manual pan
+    console.log('[DoubleElimBracket] fitToView() - Applying zoom:', actualFitScale);
     this.panzoomInstance.zoom(actualFitScale, { animate: false });
+    console.log('[DoubleElimBracket] fitToView() - Complete');
   }
 
   getZoomPercent(): string {

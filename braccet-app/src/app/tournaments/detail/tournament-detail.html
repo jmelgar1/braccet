@@ -1,4 +1,4 @@
-<div class="min-h-[calc(100vh-4rem)] bg-gray-100 p-6 pb-0">
+<div class="min-h-[calc(100vh-4rem)] bg-gray-100 p-4 pb-0">
   <app-breadcrumb [items]="breadcrumbs" />
 
   <div class="w-[95%] mx-auto">
@@ -11,23 +11,21 @@
         {{ error() }}
       </div>
     } @else if (tournament()) {
-      <!-- Header with title and status -->
-      <div class="flex justify-between items-start mb-4">
-        <div>
-          <h1 class="text-2xl font-bold text-gray-900">{{ tournament()!.name }}</h1>
-          @if (tournament()!.game) {
-            <p class="text-gray-600 mt-1">{{ tournament()!.game }}</p>
-          }
-        </div>
-        <div class="flex items-center gap-3">
-          <span [class]="'px-3 py-1 rounded-full text-sm font-medium ' + getStatusColor(tournament()!.status)">
-            {{ getStatusLabel(tournament()!.status) }}
-          </span>
+      <!-- Tournament Info Card with Header -->
+      <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-4">
+        <!-- Card Header: Name, Status, Start Button -->
+        <div class="flex justify-between items-center mb-3 pb-3 border-b border-gray-200">
+          <div class="flex items-center gap-3">
+            <h1 class="text-xl font-bold text-gray-900">{{ tournament()!.name }}</h1>
+            <span [class]="'px-2 py-0.5 rounded-full text-xs font-medium ' + getStatusColor(tournament()!.status)">
+              {{ getStatusLabel(tournament()!.status) }}
+            </span>
+          </div>
           @if (canStartTournament()) {
             <button
               (click)="startTournament()"
               [disabled]="startingTournament()"
-              class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
+              class="px-4 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
               @if (startingTournament()) {
                 Starting...
               } @else {
@@ -36,11 +34,9 @@
             </button>
           }
         </div>
-      </div>
 
-      <!-- Condensed Tournament Info Card -->
-      <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
-        <div class="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+        <!-- Card Body: Tournament Details -->
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
           @if (community()) {
             <div class="flex items-center gap-2">
               <span class="text-gray-500">Community:</span>
@@ -48,6 +44,13 @@
                  class="font-medium text-blue-600 hover:text-blue-800">
                 {{ community()!.name }}
               </a>
+            </div>
+          }
+
+          @if (tournament()!.game) {
+            <div class="flex items-center gap-2">
+              <span class="text-gray-500">Game:</span>
+              <span class="font-medium text-gray-900">{{ tournament()!.game }}</span>
             </div>
           }
 
@@ -66,7 +69,7 @@
           </div>
 
           <div class="flex items-center gap-2">
-            <span class="text-gray-500">Max Participants:</span>
+            <span class="text-gray-500">Max:</span>
             <span class="font-medium text-gray-900">
               {{ tournament()!.max_participants || 'Unlimited' }}
             </span>
@@ -75,7 +78,7 @@
           @if (tournament()!.starts_at) {
             <div class="flex items-center gap-2">
               <span class="text-gray-500">
-                Start Date
+                Start
                 @if (tournament()!.starts_at_tentative) {
                   <span class="text-yellow-600">(Tentative)</span>
                 }:

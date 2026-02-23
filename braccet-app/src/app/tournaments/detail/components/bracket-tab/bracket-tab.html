@@ -39,7 +39,7 @@
     </div>
   } @else {
     <!-- Bracket content -->
-    <div class="flex-1 overflow-hidden">
+    <div class="flex-1 overflow-hidden flex flex-col min-h-0">
       @if (isPreviewMode()) {
         <!-- Preview mode: client-generated bracket -->
         @if (preview()) {
@@ -51,7 +51,9 @@
           @if (isDoubleElimination()) {
             <app-double-elim-bracket [preview]="preview()" [isPreview]="true" />
           } @else {
-            <app-bracket-viewer [preview]="preview()" [isPreview]="true" />
+            <div class="flex-1 min-h-0">
+              <app-bracket-viewer [preview]="preview()" [isPreview]="true" />
+            </div>
           }
         } @else if (participants().length < 2) {
           <div class="flex items-center justify-center h-full text-gray-500">
@@ -87,19 +89,21 @@
               (stageClicked)="onStageClicked($event)"
             />
           } @else {
-            <app-bracket-viewer
-              [preview]="{
-                totalRounds: bracketState()!.total_rounds,
-                matches: bracketState()!.matches
-              }"
-              [isPreview]="false"
-              [isOrganizer]="isOrganizer()"
-              [stages]="stages()"
-              (matchClicked)="onMatchClicked($event)"
-              (matchReopened)="onMatchReopened($event)"
-              (matchEditClicked)="onMatchEditClicked($event)"
-              (stageClicked)="onStageClicked($event)"
-            />
+            <div class="flex-1 min-h-0">
+              <app-bracket-viewer
+                [preview]="{
+                  totalRounds: bracketState()!.total_rounds,
+                  matches: bracketState()!.matches
+                }"
+                [isPreview]="false"
+                [isOrganizer]="isOrganizer()"
+                [stages]="stages()"
+                (matchClicked)="onMatchClicked($event)"
+                (matchReopened)="onMatchReopened($event)"
+                (matchEditClicked)="onMatchEditClicked($event)"
+                (stageClicked)="onStageClicked($event)"
+              />
+            </div>
           }
         } @else {
           <div class="flex items-center justify-center h-full text-gray-500">

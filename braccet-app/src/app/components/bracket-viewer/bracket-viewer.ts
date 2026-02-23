@@ -57,78 +57,155 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
 
   private initPanzoom(): void {
     const element = this.bracketGridRef.nativeElement;
+    const container = this.containerRef.nativeElement;
 
-    this.panzoomInstance = Panzoom(element, {
-      minScale: 0.25,
-      maxScale: 3,
-      contain: 'outside',
-      excludeClass: 'panzoom-exclude',
-      cursor: 'grab',
+    console.log('[BracketViewer] initPanzoom() called');
+    console.log('[BracketViewer] Element dimensions:', {
+      scrollWidth: element.scrollWidth,
+      scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth,
+      clientHeight: element.clientHeight,
+      offsetWidth: element.offsetWidth,
+      offsetHeight: element.offsetHeight
+    });
+    console.log('[BracketViewer] Container dimensions:', {
+      scrollWidth: container.scrollWidth,
+      scrollHeight: container.scrollHeight,
+      clientWidth: container.clientWidth,
+      clientHeight: container.clientHeight,
+      offsetWidth: container.offsetWidth,
+      offsetHeight: container.offsetHeight
     });
 
-    // Bind mouse wheel zoom (Ctrl+wheel or Shift+wheel)
-    this.containerRef.nativeElement.addEventListener('wheel', this.handleWheel);
+    const panzoomConfig = {
+      minScale: 0.25,
+      maxScale: 3,
+      excludeClass: 'panzoom-exclude',
+      cursor: 'grab',
+      disablePan: false,
+      disableZoom: false,
+    };
+    console.log('[BracketViewer] Panzoom config:', panzoomConfig);
+
+    this.panzoomInstance = Panzoom(element, panzoomConfig);
+    console.log('[BracketViewer] Panzoom instance created');
+
+    // Bind mouse wheel for zoom/pan (passive: false allows preventDefault)
+    this.containerRef.nativeElement.addEventListener('wheel', this.handleWheel, { passive: false });
+    console.log('[BracketViewer] Wheel event listener attached');
 
     // Track scale changes
     element.addEventListener('panzoomchange', this.handlePanzoomChange);
+    console.log('[BracketViewer] Panzoomchange event listener attached');
 
     // Auto-fit to view on load (use setTimeout to ensure DOM is ready)
+    console.log('[BracketViewer] Scheduling fitToView() via setTimeout');
     setTimeout(() => this.fitToView(), 0);
   }
 
   private destroyPanzoom(): void {
+    console.log('[BracketViewer] destroyPanzoom() called, instance exists:', !!this.panzoomInstance);
     if (this.panzoomInstance) {
       this.containerRef?.nativeElement.removeEventListener('wheel', this.handleWheel);
+      console.log('[BracketViewer] Wheel event listener removed');
       this.bracketGridRef?.nativeElement.removeEventListener('panzoomchange', this.handlePanzoomChange);
+      console.log('[BracketViewer] Panzoomchange event listener removed');
       this.panzoomInstance.destroy();
+      console.log('[BracketViewer] Panzoom instance destroyed');
       this.panzoomInstance = null;
     }
   }
 
   private handleWheel = (event: WheelEvent): void => {
+    console.log('[BracketViewer] handleWheel() called:', {
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      deltaZ: event.deltaZ,
+      deltaMode: event.deltaMode,
+      ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey,
+      metaKey: event.metaKey,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      currentScale: this.currentScale()
+    });
+
+    event.preventDefault();
+
     if (event.ctrlKey || event.shiftKey) {
-      event.preventDefault();
+      // Zoom with Ctrl/Shift + wheel
+      console.log('[BracketViewer] Zoom triggered via Ctrl/Shift+wheel');
       this.panzoomInstance?.zoomWithWheel(event);
+    } else {
+      // Pan with regular wheel scroll
+      const currentPan = this.panzoomInstance?.getPan();
+      console.log('[BracketViewer] Pan mode - current pan position:', currentPan);
+
+      if (currentPan && this.panzoomInstance) {
+        // deltaY for vertical scroll, deltaX for horizontal (trackpad)
+        const panX = currentPan.x - event.deltaX;
+        const panY = currentPan.y - event.deltaY;
+        console.log('[BracketViewer] Calculating new pan position:', {
+          currentX: currentPan.x,
+          currentY: currentPan.y,
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          newPanX: panX,
+          newPanY: panY
+        });
+        this.panzoomInstance.pan(panX, panY, { animate: false });
+        console.log('[BracketViewer] Pan applied');
+      } else {
+        console.log('[BracketViewer] Pan skipped - no currentPan or panzoomInstance');
+      }
     }
   };
 
   private handlePanzoomChange = (event: Event): void => {
     const detail = (event as CustomEvent).detail;
+    console.log('[BracketViewer] handlePanzoomChange() - panzoom state changed:', {
+      scale: detail.scale,
+      x: detail.x,
+      y: detail.y,
+      isSVG: detail.isSVG,
+      originalEvent: detail.originalEvent?.type
+    });
     this.currentScale.set(detail.scale);
   };
 
   // Public methods for zoom controls
   zoomIn(): void {
+    console.log('[BracketViewer] zoomIn() called, current scale:', this.currentScale());
     this.panzoomInstance?.zoomIn();
   }
 
   zoomOut(): void {
+    console.log('[BracketViewer] zoomOut() called, current scale:', this.currentScale());
     this.panzoomInstance?.zoomOut();
   }
 
   resetZoom(): void {
+    console.log('[BracketViewer] resetZoom() called, current scale:', this.currentScale());
     this.panzoomInstance?.reset({ animate: true });
   }
 
   fitToView(): void {
-    if (!this.panzoomInstance || !this.bracketGridRef || !this.containerRef) return;
+    if (!this.panzoomInstance || !this.bracketGridRef || !this.containerRef) {
+      return;
+    }
 
     const grid = this.bracketGridRef.nativeElement;
     const container = this.containerRef.nativeElement;
 
-    // Calculate scale to fit entire bracket in view
+    // For single elimination, fit to width - the bracket is horizontal
+    // Use scrollWidth to get the full content width
     const scaleX = container.clientWidth / grid.scrollWidth;
-    const scaleY = container.clientHeight / grid.scrollHeight;
-    const fitScale = Math.min(scaleX, scaleY); // Allow zooming below 100%
 
-    // Calculate pan position to center the scaled content
-    const scaledWidth = grid.scrollWidth * fitScale;
-    const scaledHeight = grid.scrollHeight * fitScale;
-    const panX = (container.clientWidth - scaledWidth) / 2;
-    const panY = (container.clientHeight - scaledHeight) / 2;
+    // Clamp to minScale
+    const minScale = 0.25;
+    const fitScale = Math.max(scaleX, minScale);
 
-    this.panzoomInstance.zoom(fitScale, { animate: true });
-    this.panzoomInstance.pan(panX, panY, { animate: true });
+    this.panzoomInstance.zoom(fitScale, { animate: false });
   }
 
   getZoomPercent(): string {
