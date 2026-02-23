@@ -28,6 +28,7 @@
               (matchClicked)="onMatchClicked($event)"
               (matchReopened)="onMatchReopened($event)"
               (matchEditClicked)="onMatchEditClicked($event)"
+              (matchDetailsClicked)="onMatchDetailsClicked($event)"
               (stageClicked)="onWinnersStageClicked($event)"
             />
           </div>
@@ -46,6 +47,7 @@
               (matchClicked)="onMatchClicked($event)"
               (matchReopened)="onMatchReopened($event)"
               (matchEditClicked)="onMatchEditClicked($event)"
+              (matchDetailsClicked)="onMatchDetailsClicked($event)"
               (stageClicked)="onGrandFinalStageClicked($event)"
             />
           </div>
@@ -70,9 +72,67 @@
           (matchClicked)="onMatchClicked($event)"
           (matchReopened)="onMatchReopened($event)"
           (matchEditClicked)="onMatchEditClicked($event)"
+          (matchDetailsClicked)="onMatchDetailsClicked($event)"
           (stageClicked)="onLosersStageClicked($event)"
         />
       </div>
     }
   </div>
 </div>
+
+<!-- Match Details Modal (outside panzoom transform) -->
+@if (showDetailsModal && selectedMatch) {
+  <div class="modal-overlay" (click)="closeDetailsModal()">
+    <div class="modal-content"
+         [style.top.px]="modalPosition.top"
+         [style.left.px]="modalPosition.left"
+         (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Match Details</h3>
+        <button class="modal-close" (click)="closeDetailsModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <!-- Matchup Cards -->
+        <div class="matchup-container">
+          <div class="participant-card" [class.winner]="isWinner(selectedMatch, getParticipant1Id(selectedMatch))">
+            <img [src]="getIconURL1(selectedMatch) || '/profile-icon.png'" alt="Team logo" class="card-logo" />
+            <span class="card-name">{{ getParticipant1Display(selectedMatch) }}</span>
+            @if (isCompleted(selectedMatch)) {
+              <span class="card-score">{{ getParticipant1Score(selectedMatch) }}</span>
+            }
+          </div>
+          <div class="vs-badge">VS</div>
+          <div class="participant-card" [class.winner]="isWinner(selectedMatch, getParticipant2Id(selectedMatch))">
+            <img [src]="getIconURL2(selectedMatch) || '/profile-icon.png'" alt="Team logo" class="card-logo" />
+            <span class="card-name">{{ getParticipant2Display(selectedMatch) }}</span>
+            @if (isCompleted(selectedMatch)) {
+              <span class="card-score">{{ getParticipant2Score(selectedMatch) }}</span>
+            }
+          </div>
+        </div>
+
+        <!-- Scoreboard -->
+        @if (isCompleted(selectedMatch) && getSets(selectedMatch).length > 0) {
+          <div class="scoreboard">
+            <div class="scoreboard-row" [class.winner]="isWinner(selectedMatch, getParticipant1Id(selectedMatch))">
+              <span class="scoreboard-name">{{ getParticipant1Display(selectedMatch) }}</span>
+              <div class="scoreboard-sets">
+                @for (set of getSets(selectedMatch); track $index) {
+                  <span class="scoreboard-set" [class.set-winner]="set.p1 > set.p2">{{ set.p1 }}</span>
+                }
+              </div>
+            </div>
+            <div class="scoreboard-row" [class.winner]="isWinner(selectedMatch, getParticipant2Id(selectedMatch))">
+              <span class="scoreboard-name">{{ getParticipant2Display(selectedMatch) }}</span>
+              <div class="scoreboard-sets">
+                @for (set of getSets(selectedMatch); track $index) {
+                  <span class="scoreboard-set" [class.set-winner]="set.p2 > set.p1">{{ set.p2 }}</span>
+                }
+              </div>
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+}

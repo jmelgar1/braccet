@@ -135,7 +135,10 @@
 <!-- Match Details Modal -->
 @if (showDetailsModal && selectedMatch) {
   <div class="modal-overlay" (click)="closeDetailsModal()">
-    <div class="modal-content" (click)="$event.stopPropagation()">
+    <div class="modal-content"
+         [style.top.px]="modalPosition.top"
+         [style.left.px]="modalPosition.left"
+         (click)="$event.stopPropagation()">
       <div class="modal-header">
         <h3>Match Details</h3>
         <button class="modal-close" (click)="closeDetailsModal()">×</button>

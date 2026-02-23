@@ -36,11 +36,13 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
   matchClicked = output<Match>();
   matchReopened = output<Match>();
   matchEditClicked = output<Match>();
+  matchDetailsClicked = output<{ match: DisplayMatch; event: MouseEvent }>();
   stageClicked = output<{ round: number; stage: BracketStage }>();
 
   // Modal state
   showDetailsModal = false;
   selectedMatch: DisplayMatch | null = null;
+  modalPosition = { top: 0, left: 0 };
 
   // Lifecycle hooks for panzoom
   ngAfterViewInit(): void {
@@ -457,7 +459,26 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
   // Handle details button click
   onDetailsClick(match: DisplayMatch, event: Event): void {
     event.stopPropagation();
+    const mouseEvent = event as MouseEvent;
+
+    // If panzoom is disabled, we're inside a parent with panzoom (e.g., double-elim-bracket)
+    // Emit event to let parent handle the modal (outside the transform)
+    if (!this.enablePanzoom()) {
+      this.matchDetailsClicked.emit({ match, event: mouseEvent });
+      return;
+    }
+
+    // Standalone mode: show modal locally
     this.selectedMatch = match;
+
+    // Position modal centered in viewport
+    const modalWidth = 400;
+    const modalHeight = 300;
+
+    this.modalPosition = {
+      top: (window.innerHeight - modalHeight) / 2,
+      left: (window.innerWidth - modalWidth) / 2
+    };
     this.showDetailsModal = true;
   }
 

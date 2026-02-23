@@ -1,8 +1,10 @@
 import { Component, input, computed, output, AfterViewInit, OnDestroy, ElementRef, ViewChild, signal } from '@angular/core';
-import { BracketPreview, BracketMatch } from '../../services/bracket-generator.service';
+import { BracketPreview, BracketMatch, PreviewMatch } from '../../services/bracket-generator.service';
 import { Match, BracketStage, BracketType } from '../../models/bracket.model';
 import { BracketViewer } from '../bracket-viewer/bracket-viewer';
 import Panzoom, { PanzoomObject } from '@panzoom/panzoom';
+
+type DisplayMatch = PreviewMatch | Match;
 
 interface BracketData {
   totalRounds: number;
@@ -23,8 +25,12 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
 
   // Panzoom instance and state
   private panzoomInstance: PanzoomObject | null = null;
-  private fitToViewApplied = false;
   currentScale = signal(1);
+
+  // Modal state (rendered outside panzoom transform)
+  showDetailsModal = false;
+  selectedMatch: DisplayMatch | null = null;
+  modalPosition = { top: 0, left: 0 };
 
   preview = input<BracketPreview | null>(null);
   isPreview = input(true);
@@ -134,6 +140,85 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
     this.stageClicked.emit({ ...event, bracketType: 'grand_final' });
   }
 
+  // Handle match details clicked from child bracket-viewer
+  onMatchDetailsClicked(event: { match: DisplayMatch; event: MouseEvent }): void {
+    this.selectedMatch = event.match;
+
+    // Center modal in viewport
+    const modalWidth = 400;
+    const modalHeight = 300;
+
+    this.modalPosition = {
+      top: (window.innerHeight - modalHeight) / 2,
+      left: (window.innerWidth - modalWidth) / 2
+    };
+    this.showDetailsModal = true;
+  }
+
+  closeDetailsModal(): void {
+    this.showDetailsModal = false;
+    this.selectedMatch = null;
+  }
+
+  // Helper methods for modal display
+  getParticipant1Display(match: DisplayMatch): string {
+    if ('participant1Name' in match && match.participant1Name) return match.participant1Name;
+    if ('participant1_name' in match && match.participant1_name) return match.participant1_name;
+    return 'TBD';
+  }
+
+  getParticipant2Display(match: DisplayMatch): string {
+    if ('participant2Name' in match && match.participant2Name) return match.participant2Name;
+    if ('participant2_name' in match && match.participant2_name) return match.participant2_name;
+    return 'TBD';
+  }
+
+  getIconURL1(match: DisplayMatch): string | null {
+    if ('participant1IconURL' in match && match.participant1IconURL) return match.participant1IconURL;
+    if ('participant1_icon_url' in match && match.participant1_icon_url) return match.participant1_icon_url;
+    return null;
+  }
+
+  getIconURL2(match: DisplayMatch): string | null {
+    if ('participant2IconURL' in match && match.participant2IconURL) return match.participant2IconURL;
+    if ('participant2_icon_url' in match && match.participant2_icon_url) return match.participant2_icon_url;
+    return null;
+  }
+
+  isCompleted(match: DisplayMatch): boolean {
+    return 'status' in match && match.status === 'completed';
+  }
+
+  isWinner(match: DisplayMatch, participantId: number | undefined): boolean {
+    if (!participantId) return false;
+    if ('winner_id' in match && match.winner_id) return match.winner_id === participantId;
+    if ('forfeit_winner_id' in match && match.forfeit_winner_id) return match.forfeit_winner_id === participantId;
+    return false;
+  }
+
+  getParticipant1Id(match: DisplayMatch): number | undefined {
+    return 'participant1_id' in match ? match.participant1_id : undefined;
+  }
+
+  getParticipant2Id(match: DisplayMatch): number | undefined {
+    return 'participant2_id' in match ? match.participant2_id : undefined;
+  }
+
+  getParticipant1Score(match: DisplayMatch): number | null {
+    return 'participant1_sets' in match && match.participant1_sets !== undefined ? match.participant1_sets : null;
+  }
+
+  getParticipant2Score(match: DisplayMatch): number | null {
+    return 'participant2_sets' in match && match.participant2_sets !== undefined ? match.participant2_sets : null;
+  }
+
+  getSets(match: DisplayMatch): { p1: number; p2: number }[] {
+    if ('sets' in match && Array.isArray(match.sets)) {
+      return match.sets.map(s => ({ p1: s.participant1_score, p2: s.participant2_score }));
+    }
+    return [];
+  }
+
   // Lifecycle hooks for panzoom
   ngAfterViewInit(): void {
     if (this.contentRef?.nativeElement) {
@@ -176,18 +261,26 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
   }
 
   private handleWheel = (event: WheelEvent): void => {
+    event.preventDefault();
+
     if (event.ctrlKey || event.shiftKey) {
-      event.preventDefault();
+      // Zoom with Ctrl/Shift + wheel
       this.panzoomInstance?.zoomWithWheel(event);
+    } else {
+      // Pan with regular wheel scroll
+      const currentPan = this.panzoomInstance?.getPan();
+      if (currentPan && this.panzoomInstance) {
+        // deltaY for vertical scroll, deltaX for horizontal (trackpad)
+        const panX = currentPan.x - event.deltaX;
+        const panY = currentPan.y - event.deltaY;
+        this.panzoomInstance.pan(panX, panY, { animate: false });
+      }
     }
   };
 
   private handlePanzoomChange = (event: Event): void => {
     const detail = (event as CustomEvent).detail;
     this.currentScale.set(detail.scale);
-    console.log('[panzoom] Position:', { x: detail.x, y: detail.y, scale: detail.scale });
-    // Log stack trace to find what's calling this
-    console.trace('[panzoom] Change triggered by:');
   };
 
   // Public methods for zoom controls
@@ -204,7 +297,6 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
   }
 
   fitToView(): void {
-    console.log('[fitToView] Called, fitToViewApplied:', this.fitToViewApplied);
     if (!this.panzoomInstance || !this.contentRef || !this.containerRef) return;
 
     const content = this.contentRef.nativeElement;
@@ -219,45 +311,9 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
     const minScale = 0.25;
     const actualFitScale = fitScale < minScale ? scaleX : fitScale;
 
-    // Calculate scaled dimensions
-    const scaledWidth = content.scrollWidth * actualFitScale;
-    const scaledHeight = content.scrollHeight * actualFitScale;
-
-    // The bracket content starts at approximately 39% into the content area
-    // due to internal layout structure (headers, padding, flex positioning)
-    const contentOffsetRatio = 0.39;
-    const panX = -scaledWidth * contentOffsetRatio;
-    const panY = -scaledHeight * contentOffsetRatio;
-
-    console.log('[fitToView] Container:', {
-      width: container.clientWidth,
-      height: container.clientHeight
-    });
-    console.log('[fitToView] Content:', {
-      scrollWidth: content.scrollWidth,
-      scrollHeight: content.scrollHeight
-    });
-    console.log('[fitToView] Scale:', {
-      scaleX,
-      scaleY,
-      fitScale,
-      actualFitScale
-    });
-    console.log('[fitToView] Pan calculation:', {
-      scaledWidth,
-      scaledHeight,
-      panX,
-      panY
-    });
-
     // Only apply zoom - panzoom automatically centers the view when zooming,
     // which positions the bracket correctly without needing manual pan
     this.panzoomInstance.zoom(actualFitScale, { animate: false });
-
-    // Log final position
-    const finalPan = this.panzoomInstance.getPan();
-    const finalScale = this.panzoomInstance.getScale();
-    console.log('[fitToView] After apply:', { finalPan, finalScale });
   }
 
   getZoomPercent(): string {

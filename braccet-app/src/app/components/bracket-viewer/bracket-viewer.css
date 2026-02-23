@@ -410,7 +410,7 @@
 
 /* Match hover area - hidden by default, shown on match hover */
 .match-hover-area {
-  display: none;
+  display: flex;
   position: absolute;
   left: 100%;
   top: 0;
@@ -423,6 +423,24 @@
   border-left: none;
   border-radius: 0 0.375rem 0.375rem 0;
   z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Invisible extension of parent hover zone to cover the hover area */
+.match-with-action::after {
+  content: '';
+  position: absolute;
+  left: 100%;
+  top: 0;
+  bottom: 0;
+  width: 100px;  /* Covers the hover area width */
+  pointer-events: auto;
+}
+
+/* Don't extend hover zone when there's no action area */
+.match-with-action.no-action::after {
+  display: none;
 }
 
 .match-hover-area.completed {
@@ -449,9 +467,11 @@
   object-fit: contain;
 }
 
-/* Show hover area when hovering over the match */
-.match-with-action:hover .match-hover-area {
-  display: flex;
+/* Show hover area when hovering over the match or the hover area itself */
+.match-with-action:hover .match-hover-area,
+.match-hover-area:hover {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .reopen-btn:hover {
@@ -562,18 +582,17 @@
   right: 0;
   bottom: 0;
   background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 100;
 }
 
 .modal-content {
+  position: fixed;
   background: white;
   border-radius: 0.5rem;
   min-width: 300px;
   max-width: 400px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 101;
 }
 
 .modal-header {

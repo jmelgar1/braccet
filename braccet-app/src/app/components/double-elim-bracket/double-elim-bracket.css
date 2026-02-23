@@ -141,3 +141,170 @@
   margin-left: 3rem;  /* Same gap as between normal rounds */
 }
 
+/* Modal styles (rendered outside panzoom transform) */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+}
+
+.modal-content {
+  position: fixed;
+  background: white;
+  border-radius: 0.5rem;
+  min-width: 300px;
+  max-width: 400px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 101;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.modal-close:hover {
+  color: #374151;
+}
+
+.modal-body {
+  padding: 1.5rem;
+}
+
+/* Matchup Cards Container */
+.matchup-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+/* Participant Card */
+.participant-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  background: #f3f4f6;
+  border-radius: 0.5rem;
+  min-width: 100px;
+  border: 2px solid #d1d5db;
+}
+
+.participant-card.winner {
+  background: #bbf7d0;
+  border-color: #16a34a;
+}
+
+.card-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 0.5rem;
+  background: #e5e7eb;
+}
+
+.card-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+  text-align: center;
+  margin-bottom: 0.25rem;
+}
+
+.participant-card.winner .card-name {
+  color: #16a34a;
+}
+
+.card-score {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #374151;
+}
+
+.participant-card.winner .card-score {
+  color: #16a34a;
+}
+
+/* VS Badge */
+.vs-badge {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #9ca3af;
+  padding: 0.5rem;
+}
+
+/* Scoreboard */
+.scoreboard {
+  margin-top: 1.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.scoreboard-row {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background: #f9fafb;
+}
+
+.scoreboard-row:first-child {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.scoreboard-row.winner {
+  background: #f0fdf4;
+}
+
+.scoreboard-name {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.scoreboard-row.winner .scoreboard-name {
+  color: #16a34a;
+}
+
+.scoreboard-sets {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.scoreboard-set {
+  min-width: 24px;
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.scoreboard-set.set-winner {
+  color: #16a34a;
+  font-weight: 600;
+}
+
