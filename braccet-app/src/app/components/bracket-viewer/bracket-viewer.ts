@@ -119,8 +119,14 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     const scaleY = container.clientHeight / grid.scrollHeight;
     const fitScale = Math.min(scaleX, scaleY); // Allow zooming below 100%
 
+    // Calculate pan position to center the scaled content
+    const scaledWidth = grid.scrollWidth * fitScale;
+    const scaledHeight = grid.scrollHeight * fitScale;
+    const panX = (container.clientWidth - scaledWidth) / 2;
+    const panY = (container.clientHeight - scaledHeight) / 2;
+
     this.panzoomInstance.zoom(fitScale, { animate: true });
-    this.panzoomInstance.pan(0, 0, { animate: true });
+    this.panzoomInstance.pan(panX, panY, { animate: true });
   }
 
   getZoomPercent(): string {

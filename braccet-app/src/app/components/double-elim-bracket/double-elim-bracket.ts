@@ -1,5 +1,5 @@
 import { Component, input, computed, output, AfterViewInit, OnDestroy, ElementRef, ViewChild, signal } from '@angular/core';
-import { PreviewMatch, BracketPreview, BracketMatch } from '../../services/bracket-generator.service';
+import { BracketPreview, BracketMatch } from '../../services/bracket-generator.service';
 import { Match, BracketStage, BracketType } from '../../models/bracket.model';
 import { BracketViewer } from '../bracket-viewer/bracket-viewer';
 import Panzoom, { PanzoomObject } from '@panzoom/panzoom';
@@ -23,6 +23,7 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
 
   // Panzoom instance and state
   private panzoomInstance: PanzoomObject | null = null;
+  private fitToViewApplied = false;
   currentScale = signal(1);
 
   preview = input<BracketPreview | null>(null);
@@ -184,6 +185,9 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
   private handlePanzoomChange = (event: Event): void => {
     const detail = (event as CustomEvent).detail;
     this.currentScale.set(detail.scale);
+    console.log('[panzoom] Position:', { x: detail.x, y: detail.y, scale: detail.scale });
+    // Log stack trace to find what's calling this
+    console.trace('[panzoom] Change triggered by:');
   };
 
   // Public methods for zoom controls
@@ -200,6 +204,7 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
   }
 
   fitToView(): void {
+    console.log('[fitToView] Called, fitToViewApplied:', this.fitToViewApplied);
     if (!this.panzoomInstance || !this.contentRef || !this.containerRef) return;
 
     const content = this.contentRef.nativeElement;
@@ -208,10 +213,51 @@ export class DoubleElimBracket implements AfterViewInit, OnDestroy {
     // Calculate scale to fit entire bracket in view
     const scaleX = container.clientWidth / content.scrollWidth;
     const scaleY = container.clientHeight / content.scrollHeight;
-    const fitScale = Math.min(scaleX, scaleY); // Allow zooming below 100%
+    const fitScale = Math.min(scaleX, scaleY);
 
-    this.panzoomInstance.zoom(fitScale, { animate: true });
-    this.panzoomInstance.pan(0, 0, { animate: true });
+    // Use width-based scale if height-based would be below minScale (0.25)
+    const minScale = 0.25;
+    const actualFitScale = fitScale < minScale ? scaleX : fitScale;
+
+    // Calculate scaled dimensions
+    const scaledWidth = content.scrollWidth * actualFitScale;
+    const scaledHeight = content.scrollHeight * actualFitScale;
+
+    // The bracket content starts at approximately 39% into the content area
+    // due to internal layout structure (headers, padding, flex positioning)
+    const contentOffsetRatio = 0.39;
+    const panX = -scaledWidth * contentOffsetRatio;
+    const panY = -scaledHeight * contentOffsetRatio;
+
+    console.log('[fitToView] Container:', {
+      width: container.clientWidth,
+      height: container.clientHeight
+    });
+    console.log('[fitToView] Content:', {
+      scrollWidth: content.scrollWidth,
+      scrollHeight: content.scrollHeight
+    });
+    console.log('[fitToView] Scale:', {
+      scaleX,
+      scaleY,
+      fitScale,
+      actualFitScale
+    });
+    console.log('[fitToView] Pan calculation:', {
+      scaledWidth,
+      scaledHeight,
+      panX,
+      panY
+    });
+
+    // Only apply zoom - panzoom automatically centers the view when zooming,
+    // which positions the bracket correctly without needing manual pan
+    this.panzoomInstance.zoom(actualFitScale, { animate: false });
+
+    // Log final position
+    const finalPan = this.panzoomInstance.getPan();
+    const finalScale = this.panzoomInstance.getScale();
+    console.log('[fitToView] After apply:', { finalPan, finalScale });
   }
 
   getZoomPercent(): string {
