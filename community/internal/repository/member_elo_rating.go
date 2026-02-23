@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/braccet/community/internal/domain"
@@ -15,6 +17,7 @@ type MemberEloRatingRepository interface {
 	Create(ctx context.Context, r *domain.MemberEloRating) error
 	GetByID(ctx context.Context, id uint64) (*domain.MemberEloRating, error)
 	GetByMemberAndSystem(ctx context.Context, memberID, systemID uint64) (*domain.MemberEloRating, error)
+	GetByMembersAndSystem(ctx context.Context, memberIDs []uint64, systemID uint64) ([]*domain.MemberEloRating, error)
 	GetByMember(ctx context.Context, memberID uint64) ([]*domain.MemberEloRating, error)
 	GetLeaderboard(ctx context.Context, systemID uint64, limit int) ([]*domain.MemberEloRating, error)
 	Update(ctx context.Context, r *domain.MemberEloRating) error
@@ -50,7 +53,7 @@ func (r *memberEloRatingRepository) GetByID(ctx context.Context, id uint64) (*do
 	query := `
 		SELECT mer.id, mer.member_id, mer.elo_system_id, mer.rating, mer.games_played, mer.games_won,
 			mer.current_win_streak, mer.highest_rating, mer.lowest_rating, mer.last_game_at,
-			mer.created_at, mer.updated_at, cm.display_name
+			mer.created_at, mer.updated_at, cm.display_name, cm.region, cm.icon_url
 		FROM member_elo_ratings mer
 		JOIN community_members cm ON cm.id = mer.member_id
 		WHERE mer.id = $1
@@ -59,7 +62,7 @@ func (r *memberEloRatingRepository) GetByID(ctx context.Context, id uint64) (*do
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&rating.ID, &rating.MemberID, &rating.EloSystemID, &rating.Rating, &rating.GamesPlayed, &rating.GamesWon,
 		&rating.CurrentWinStreak, &rating.HighestRating, &rating.LowestRating, &rating.LastGameAt,
-		&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName,
+		&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName, &rating.MemberRegion, &rating.MemberIconURL,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -75,7 +78,7 @@ func (r *memberEloRatingRepository) GetByMemberAndSystem(ctx context.Context, me
 	query := `
 		SELECT mer.id, mer.member_id, mer.elo_system_id, mer.rating, mer.games_played, mer.games_won,
 			mer.current_win_streak, mer.highest_rating, mer.lowest_rating, mer.last_game_at,
-			mer.created_at, mer.updated_at, cm.display_name
+			mer.created_at, mer.updated_at, cm.display_name, cm.region, cm.icon_url
 		FROM member_elo_ratings mer
 		JOIN community_members cm ON cm.id = mer.member_id
 		WHERE mer.member_id = $1 AND mer.elo_system_id = $2
@@ -84,7 +87,7 @@ func (r *memberEloRatingRepository) GetByMemberAndSystem(ctx context.Context, me
 	err := r.db.QueryRowContext(ctx, query, memberID, systemID).Scan(
 		&rating.ID, &rating.MemberID, &rating.EloSystemID, &rating.Rating, &rating.GamesPlayed, &rating.GamesWon,
 		&rating.CurrentWinStreak, &rating.HighestRating, &rating.LowestRating, &rating.LastGameAt,
-		&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName,
+		&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName, &rating.MemberRegion, &rating.MemberIconURL,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -96,11 +99,57 @@ func (r *memberEloRatingRepository) GetByMemberAndSystem(ctx context.Context, me
 	return rating, nil
 }
 
+func (r *memberEloRatingRepository) GetByMembersAndSystem(ctx context.Context, memberIDs []uint64, systemID uint64) ([]*domain.MemberEloRating, error) {
+	if len(memberIDs) == 0 {
+		return nil, nil
+	}
+
+	// Build placeholders: $2, $3, $4, ... (systemID is $1)
+	placeholders := make([]string, len(memberIDs))
+	args := make([]any, len(memberIDs)+1)
+	args[0] = systemID
+	for i, id := range memberIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args[i+1] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT mer.id, mer.member_id, mer.elo_system_id, mer.rating, mer.games_played, mer.games_won,
+			mer.current_win_streak, mer.highest_rating, mer.lowest_rating, mer.last_game_at,
+			mer.created_at, mer.updated_at, cm.display_name, cm.region, cm.icon_url
+		FROM member_elo_ratings mer
+		JOIN community_members cm ON cm.id = mer.member_id
+		WHERE mer.elo_system_id = $1 AND mer.member_id IN (%s)
+	`, strings.Join(placeholders, ", "))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ratings []*domain.MemberEloRating
+	for rows.Next() {
+		rating := &domain.MemberEloRating{}
+		err := rows.Scan(
+			&rating.ID, &rating.MemberID, &rating.EloSystemID, &rating.Rating, &rating.GamesPlayed, &rating.GamesWon,
+			&rating.CurrentWinStreak, &rating.HighestRating, &rating.LowestRating, &rating.LastGameAt,
+			&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName, &rating.MemberRegion, &rating.MemberIconURL,
+		)
+		if err != nil {
+			return nil, err
+		}
+		ratings = append(ratings, rating)
+	}
+
+	return ratings, rows.Err()
+}
+
 func (r *memberEloRatingRepository) GetByMember(ctx context.Context, memberID uint64) ([]*domain.MemberEloRating, error) {
 	query := `
 		SELECT mer.id, mer.member_id, mer.elo_system_id, mer.rating, mer.games_played, mer.games_won,
 			mer.current_win_streak, mer.highest_rating, mer.lowest_rating, mer.last_game_at,
-			mer.created_at, mer.updated_at, cm.display_name
+			mer.created_at, mer.updated_at, cm.display_name, cm.region, cm.icon_url
 		FROM member_elo_ratings mer
 		JOIN community_members cm ON cm.id = mer.member_id
 		WHERE mer.member_id = $1
@@ -118,7 +167,7 @@ func (r *memberEloRatingRepository) GetByMember(ctx context.Context, memberID ui
 		err := rows.Scan(
 			&rating.ID, &rating.MemberID, &rating.EloSystemID, &rating.Rating, &rating.GamesPlayed, &rating.GamesWon,
 			&rating.CurrentWinStreak, &rating.HighestRating, &rating.LowestRating, &rating.LastGameAt,
-			&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName,
+			&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName, &rating.MemberRegion, &rating.MemberIconURL,
 		)
 		if err != nil {
 			return nil, err
@@ -133,7 +182,7 @@ func (r *memberEloRatingRepository) GetLeaderboard(ctx context.Context, systemID
 	query := `
 		SELECT mer.id, mer.member_id, mer.elo_system_id, mer.rating, mer.games_played, mer.games_won,
 			mer.current_win_streak, mer.highest_rating, mer.lowest_rating, mer.last_game_at,
-			mer.created_at, mer.updated_at, cm.display_name
+			mer.created_at, mer.updated_at, cm.display_name, cm.region, cm.icon_url
 		FROM member_elo_ratings mer
 		JOIN community_members cm ON cm.id = mer.member_id
 		WHERE mer.elo_system_id = $1
@@ -152,7 +201,7 @@ func (r *memberEloRatingRepository) GetLeaderboard(ctx context.Context, systemID
 		err := rows.Scan(
 			&rating.ID, &rating.MemberID, &rating.EloSystemID, &rating.Rating, &rating.GamesPlayed, &rating.GamesWon,
 			&rating.CurrentWinStreak, &rating.HighestRating, &rating.LowestRating, &rating.LastGameAt,
-			&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName,
+			&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName, &rating.MemberRegion, &rating.MemberIconURL,
 		)
 		if err != nil {
 			return nil, err

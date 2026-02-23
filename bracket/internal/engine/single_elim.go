@@ -92,11 +92,17 @@ func createMatch(tournamentID uint64, round, position int, p1, p2 *domain.Partic
 	if p1 != nil {
 		match.Participant1ID = &p1.ID
 		match.Participant1Name = &p1.Name
+		if p1.IconURL != "" {
+			match.Participant1IconURL = &p1.IconURL
+		}
 		match.Seed1 = &p1.Seed
 	}
 	if p2 != nil {
 		match.Participant2ID = &p2.ID
 		match.Participant2Name = &p2.Name
+		if p2.IconURL != "" {
+			match.Participant2IconURL = &p2.IconURL
+		}
 		match.Seed2 = &p2.Seed
 	}
 

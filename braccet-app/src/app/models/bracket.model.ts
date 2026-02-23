@@ -2,6 +2,7 @@ export interface Participant {
   id: number;
   name: string;
   seed: number;
+  icon_url?: string;
 }
 
 export interface SetScore {
@@ -18,6 +19,8 @@ export interface Match {
   participant2_id?: number;
   participant1_name?: string;
   participant2_name?: string;
+  participant1_icon_url?: string;
+  participant2_icon_url?: string;
   seed1?: number;
   seed2?: number;
   sets: SetScore[];
@@ -29,6 +32,14 @@ export interface Match {
   next_match_id?: number;
 }
 
+export interface BracketStage {
+  tournament_id: number;
+  bracket_type: string;
+  round: number;
+  stage_name: string;
+  best_of: number;
+}
+
 export interface BracketState {
   tournament_id: number;
   total_rounds: number;
@@ -36,6 +47,12 @@ export interface BracketState {
   is_complete: boolean;
   champion_id?: number;
   matches: Match[];
+  stages: BracketStage[];
+}
+
+export interface UpdateStageRequest {
+  stage_name?: string;
+  best_of?: number;
 }
 
 export interface CreateBracketRequest {

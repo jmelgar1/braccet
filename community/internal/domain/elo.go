@@ -51,6 +51,8 @@ type MemberEloRating struct {
 
 	// Joined fields for display
 	MemberDisplayName *string
+	MemberRegion      *string
+	MemberIconURL     *string
 }
 
 type EloChangeType string

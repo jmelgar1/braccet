@@ -25,6 +25,7 @@
           [participants]="participants()"
           [refreshKey]="bracketRefreshKey()"
           [isOrganizer]="isOrganizer()"
+          (tournamentEnded)="onTournamentUpdated($event)"
         />
       }
       @case ('participants') {
@@ -34,12 +35,14 @@
           [isOrganizer]="isOrganizer()"
           [currentUserParticipant]="currentUserParticipant()"
           [canSelfRegister]="canSelfRegister()"
+          [communitySlug]="communitySlug()"
           (participantAdded)="onParticipantAdded($event)"
           (participantRemoved)="onParticipantRemoved($event)"
           (participantWithdrawn)="onParticipantWithdrawn($event)"
           (seedingChanged)="onSeedingChanged($event)"
           (selfRegistered)="onSelfRegistered($event)"
           (left)="onLeft($event)"
+          (participantUpdated)="onParticipantUpdated($event)"
         />
       }
       @case ('settings') {

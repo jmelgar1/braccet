@@ -51,6 +51,13 @@
             </div>
           }
 
+          @if (eloSystem()) {
+            <div class="flex items-center gap-2">
+              <span class="text-gray-500">ELO System:</span>
+              <span class="font-medium text-gray-900">{{ eloSystem()!.name }}</span>
+            </div>
+          }
+
           <div class="flex items-center gap-2">
             <span class="text-gray-500">Format:</span>
             <span class="font-medium text-gray-900">
@@ -100,9 +107,11 @@
         [isLoggedIn]="isLoggedIn()"
         [currentUser]="authService.user()"
         [bracketRefreshKey]="bracketRefreshKey()"
+        [communitySlug]="community()?.slug ?? null"
         (participantAdded)="onParticipantAdded($event)"
         (participantRemoved)="onParticipantRemoved($event)"
         (participantWithdrawn)="onParticipantWithdrawn($event)"
+        (participantUpdated)="onParticipantUpdated($event)"
         (seedingChanged)="onSeedingChanged($event)"
         (selfRegistered)="onSelfRegistered($event)"
         (left)="onLeft($event)"

@@ -24,11 +24,13 @@ export class SidePanel {
   isLoggedIn = input.required<boolean>();
   currentUser = input<User | null>(null);
   bracketRefreshKey = input(0);
+  communitySlug = input<string | null>(null);
 
   // Forward participant events
   participantAdded = output<Participant>();
   participantRemoved = output<number>();
   participantWithdrawn = output<number>();
+  participantUpdated = output<Participant>();
   seedingChanged = output<Participant[]>();
   selfRegistered = output<Participant>();
   left = output<number>();
@@ -98,5 +100,9 @@ export class SidePanel {
 
   onTournamentUpdated(tournament: Tournament): void {
     this.tournamentUpdated.emit(tournament);
+  }
+
+  onParticipantUpdated(participant: Participant): void {
+    this.participantUpdated.emit(participant);
   }
 }

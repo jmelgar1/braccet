@@ -1,0 +1,195 @@
+<div class="modal-backdrop" (click)="onBackdropClick($event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Edit Member</h3>
+      <button class="close-btn" (click)="close.emit()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      @if (error()) {
+        <div class="error-message">{{ error() }}</div>
+      }
+
+      <!-- Display Name -->
+      <div class="form-group">
+        <label for="displayName">Display Name</label>
+        <input
+          type="text"
+          id="displayName"
+          class="text-input"
+          [ngModel]="displayName()"
+          (ngModelChange)="displayName.set($event)"
+          [disabled]="saving()"
+          placeholder="Enter display name"
+        />
+      </div>
+
+      <!-- Region -->
+      <div class="form-group">
+        <label for="region">Region</label>
+        @if (showAddRegion()) {
+          <div class="add-region-container">
+            <input
+              type="text"
+              class="text-input region-input"
+              [value]="newRegionInput()"
+              (input)="onNewRegionInput($event)"
+              [disabled]="saving()"
+              placeholder="XX"
+              maxlength="2"
+            />
+            <button
+              type="button"
+              class="btn-small btn-primary"
+              (click)="confirmNewRegion()"
+              [disabled]="newRegionInput().length !== 2"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              class="btn-small btn-secondary"
+              (click)="cancelNewRegion()"
+            >
+              Cancel
+            </button>
+          </div>
+        } @else {
+          <select
+            id="region"
+            class="select-input"
+            [ngModel]="region()"
+            (ngModelChange)="onRegionSelectChange($event)"
+            [disabled]="saving() || loadingRegions()"
+          >
+            <option value="">No region</option>
+            @for (r of availableRegions(); track r) {
+              <option [value]="r">{{ r }}</option>
+            }
+            <option value="__new__">+ Add new region...</option>
+          </select>
+        }
+      </div>
+
+      <!-- Icon Upload -->
+      <div class="form-group">
+        <label>Icon</label>
+
+        @if (showCropper()) {
+          <!-- Cropper View -->
+          <div class="cropper-container">
+            <image-cropper
+              [imageURL]="iconPreview() ?? undefined"
+              [maintainAspectRatio]="true"
+              [aspectRatio]="1"
+              [resizeToWidth]="256"
+              [transform]="imageTransform()"
+              format="png"
+              output="blob"
+              (imageCropped)="onImageCropped($event)"
+            ></image-cropper>
+
+            <div class="zoom-controls">
+              <button type="button" class="zoom-btn" (click)="zoomOut()" [disabled]="croppingInProgress()" title="Zoom out">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/>
+                  <line x1="8" y1="11" x2="14" y2="11"/>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </button>
+              <button type="button" class="zoom-btn" (click)="zoomIn()" [disabled]="croppingInProgress()" title="Zoom in">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"/>
+                  <line x1="11" y1="8" x2="11" y2="14"/>
+                  <line x1="8" y1="11" x2="14" y2="11"/>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </button>
+            </div>
+
+            <div class="cropper-actions">
+              <button type="button" class="btn-secondary" (click)="cancelCrop()" [disabled]="croppingInProgress()">
+                Cancel
+              </button>
+              <button type="button" class="btn-primary" (click)="applyCrop()" [disabled]="croppingInProgress()">
+                {{ croppingInProgress() ? 'Uploading...' : 'Apply Crop' }}
+              </button>
+            </div>
+          </div>
+        } @else {
+          <!-- Normal Upload View -->
+          <div
+            class="upload-area"
+            (dragover)="onDragOver($event)"
+            (drop)="onDrop($event)"
+          >
+            @if (iconPreview()) {
+              <div class="icon-preview-container">
+                <img [src]="iconPreview()" alt="Icon preview" class="icon-preview" />
+                <div class="icon-actions">
+                  <button
+                    class="crop-icon-btn"
+                    (click)="openCropper(); $event.stopPropagation()"
+                    [disabled]="saving()"
+                    type="button"
+                    title="Crop image"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M6 2v14a2 2 0 0 0 2 2h14"/>
+                      <path d="M18 22V8a2 2 0 0 0-2-2H2"/>
+                    </svg>
+                  </button>
+                  <button
+                    class="remove-icon-btn"
+                    (click)="removeIcon(); $event.stopPropagation()"
+                    [disabled]="saving()"
+                    type="button"
+                    title="Remove image"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M18 6L6 18M6 6l12 12"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            } @else {
+              <div class="upload-placeholder">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <p>Drag and drop an image here, or click to select</p>
+                <span class="upload-hint">JPEG, PNG, or WebP (max 2MB)</span>
+              </div>
+            }
+            <input
+              type="file"
+              class="file-input"
+              accept="image/jpeg,image/png,image/webp"
+              (change)="onFileSelected($event)"
+              [disabled]="saving()"
+            />
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-secondary" (click)="close.emit()" [disabled]="saving()">
+        Cancel
+      </button>
+      <button
+        class="btn-primary"
+        (click)="save()"
+        [disabled]="!canSave()"
+      >
+        {{ saving() ? 'Saving...' : 'Save Changes' }}
+      </button>
+    </div>
+  </div>
+</div>

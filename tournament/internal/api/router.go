@@ -26,7 +26,7 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 	})
 
 	// Tournament handlers
-	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo)
+	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo, participantRepo, bracketClient, communityClient)
 	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo, bracketClient, communityClient)
 
 	// Internal routes (service-to-service, no auth required)
@@ -58,9 +58,11 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 			// Participant routes (nested under tournament)
 			r.Route("/{slug}/participants", func(r chi.Router) {
 				r.Get("/", participantHandler.List)
+				r.Get("/search", participantHandler.SearchAvailableMembers)
 				r.Post("/", participantHandler.Add)
 				r.Delete("/{participantId}", participantHandler.Remove)
 				r.Post("/{participantId}/withdraw", participantHandler.Withdraw)
+				r.Post("/{participantId}/promote", participantHandler.Promote)
 				r.Put("/seeding", participantHandler.UpdateSeeding)
 			})
 		})

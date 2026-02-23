@@ -1,0 +1,62 @@
+<div class="modal-backdrop" (click)="onBackdropClick($event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Edit Stage</h3>
+      <button class="close-btn" (click)="close.emit()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      @if (error()) {
+        <div class="error-message">{{ error() }}</div>
+      }
+
+      <!-- Stage Name -->
+      <div class="form-group">
+        <label for="stageName">Stage Name</label>
+        <input
+          type="text"
+          id="stageName"
+          class="text-input"
+          [ngModel]="stageName()"
+          (ngModelChange)="stageName.set($event)"
+          [disabled]="saving()"
+          placeholder="e.g., Quarterfinals, Pool Play"
+        />
+      </div>
+
+      <!-- Best Of -->
+      <div class="form-group">
+        <label for="bestOf">Best Of</label>
+        <select
+          id="bestOf"
+          class="select-input"
+          [ngModel]="bestOf()"
+          (ngModelChange)="bestOf.set($event)"
+          [disabled]="saving()"
+        >
+          @for (option of bestOfOptions; track option) {
+            <option [ngValue]="option">Best of {{ option }}</option>
+          }
+        </select>
+        <p class="hint">Number of sets needed to win a match</p>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-secondary" (click)="close.emit()" [disabled]="saving()">
+        Cancel
+      </button>
+      <button
+        class="btn-primary"
+        (click)="save()"
+        [disabled]="!canSave()"
+      >
+        {{ saving() ? 'Saving...' : 'Save' }}
+      </button>
+    </div>
+  </div>
+</div>

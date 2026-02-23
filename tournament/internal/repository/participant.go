@@ -18,7 +18,9 @@ type ParticipantRepository interface {
 	CountByTournament(ctx context.Context, tournamentID uint64) (int, error)
 	UpdateSeeding(ctx context.Context, tournamentID uint64, seeds map[uint64]uint) error
 	UpdateStatus(ctx context.Context, id uint64, status domain.ParticipantStatus) error
+	UpdateCommunityMemberID(ctx context.Context, id uint64, communityMemberID uint64) error
 	Delete(ctx context.Context, id uint64) error
+	GetOrphanedCommunityMemberIDs(ctx context.Context, tournamentID uint64, communityID uint64) ([]uint64, error)
 }
 
 type participantRepository struct {
@@ -169,6 +171,24 @@ func (r *participantRepository) UpdateStatus(ctx context.Context, id uint64, sta
 	return nil
 }
 
+func (r *participantRepository) UpdateCommunityMemberID(ctx context.Context, id uint64, communityMemberID uint64) error {
+	query := `UPDATE participants SET community_member_id = $1 WHERE id = $2`
+	result, err := r.db.ExecContext(ctx, query, communityMemberID, id)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrParticipantNotFound
+	}
+
+	return nil
+}
+
 func (r *participantRepository) Delete(ctx context.Context, id uint64) error {
 	query := `DELETE FROM participants WHERE id = $1`
 	result, err := r.db.ExecContext(ctx, query, id)
@@ -185,4 +205,43 @@ func (r *participantRepository) Delete(ctx context.Context, id uint64) error {
 	}
 
 	return nil
+}
+
+// GetOrphanedCommunityMemberIDs finds community_member_ids from the specified tournament
+// that do NOT appear in any other tournament within the same community.
+func (r *participantRepository) GetOrphanedCommunityMemberIDs(ctx context.Context, tournamentID uint64, communityID uint64) ([]uint64, error) {
+	query := `
+		SELECT DISTINCT p1.community_member_id
+		FROM participants p1
+		JOIN tournaments t1 ON p1.tournament_id = t1.id
+		WHERE p1.tournament_id = $1
+		  AND p1.community_member_id IS NOT NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM participants p2
+			JOIN tournaments t2 ON p2.tournament_id = t2.id
+			WHERE p2.community_member_id = p1.community_member_id
+			  AND t2.community_id = $2
+			  AND p2.tournament_id != $1
+		  )
+	`
+	rows, err := r.db.QueryContext(ctx, query, tournamentID, communityID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memberIDs []uint64
+	for rows.Next() {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		memberIDs = append(memberIDs, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return memberIDs, nil
 }

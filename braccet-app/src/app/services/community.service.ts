@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Community, CreateCommunityRequest, CommunityMember, AddMemberRequest, MemberRole } from '../models/community.model';
+import { Community, CreateCommunityRequest, CommunityMember, AddMemberRequest, MemberRole, UpdateMemberRequest, PresignedUploadResponse } from '../models/community.model';
 
 @Injectable({ providedIn: 'root' })
 export class CommunityService {
@@ -48,5 +48,20 @@ export class CommunityService {
 
   updateMemberRole(slug: string, memberId: number, role: MemberRole): Observable<CommunityMember> {
     return this.http.put<CommunityMember>(`${this.baseUrl}/${slug}/members/${memberId}/role`, { role });
+  }
+
+  updateMember(slug: string, memberId: number, request: UpdateMemberRequest): Observable<CommunityMember> {
+    return this.http.put<CommunityMember>(`${this.baseUrl}/${slug}/members/${memberId}`, request);
+  }
+
+  getMemberIconUploadUrl(slug: string, memberId: number, contentType: string): Observable<PresignedUploadResponse> {
+    return this.http.post<PresignedUploadResponse>(
+      `${this.baseUrl}/${slug}/members/${memberId}/icon/upload-url`,
+      { content_type: contentType }
+    );
+  }
+
+  getRegions(slug: string): Observable<string[]> {
+    return this.http.get<string[]>(`${this.baseUrl}/${slug}/regions`);
   }
 }

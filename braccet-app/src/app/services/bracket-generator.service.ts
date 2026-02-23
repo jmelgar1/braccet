@@ -8,6 +8,8 @@ export interface PreviewMatch {
   seed2: number;
   participant1Name?: string;
   participant2Name?: string;
+  participant1IconURL?: string;
+  participant2IconURL?: string;
   isBye: boolean;
 }
 
@@ -144,6 +146,8 @@ export class BracketGeneratorService {
         seed2: participant2 ? seed2 : 0,
         participant1Name: participant1?.display_name,
         participant2Name: participant2?.display_name,
+        participant1IconURL: participant1?.icon_url,
+        participant2IconURL: participant2?.icon_url,
         isBye
       });
     });
@@ -183,6 +187,7 @@ export class BracketGeneratorService {
     for (const byeMatch of byeMatches) {
       // Determine the winner (the participant who exists)
       const winnerName = byeMatch.participant1Name || byeMatch.participant2Name;
+      const winnerIconURL = byeMatch.participant1IconURL || byeMatch.participant2IconURL;
       const winnerSeed = byeMatch.seed1 || byeMatch.seed2;
 
       if (!winnerName) continue;
@@ -197,9 +202,11 @@ export class BracketGeneratorService {
       // Determine which slot: odd positions -> slot 1, even positions -> slot 2
       if (byeMatch.position % 2 === 1) {
         nextMatch.participant1Name = winnerName;
+        nextMatch.participant1IconURL = winnerIconURL;
         nextMatch.seed1 = winnerSeed;
       } else {
         nextMatch.participant2Name = winnerName;
+        nextMatch.participant2IconURL = winnerIconURL;
         nextMatch.seed2 = winnerSeed;
       }
     }

@@ -11,6 +11,7 @@ import (
 
 type BracketClient interface {
 	ProcessWithdrawal(ctx context.Context, tournamentID, participantID uint64) error
+	IsBracketComplete(ctx context.Context, tournamentID uint64) (bool, error)
 }
 
 type bracketClient struct {
@@ -62,4 +63,38 @@ func (c *bracketClient) ProcessWithdrawal(ctx context.Context, tournamentID, par
 	}
 
 	return nil
+}
+
+type bracketStateResponse struct {
+	IsComplete bool `json:"is_complete"`
+}
+
+// IsBracketComplete checks if all matches in the bracket are completed.
+func (c *bracketClient) IsBracketComplete(ctx context.Context, tournamentID uint64) (bool, error) {
+	url := fmt.Sprintf("%s/brackets/%d", c.baseURL, tournamentID)
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return false, fmt.Errorf("failed to call bracket service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return false, fmt.Errorf("bracket not found for tournament")
+	}
+
+	if resp.StatusCode >= 400 {
+		return false, fmt.Errorf("bracket service returned status %d", resp.StatusCode)
+	}
+
+	var state bracketStateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		return false, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return state.IsComplete, nil
 }

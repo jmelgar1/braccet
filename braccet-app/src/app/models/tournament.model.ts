@@ -33,15 +33,25 @@ export interface Participant {
   id: number;
   tournament_id: number;
   user_id?: number;
+  community_member_id?: number;
   display_name: string;
+  icon_url?: string;
+  region?: string;
   seed?: number;
   status: 'registered' | 'checked_in' | 'active' | 'eliminated' | 'disqualified' | 'withdrawn';
   checked_in_at?: string;
+  elo_rating?: number;
   created_at: string;
 }
 
 export interface AddParticipantRequest {
   user_id?: number;
+  community_member_id?: number;
+  display_name: string;
+}
+
+export interface MemberSearchResult {
+  id: number;
   display_name: string;
 }
 

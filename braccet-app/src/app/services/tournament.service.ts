@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Tournament, CreateTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest } from '../models/tournament.model';
+import { Tournament, CreateTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult } from '../models/tournament.model';
 
 @Injectable({ providedIn: 'root' })
 export class TournamentService {
@@ -52,5 +52,15 @@ export class TournamentService {
 
   updateSeeding(slug: string, request: UpdateSeedingRequest): Observable<Participant[]> {
     return this.http.put<Participant[]>(`${this.baseUrl}/${slug}/participants/seeding`, request);
+  }
+
+  searchAvailableMembers(slug: string, query: string): Observable<MemberSearchResult[]> {
+    return this.http.get<MemberSearchResult[]>(`${this.baseUrl}/${slug}/participants/search`, {
+      params: { q: query }
+    });
+  }
+
+  promoteParticipant(slug: string, participantId: number): Observable<Participant> {
+    return this.http.post<Participant>(`${this.baseUrl}/${slug}/participants/${participantId}/promote`, {});
   }
 }

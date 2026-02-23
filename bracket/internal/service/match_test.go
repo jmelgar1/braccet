@@ -71,7 +71,7 @@ func (r *mockMatchRepository) UpdateStatus(ctx context.Context, matchID uint64, 
 	return nil
 }
 
-func (r *mockMatchRepository) SetParticipant(ctx context.Context, matchID uint64, slot int, participantID uint64, name string) error {
+func (r *mockMatchRepository) SetParticipant(ctx context.Context, matchID uint64, slot int, participantID uint64, name string, iconURL string, seed int) error {
 	m, ok := r.matches[matchID]
 	if !ok {
 		return repository.ErrMatchNotFound
@@ -79,9 +79,17 @@ func (r *mockMatchRepository) SetParticipant(ctx context.Context, matchID uint64
 	if slot == 1 {
 		m.Participant1ID = &participantID
 		m.Participant1Name = &name
+		if iconURL != "" {
+			m.Participant1IconURL = &iconURL
+		}
+		m.Seed1 = &seed
 	} else {
 		m.Participant2ID = &participantID
 		m.Participant2Name = &name
+		if iconURL != "" {
+			m.Participant2IconURL = &iconURL
+		}
+		m.Seed2 = &seed
 	}
 	return nil
 }

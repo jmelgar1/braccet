@@ -16,6 +16,7 @@ export interface MatchResultEvent {
 export class MatchResultModal {
   match = input.required<Match>();
   editMode = input(false);
+  bestOf = input(1); // Default to best of 1
 
   close = output<void>();
   resultSubmitted = output<MatchResultEvent>();
@@ -29,16 +30,30 @@ export class MatchResultModal {
   error = signal('');
 
   constructor() {
-    // Pre-populate sets when in edit mode with existing match data
+    // Initialize sets based on editMode and bestOf
     effect(() => {
       const m = this.match();
       const isEdit = this.editMode();
+      const bestOfValue = this.bestOf();
+
       if (isEdit && m.status === 'completed' && m.sets && m.sets.length > 0) {
+        // Edit mode: pre-populate with existing match data
         this.sets.set(m.sets.map(s => ({
           set_number: s.set_number,
           participant1_score: s.participant1_score,
           participant2_score: s.participant2_score
         })));
+      } else {
+        // Create mode: initialize with bestOf number of empty sets
+        const initialSets: SetScore[] = [];
+        for (let i = 1; i <= bestOfValue; i++) {
+          initialSets.push({
+            set_number: i,
+            participant1_score: 0,
+            participant2_score: 0
+          });
+        }
+        this.sets.set(initialSets);
       }
     });
   }

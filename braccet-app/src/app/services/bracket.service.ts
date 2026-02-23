@@ -4,10 +4,12 @@ import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 import {
   BracketState,
+  BracketStage,
   Match,
   CreateBracketRequest,
   ReportResultRequest,
-  EditResultResponse
+  EditResultResponse,
+  UpdateStageRequest
 } from '../models/bracket.model';
 
 @Injectable({
@@ -43,6 +45,13 @@ export class BracketService {
   editResult(matchId: number, request: ReportResultRequest): Observable<EditResultResponse> {
     return this.http.put<EditResultResponse>(
       `${this.apiUrl}/matches/${matchId}/result`,
+      request
+    );
+  }
+
+  updateStage(tournamentId: number, round: number, request: UpdateStageRequest): Observable<BracketStage> {
+    return this.http.put<BracketStage>(
+      `${this.apiUrl}/${tournamentId}/stages/${round}`,
       request
     );
   }

@@ -36,6 +36,8 @@ type AddMemberRequest struct {
 
 type UpdateMemberRequest struct {
 	DisplayName *string `json:"display_name,omitempty"`
+	IconURL     *string `json:"icon_url,omitempty"`
+	Region      *string `json:"region,omitempty"`
 }
 
 type UpdateRoleRequest struct {
@@ -49,6 +51,8 @@ type MemberResponse struct {
 	DisplayName   string  `json:"display_name"`
 	Role          string  `json:"role"`
 	IsGhost       bool    `json:"is_ghost"`
+	IconURL       *string `json:"icon_url,omitempty"`
+	Region        *string `json:"region,omitempty"`
 	EloRating     *int    `json:"elo_rating,omitempty"`
 	MatchesPlayed int     `json:"matches_played"`
 	MatchesWon    int     `json:"matches_won"`
@@ -65,6 +69,8 @@ func toMemberResponse(m *domain.CommunityMember) MemberResponse {
 		DisplayName:   m.DisplayName,
 		Role:          string(m.Role),
 		IsGhost:       m.IsGhost(),
+		IconURL:       m.IconURL,
+		Region:        m.Region,
 		EloRating:     m.EloRating,
 		MatchesPlayed: m.MatchesPlayed,
 		MatchesWon:    m.MatchesWon,
@@ -239,7 +245,7 @@ func (h *MemberHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toMemberResponse(member))
 }
 
-// Update updates a member's display name
+// Update updates a member's display name, icon, and/or region
 func (h *MemberHandler) Update(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -254,12 +260,6 @@ func (h *MemberHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to fetch community")
-		return
-	}
-
-	// Only owner or admin can update members
-	if !h.isOwnerOrAdmin(r, community, userID) {
-		writeError(w, http.StatusForbidden, "only owner or admin can update members")
 		return
 	}
 
@@ -292,8 +292,48 @@ func (h *MemberHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine permissions
+	isGhost := member.IsGhost()
+	isSelf := member.UserID != nil && *member.UserID == userID
+	isAdmin := h.isOwnerOrAdmin(r, community, userID)
+
+	// DisplayName and IconURL can only be edited on ghost members by admins
+	if req.DisplayName != nil || req.IconURL != nil {
+		if !isGhost {
+			writeError(w, http.StatusForbidden, "only ghost members can have name/icon edited")
+			return
+		}
+		if !isAdmin {
+			writeError(w, http.StatusForbidden, "only owner or admin can edit ghost members")
+			return
+		}
+	}
+
+	// Region can be edited by: admins (for any member) or users (for themselves)
+	if req.Region != nil {
+		if !isAdmin && !isSelf {
+			writeError(w, http.StatusForbidden, "cannot edit another member's region")
+			return
+		}
+		if !isValidRegionFormat(*req.Region) {
+			writeError(w, http.StatusBadRequest, "region must be exactly 2 uppercase letters")
+			return
+		}
+	}
+
+	// Apply updates
 	if req.DisplayName != nil {
 		member.DisplayName = *req.DisplayName
+	}
+	if req.IconURL != nil {
+		member.IconURL = req.IconURL
+	}
+	if req.Region != nil {
+		if *req.Region == "" {
+			member.Region = nil
+		} else {
+			member.Region = req.Region
+		}
 	}
 
 	if err := h.memberRepo.Update(r.Context(), member); err != nil {
@@ -526,6 +566,261 @@ func (h *MemberHandler) CreateGhostMember(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusCreated, toMemberResponse(member))
 }
 
+// FindOrCreateGhostMember finds an existing member by display_name or creates a new ghost member
+// POST /internal/communities/{id}/members/find-or-create
+func (h *MemberHandler) FindOrCreateGhostMember(w http.ResponseWriter, r *http.Request) {
+	communityIDStr := chi.URLParam(r, "id")
+	communityID, err := strconv.ParseUint(communityIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid community ID")
+		return
+	}
+
+	community, err := h.communityRepo.GetByID(r.Context(), communityID)
+	if err != nil {
+		if errors.Is(err, repository.ErrCommunityNotFound) {
+			writeError(w, http.StatusNotFound, "community not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch community")
+		return
+	}
+
+	var req AddMemberRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.DisplayName == "" {
+		writeError(w, http.StatusBadRequest, "display_name is required")
+		return
+	}
+
+	// Try to find existing member by display_name
+	existing, err := h.memberRepo.GetByCommunityAndDisplayName(r.Context(), community.ID, req.DisplayName)
+	if err == nil {
+		// Found existing member - return it
+		writeJSON(w, http.StatusOK, toMemberResponse(existing))
+		return
+	}
+
+	if !errors.Is(err, repository.ErrMemberNotFound) {
+		writeError(w, http.StatusInternalServerError, "failed to search for member")
+		return
+	}
+
+	// Not found - create new ghost member
+	member := &domain.CommunityMember{
+		CommunityID: community.ID,
+		UserID:      nil,
+		DisplayName: req.DisplayName,
+		Role:        domain.RoleMember,
+	}
+
+	if err := h.memberRepo.Create(r.Context(), member); err != nil {
+		log.Printf("Error creating ghost member: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create ghost member")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, toMemberResponse(member))
+}
+
+// DeleteMembersInternal handles internal service-to-service bulk delete requests
+// POST /internal/communities/{id}/members/delete
+func (h *MemberHandler) DeleteMembersInternal(w http.ResponseWriter, r *http.Request) {
+	communityIDStr := chi.URLParam(r, "id")
+	communityID, err := strconv.ParseUint(communityIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid community ID")
+		return
+	}
+
+	// Verify community exists
+	_, err = h.communityRepo.GetByID(r.Context(), communityID)
+	if err != nil {
+		if errors.Is(err, repository.ErrCommunityNotFound) {
+			writeError(w, http.StatusNotFound, "community not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch community")
+		return
+	}
+
+	var req struct {
+		MemberIDs []uint64 `json:"member_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.MemberIDs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]int64{"deleted": 0})
+		return
+	}
+
+	deleted, err := h.memberRepo.DeleteMany(r.Context(), req.MemberIDs)
+	if err != nil {
+		log.Printf("Error deleting members: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete members")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int64{"deleted": deleted})
+}
+
+// SearchMembersRequest for internal search endpoint
+type SearchMembersRequest struct {
+	Query      string   `json:"query"`
+	ExcludeIDs []uint64 `json:"exclude_ids,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
+}
+
+// SearchMemberResponse is a simplified response for autocomplete
+type SearchMemberResponse struct {
+	ID          uint64 `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+// SearchMembers handles internal search requests for autocomplete
+// POST /internal/communities/{id}/members/search
+func (h *MemberHandler) SearchMembers(w http.ResponseWriter, r *http.Request) {
+	communityIDStr := chi.URLParam(r, "id")
+	communityID, err := strconv.ParseUint(communityIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid community ID")
+		return
+	}
+
+	var req SearchMembersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Default limit
+	limit := 10
+	if req.Limit > 0 && req.Limit <= 50 {
+		limit = req.Limit
+	}
+
+	// Fetch extra results to account for exclusions
+	fetchLimit := limit + len(req.ExcludeIDs)
+	members, err := h.memberRepo.SearchByDisplayNamePrefix(r.Context(), communityID, req.Query, fetchLimit)
+	if err != nil {
+		log.Printf("Error searching members: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to search members")
+		return
+	}
+
+	// Build exclude set for O(1) lookup
+	excludeSet := make(map[uint64]bool, len(req.ExcludeIDs))
+	for _, id := range req.ExcludeIDs {
+		excludeSet[id] = true
+	}
+
+	// Filter and convert to response
+	response := make([]SearchMemberResponse, 0, limit)
+	for _, m := range members {
+		if excludeSet[m.ID] {
+			continue
+		}
+		response = append(response, SearchMemberResponse{
+			ID:          m.ID,
+			DisplayName: m.DisplayName,
+		})
+		if len(response) >= limit {
+			break
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// GetBulkMemberIcons returns icon URLs for multiple members
+// POST /internal/members/bulk-icons
+func (h *MemberHandler) GetBulkMemberIcons(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MemberIDs []uint64 `json:"member_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.MemberIDs) == 0 {
+		writeJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+
+	icons, err := h.memberRepo.GetBulkIconURLs(r.Context(), req.MemberIDs)
+	if err != nil {
+		log.Printf("Error fetching member icons: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch member icons")
+		return
+	}
+
+	// Return as array of {member_id, icon_url}
+	type IconResult struct {
+		MemberID uint64 `json:"member_id"`
+		IconURL  string `json:"icon_url"`
+	}
+
+	response := make([]IconResult, 0, len(icons))
+	for memberID, iconURL := range icons {
+		response = append(response, IconResult{
+			MemberID: memberID,
+			IconURL:  iconURL,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// GetBulkMemberData returns icon URLs and regions for multiple members
+// POST /internal/members/bulk-data
+func (h *MemberHandler) GetBulkMemberData(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MemberIDs []uint64 `json:"member_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.MemberIDs) == 0 {
+		writeJSON(w, http.StatusOK, []struct{}{})
+		return
+	}
+
+	data, err := h.memberRepo.GetBulkMemberData(r.Context(), req.MemberIDs)
+	if err != nil {
+		log.Printf("Error fetching member data: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch member data")
+		return
+	}
+
+	// Return as array of {member_id, icon_url, region}
+	type DataResult struct {
+		MemberID uint64  `json:"member_id"`
+		IconURL  *string `json:"icon_url,omitempty"`
+		Region   *string `json:"region,omitempty"`
+	}
+
+	response := make([]DataResult, 0, len(data))
+	for memberID, d := range data {
+		response = append(response, DataResult{
+			MemberID: memberID,
+			IconURL:  d.IconURL,
+			Region:   d.Region,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
 // Leaderboard returns the ELO leaderboard for a community
 func (h *MemberHandler) Leaderboard(w http.ResponseWriter, r *http.Request) {
 	community, err := h.getCommunityFromSlug(r)
@@ -559,4 +854,42 @@ func (h *MemberHandler) Leaderboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+// isValidRegionFormat validates that a region code is exactly 2 uppercase letters
+func isValidRegionFormat(region string) bool {
+	if region == "" {
+		return true // Allow clearing
+	}
+	if len(region) != 2 {
+		return false
+	}
+	for _, c := range region {
+		if c < 'A' || c > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+// GetRegions returns distinct region codes used in the community
+func (h *MemberHandler) GetRegions(w http.ResponseWriter, r *http.Request) {
+	community, err := h.getCommunityFromSlug(r)
+	if err != nil {
+		if errors.Is(err, repository.ErrCommunityNotFound) {
+			writeError(w, http.StatusNotFound, "community not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch community")
+		return
+	}
+
+	regions, err := h.memberRepo.GetDistinctRegions(r.Context(), community.ID)
+	if err != nil {
+		log.Printf("Error fetching regions for community %d: %v", community.ID, err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch regions")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, regions)
 }

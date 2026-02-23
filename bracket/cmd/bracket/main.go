@@ -30,15 +30,16 @@ func main() {
 	// Create repositories
 	repo := repository.NewMatchRepository(db)
 	setRepo := repository.NewSetRepository(db)
+	stageRepo := repository.NewStageRepository(db)
 
 	// Create clients for cross-service communication
-	tournamentServiceURL := getEnv("TOURNAMENT_SERVICE_URL", "http://localhost:8081")
+	tournamentServiceURL := getEnv("TOURNAMENT_SERVICE_URL", "http://localhost:8083")
 	communityServiceURL := getEnv("COMMUNITY_SERVICE_URL", "http://localhost:8084")
 	tournamentClient := client.NewTournamentClient(tournamentServiceURL)
 	communityClient := client.NewCommunityClient(communityServiceURL)
 
 	// Create router
-	router := api.NewRouter(repo, setRepo, tournamentClient, communityClient)
+	router := api.NewRouter(repo, setRepo, stageRepo, tournamentClient, communityClient)
 
 	// Get port from environment
 	port := os.Getenv("SERVICE_PORT")

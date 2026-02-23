@@ -16,6 +16,8 @@ type CommunityMember struct {
 	UserID      *uint64 // NULL for ghost members
 	DisplayName string
 	Role        MemberRole
+	IconURL     *string // URL to member avatar/icon stored in R2
+	Region      *string // Two-letter region code (organizer-defined)
 
 	// ELO/ranking fields (future use)
 	EloRating     *int

@@ -1,6 +1,6 @@
 import { Component, input, computed, output } from '@angular/core';
 import { PreviewMatch, BracketPreview } from '../../services/bracket-generator.service';
-import { Match } from '../../models/bracket.model';
+import { Match, BracketStage } from '../../models/bracket.model';
 
 type DisplayMatch = PreviewMatch | Match;
 
@@ -19,10 +19,12 @@ export class BracketViewer {
   preview = input<BracketData | null>(null);
   isPreview = input(true);
   isOrganizer = input(false);
+  stages = input<BracketStage[]>([]);
 
   matchClicked = output<Match>();
   matchReopened = output<Match>();
   matchEditClicked = output<Match>();
+  stageClicked = output<{ round: number; stage: BracketStage }>();
 
   // Modal state
   showDetailsModal = false;
@@ -46,11 +48,34 @@ export class BracketViewer {
   });
 
   getRoundLabel(round: number): string {
+    // Check for custom stage name first
+    const stagesData = this.stages();
+    const stage = stagesData.find(s => s.round === round);
+    if (stage?.stage_name) {
+      return stage.stage_name;
+    }
+
+    // Fallback to computed name
     const total = this.preview()?.totalRounds ?? 0;
     if (round === total) return 'Final';
     if (round === total - 1) return 'Semifinals';
     if (round === total - 2) return 'Quarterfinals';
     return `Round ${round}`;
+  }
+
+  // Handle stage header click
+  onStageHeaderClick(round: number): void {
+    if (!this.isOrganizer() || this.isPreview()) return;
+
+    const stage = this.stages().find(s => s.round === round);
+    if (stage) {
+      this.stageClicked.emit({ round, stage });
+    }
+  }
+
+  // Check if stage header should be clickable
+  isStageClickable(): boolean {
+    return this.isOrganizer() && !this.isPreview() && this.stages().length > 0;
   }
 
   getParticipant1Display(match: DisplayMatch): string {
@@ -113,6 +138,30 @@ export class BracketViewer {
   getSeed2(match: DisplayMatch): number | null {
     if ('seed2' in match) {
       return match.seed2 || null;
+    }
+    return null;
+  }
+
+  getIconURL1(match: DisplayMatch): string | null {
+    // Check PreviewMatch format (camelCase)
+    if ('participant1IconURL' in match && match.participant1IconURL) {
+      return match.participant1IconURL;
+    }
+    // Check Match format (snake_case)
+    if ('participant1_icon_url' in match && match.participant1_icon_url) {
+      return match.participant1_icon_url;
+    }
+    return null;
+  }
+
+  getIconURL2(match: DisplayMatch): string | null {
+    // Check PreviewMatch format (camelCase)
+    if ('participant2IconURL' in match && match.participant2IconURL) {
+      return match.participant2IconURL;
+    }
+    // Check Match format (snake_case)
+    if ('participant2_icon_url' in match && match.participant2_icon_url) {
+      return match.participant2_icon_url;
     }
     return null;
   }

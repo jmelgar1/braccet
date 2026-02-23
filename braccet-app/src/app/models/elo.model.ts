@@ -61,6 +61,8 @@ export interface MemberEloRating {
   id: number;
   member_id: number;
   member_name?: string;
+  member_region?: string;
+  member_icon_url?: string;
   elo_system_id: number;
   rating: number;
   games_played: number;

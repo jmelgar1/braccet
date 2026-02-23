@@ -3,7 +3,19 @@
     <div class="bracket-grid" [style.--rounds]="rounds().length">
       @for (roundData of rounds(); track roundData.round) {
         <div class="round" [attr.data-round]="roundData.round">
-          <div class="round-header">{{ getRoundLabel(roundData.round) }}</div>
+          <div class="round-header"
+               [class.clickable]="isStageClickable()"
+               (click)="onStageHeaderClick(roundData.round)">
+            {{ getRoundLabel(roundData.round) }}
+            @if (isStageClickable()) {
+              <span class="edit-indicator">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </span>
+            }
+          </div>
           <div class="matches-column">
             @for (match of roundData.matches; track match.position) {
               <div class="match-wrapper">
@@ -20,6 +32,9 @@
                       @if (getSeed1(match)) {
                         <span class="seed">{{ getSeed1(match) }}</span>
                       }
+                      @if (getIconURL1(match)) {
+                        <img [src]="getIconURL1(match)" alt="" class="participant-icon" />
+                      }
                       <span class="name">{{ getParticipant1Display(match) }}</span>
                       @if (isParticipant1Forfeited(match)) {
                         <span class="forfeit-badge">WD</span>
@@ -31,6 +46,9 @@
                          [class.winner]="isWinner(match, getParticipant2Id(match))">
                       @if (getSeed2(match)) {
                         <span class="seed">{{ getSeed2(match) }}</span>
+                      }
+                      @if (getIconURL2(match)) {
+                        <img [src]="getIconURL2(match)" alt="" class="participant-icon" />
                       }
                       <span class="name">{{ getParticipant2Display(match) }}</span>
                       @if (isParticipant2Forfeited(match)) {
@@ -115,7 +133,7 @@
         <!-- Matchup Cards -->
         <div class="matchup-container">
           <div class="participant-card" [class.winner]="isWinner(selectedMatch, getParticipant1Id(selectedMatch))">
-            <img src="/profile-icon.png" alt="Team logo" class="card-logo" />
+            <img [src]="getIconURL1(selectedMatch) || '/profile-icon.png'" alt="Team logo" class="card-logo" />
             <span class="card-name">{{ getParticipant1Display(selectedMatch) }}</span>
             @if (isCompleted(selectedMatch)) {
               <span class="card-score">{{ getParticipant1Score(selectedMatch) }}</span>
@@ -123,7 +141,7 @@
           </div>
           <div class="vs-badge">VS</div>
           <div class="participant-card" [class.winner]="isWinner(selectedMatch, getParticipant2Id(selectedMatch))">
-            <img src="/profile-icon.png" alt="Team logo" class="card-logo" />
+            <img [src]="getIconURL2(selectedMatch) || '/profile-icon.png'" alt="Team logo" class="card-logo" />
             <span class="card-name">{{ getParticipant2Display(selectedMatch) }}</span>
             @if (isCompleted(selectedMatch)) {
               <span class="card-score">{{ getParticipant2Score(selectedMatch) }}</span>

@@ -90,8 +90,9 @@ func (s *forfeitService) advanceForfeitWinner(ctx context.Context, completedMatc
 		return err
 	}
 
-	// Determine winner's name and seed
+	// Determine winner's name, icon URL, and seed
 	winnerName := s.getParticipantName(completedMatch, winnerID)
+	winnerIconURL := s.getParticipantIconURL(completedMatch, winnerID)
 	winnerSeed := s.getParticipantSeed(completedMatch, winnerID)
 
 	// Determine which slot in the next match (based on position in current round)
@@ -101,7 +102,7 @@ func (s *forfeitService) advanceForfeitWinner(ctx context.Context, completedMatc
 		slot = 2
 	}
 
-	if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, winnerID, winnerName, winnerSeed); err != nil {
+	if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, winnerID, winnerName, winnerIconURL, winnerSeed); err != nil {
 		return err
 	}
 
@@ -148,4 +149,18 @@ func (s *forfeitService) getParticipantSeed(match *domain.Match, participantID u
 		}
 	}
 	return 0
+}
+
+func (s *forfeitService) getParticipantIconURL(match *domain.Match, participantID uint64) string {
+	if match.Participant1ID != nil && *match.Participant1ID == participantID {
+		if match.Participant1IconURL != nil {
+			return *match.Participant1IconURL
+		}
+	}
+	if match.Participant2ID != nil && *match.Participant2ID == participantID {
+		if match.Participant2IconURL != nil {
+			return *match.Participant2IconURL
+		}
+	}
+	return ""
 }

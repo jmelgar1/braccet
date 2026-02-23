@@ -7,6 +7,22 @@
         <span class="text-sm font-normal text-gray-500 ml-2">(Preview)</span>
       }
     </h3>
+    @if (showEndButton()) {
+      <button
+        (click)="endTournament()"
+        [disabled]="!canEndTournament() || endingTournament()"
+        class="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+        [class]="canEndTournament() && !endingTournament()
+          ? 'bg-purple-600 text-white hover:bg-purple-700'
+          : 'bg-gray-200 text-gray-400 cursor-not-allowed'"
+      >
+        @if (endingTournament()) {
+          Ending...
+        } @else {
+          End Tournament
+        }
+      </button>
+    }
   </div>
 
   <!-- Error message -->
@@ -55,9 +71,11 @@
             }"
             [isPreview]="false"
             [isOrganizer]="isOrganizer()"
+            [stages]="stages()"
             (matchClicked)="onMatchClicked($event)"
             (matchReopened)="onMatchReopened($event)"
             (matchEditClicked)="onMatchEditClicked($event)"
+            (stageClicked)="onStageClicked($event)"
           />
         } @else {
           <div class="flex items-center justify-center h-full text-gray-500">
@@ -74,7 +92,18 @@
   <app-match-result-modal
     [match]="selectedMatch()!"
     [editMode]="isEditMode()"
+    [bestOf]="selectedMatchBestOf()"
     (close)="closeModal()"
     (resultSubmitted)="onResultSubmitted($event)"
+  />
+}
+
+<!-- Edit Stage Modal -->
+@if (showStageModal() && selectedStage()) {
+  <app-edit-stage-modal
+    [tournamentId]="tournament().id"
+    [stage]="selectedStage()!"
+    (close)="closeStageModal()"
+    (stageUpdated)="onStageUpdated($event)"
   />
 }

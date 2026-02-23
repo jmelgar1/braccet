@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -11,17 +12,26 @@ import (
 	"time"
 
 	"github.com/braccet/tournament/internal/api/middleware"
+	"github.com/braccet/tournament/internal/client"
 	"github.com/braccet/tournament/internal/domain"
 	"github.com/braccet/tournament/internal/repository"
 	"github.com/go-chi/chi/v5"
 )
 
 type TournamentHandler struct {
-	repo repository.TournamentRepository
+	repo            repository.TournamentRepository
+	participantRepo repository.ParticipantRepository
+	bracketClient   client.BracketClient
+	communityClient client.CommunityClient
 }
 
-func NewTournamentHandler(repo repository.TournamentRepository) *TournamentHandler {
-	return &TournamentHandler{repo: repo}
+func NewTournamentHandler(repo repository.TournamentRepository, participantRepo repository.ParticipantRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *TournamentHandler {
+	return &TournamentHandler{
+		repo:            repo,
+		participantRepo: participantRepo,
+		bracketClient:   bracketClient,
+		communityClient: communityClient,
+	}
 }
 
 // Request/Response types
@@ -328,7 +338,31 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		tournament.Format = format
 	}
 	if req.Status != nil {
-		tournament.Status = domain.TournamentStatus(*req.Status)
+		newStatus := domain.TournamentStatus(*req.Status)
+		// Validate: can only complete a tournament if all matches are done
+		if newStatus == domain.StatusCompleted && tournament.Status == domain.StatusInProgress {
+			isComplete, err := h.bracketClient.IsBracketComplete(r.Context(), tournament.ID)
+			if err != nil {
+				log.Printf("Error checking bracket completion: %v", err)
+				writeError(w, http.StatusInternalServerError, "failed to verify bracket completion")
+				return
+			}
+			if !isComplete {
+				writeError(w, http.StatusBadRequest, "cannot end tournament: not all matches are completed")
+				return
+			}
+		}
+		// When starting a tournament, link participants to community members
+		if newStatus == domain.StatusInProgress && tournament.Status == domain.StatusRegistration {
+			if tournament.CommunityID != nil {
+				if err := h.linkParticipantsToCommunity(r.Context(), tournament); err != nil {
+					log.Printf("Error linking participants to community: %v", err)
+					writeError(w, http.StatusInternalServerError, "failed to link participants to community")
+					return
+				}
+			}
+		}
+		tournament.Status = newStatus
 	}
 	if req.MaxParticipants != nil {
 		tournament.MaxParticipants = req.MaxParticipants
@@ -366,7 +400,7 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toTournamentResponse(updated))
 }
 
-// Delete deletes a tournament
+// Delete deletes a tournament and cleans up orphaned community members
 func (h *TournamentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -396,10 +430,68 @@ func (h *TournamentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// BEFORE deleting: identify orphaned community members
+	var orphanedMemberIDs []uint64
+	if tournament.CommunityID != nil {
+		orphanedMemberIDs, err = h.participantRepo.GetOrphanedCommunityMemberIDs(
+			r.Context(), tournament.ID, *tournament.CommunityID)
+		if err != nil {
+			log.Printf("Warning: failed to get orphaned members for tournament %d: %v", tournament.ID, err)
+			// Continue with deletion - cleanup is best-effort
+		}
+	}
+
+	// Delete the tournament (CASCADE deletes participants)
 	if err := h.repo.Delete(r.Context(), slug); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete tournament")
 		return
 	}
 
+	// AFTER deleting: clean up orphaned community members
+	if len(orphanedMemberIDs) > 0 && tournament.CommunityID != nil {
+		deleted, err := h.communityClient.DeleteMembers(
+			r.Context(), *tournament.CommunityID, orphanedMemberIDs)
+		if err != nil {
+			log.Printf("Warning: failed to cleanup %d community members for community %d: %v",
+				len(orphanedMemberIDs), *tournament.CommunityID, err)
+			// Don't fail the request - tournament is deleted, cleanup is best-effort
+		} else if deleted > 0 {
+			log.Printf("Cleaned up %d orphaned community members from community %d", deleted, *tournament.CommunityID)
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// linkParticipantsToCommunity links all participants to community members when a tournament starts.
+// For participants without a community_member_id, it finds or creates a ghost member.
+func (h *TournamentHandler) linkParticipantsToCommunity(ctx context.Context, tournament *domain.Tournament) error {
+	if tournament.CommunityID == nil {
+		return nil
+	}
+
+	participants, err := h.participantRepo.GetByTournament(ctx, tournament.ID)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range participants {
+		if p.CommunityMemberID != nil {
+			// Already linked
+			continue
+		}
+
+		// Find or create community member
+		member, err := h.communityClient.FindOrCreateGhostMember(ctx, *tournament.CommunityID, p.DisplayName)
+		if err != nil {
+			return err
+		}
+
+		// Update participant with community member ID
+		if err := h.participantRepo.UpdateCommunityMemberID(ctx, p.ID, member.ID); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

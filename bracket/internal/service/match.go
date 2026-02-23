@@ -293,12 +293,16 @@ func (s *matchService) advanceWinner(ctx context.Context, completedMatch *domain
 		return err
 	}
 
-	// Determine winner's name and seed
+	// Determine winner's name, icon URL, and seed
 	winnerName := ""
+	winnerIconURL := ""
 	winnerSeed := 0
 	if completedMatch.Participant1ID != nil && *completedMatch.Participant1ID == winnerID {
 		if completedMatch.Participant1Name != nil {
 			winnerName = *completedMatch.Participant1Name
+		}
+		if completedMatch.Participant1IconURL != nil {
+			winnerIconURL = *completedMatch.Participant1IconURL
 		}
 		if completedMatch.Seed1 != nil {
 			winnerSeed = *completedMatch.Seed1
@@ -306,6 +310,9 @@ func (s *matchService) advanceWinner(ctx context.Context, completedMatch *domain
 	} else {
 		if completedMatch.Participant2Name != nil {
 			winnerName = *completedMatch.Participant2Name
+		}
+		if completedMatch.Participant2IconURL != nil {
+			winnerIconURL = *completedMatch.Participant2IconURL
 		}
 		if completedMatch.Seed2 != nil {
 			winnerSeed = *completedMatch.Seed2
@@ -319,7 +326,7 @@ func (s *matchService) advanceWinner(ctx context.Context, completedMatch *domain
 		slot = 2
 	}
 
-	if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, winnerID, winnerName, winnerSeed); err != nil {
+	if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, winnerID, winnerName, winnerIconURL, winnerSeed); err != nil {
 		return err
 	}
 

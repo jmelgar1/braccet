@@ -13,11 +13,12 @@ type BracketService interface {
 }
 
 type bracketService struct {
-	repo repository.MatchRepository
+	repo      repository.MatchRepository
+	stageRepo repository.StageRepository
 }
 
-func NewBracketService(repo repository.MatchRepository) BracketService {
-	return &bracketService{repo: repo}
+func NewBracketService(repo repository.MatchRepository, stageRepo repository.StageRepository) BracketService {
+	return &bracketService{repo: repo, stageRepo: stageRepo}
 }
 
 // GenerateSingleElimination creates a single elimination bracket and persists it.
@@ -44,6 +45,14 @@ func (s *bracketService) GenerateSingleElimination(ctx context.Context, tourname
 	// Advance bye winners through the bracket
 	if err := s.advanceByeWinners(ctx, matches); err != nil {
 		return nil, err
+	}
+
+	// Create default stages for the bracket
+	state := buildBracketState(tournamentID, matches)
+	if s.stageRepo != nil && state.TotalRounds > 0 {
+		if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketWinners, state.TotalRounds); err != nil {
+			return nil, err
+		}
 	}
 
 	// Reload matches to get final state
@@ -73,12 +82,16 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 				continue
 			}
 
-			// Determine winner's name and seed
+			// Determine winner's name, icon URL, and seed
 			winnerName := ""
+			winnerIconURL := ""
 			winnerSeed := 0
 			if match.Participant1ID != nil && *match.Participant1ID == *match.WinnerID {
 				if match.Participant1Name != nil {
 					winnerName = *match.Participant1Name
+				}
+				if match.Participant1IconURL != nil {
+					winnerIconURL = *match.Participant1IconURL
 				}
 				if match.Seed1 != nil {
 					winnerSeed = *match.Seed1
@@ -86,6 +99,9 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 			} else {
 				if match.Participant2Name != nil {
 					winnerName = *match.Participant2Name
+				}
+				if match.Participant2IconURL != nil {
+					winnerIconURL = *match.Participant2IconURL
 				}
 				if match.Seed2 != nil {
 					winnerSeed = *match.Seed2
@@ -98,7 +114,7 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 				slot = 2
 			}
 
-			if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, *match.WinnerID, winnerName, winnerSeed); err != nil {
+			if err := s.repo.SetParticipant(ctx, nextMatch.ID, slot, *match.WinnerID, winnerName, winnerIconURL, winnerSeed); err != nil {
 				return err
 			}
 
@@ -106,10 +122,12 @@ func (s *bracketService) advanceByeWinners(ctx context.Context, matches []*domai
 			if slot == 1 {
 				nextMatch.Participant1ID = match.WinnerID
 				nextMatch.Participant1Name = &winnerName
+				nextMatch.Participant1IconURL = &winnerIconURL
 				nextMatch.Seed1 = &winnerSeed
 			} else {
 				nextMatch.Participant2ID = match.WinnerID
 				nextMatch.Participant2Name = &winnerName
+				nextMatch.Participant2IconURL = &winnerIconURL
 				nextMatch.Seed2 = &winnerSeed
 			}
 		}

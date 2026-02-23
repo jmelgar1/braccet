@@ -45,6 +45,7 @@ type EloService interface {
 	// Rating operations
 	GetMemberRating(ctx context.Context, memberID, systemID uint64) (*domain.MemberEloRating, error)
 	GetMemberRatings(ctx context.Context, memberID uint64) ([]*domain.MemberEloRating, error)
+	GetBulkMemberRatings(ctx context.Context, memberIDs []uint64, systemID uint64) ([]*domain.MemberEloRating, error)
 	GetLeaderboard(ctx context.Context, systemID uint64, limit int) ([]*domain.MemberEloRating, error)
 
 	// Match result processing
@@ -113,6 +114,11 @@ func (s *eloService) GetMemberRating(ctx context.Context, memberID, systemID uin
 // GetMemberRatings retrieves all ratings for a member across all systems
 func (s *eloService) GetMemberRatings(ctx context.Context, memberID uint64) ([]*domain.MemberEloRating, error) {
 	return s.ratingRepo.GetByMember(ctx, memberID)
+}
+
+// GetBulkMemberRatings retrieves ratings for multiple members in a specific system
+func (s *eloService) GetBulkMemberRatings(ctx context.Context, memberIDs []uint64, systemID uint64) ([]*domain.MemberEloRating, error) {
+	return s.ratingRepo.GetByMembersAndSystem(ctx, memberIDs, systemID)
 }
 
 // GetLeaderboard retrieves the top-rated members for a system

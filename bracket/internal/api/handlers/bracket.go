@@ -17,14 +17,16 @@ type BracketHandler struct {
 	matchSvc   service.MatchService
 	repo       repository.MatchRepository
 	setRepo    repository.SetRepository
+	stageRepo  repository.StageRepository
 }
 
-func NewBracketHandler(bracketSvc service.BracketService, matchSvc service.MatchService, repo repository.MatchRepository, setRepo repository.SetRepository) *BracketHandler {
+func NewBracketHandler(bracketSvc service.BracketService, matchSvc service.MatchService, repo repository.MatchRepository, setRepo repository.SetRepository, stageRepo repository.StageRepository) *BracketHandler {
 	return &BracketHandler{
 		bracketSvc: bracketSvc,
 		matchSvc:   matchSvc,
 		repo:       repo,
 		setRepo:    setRepo,
+		stageRepo:  stageRepo,
 	}
 }
 
@@ -35,12 +37,21 @@ type GenerateBracketRequest struct {
 }
 
 type BracketResponse struct {
-	TournamentID uint64           `json:"tournament_id"`
-	TotalRounds  int              `json:"total_rounds"`
-	CurrentRound int              `json:"current_round"`
-	IsComplete   bool             `json:"is_complete"`
-	ChampionID   *uint64          `json:"champion_id,omitempty"`
-	Matches      []*MatchResponse `json:"matches"`
+	TournamentID uint64            `json:"tournament_id"`
+	TotalRounds  int               `json:"total_rounds"`
+	CurrentRound int               `json:"current_round"`
+	IsComplete   bool              `json:"is_complete"`
+	ChampionID   *uint64           `json:"champion_id,omitempty"`
+	Matches      []*MatchResponse  `json:"matches"`
+	Stages       []*StageResponse  `json:"stages"`
+}
+
+type StageResponse struct {
+	TournamentID uint64 `json:"tournament_id"`
+	BracketType  string `json:"bracket_type"`
+	Round        int    `json:"round"`
+	StageName    string `json:"stage_name"`
+	BestOf       int    `json:"best_of"`
 }
 
 type SetResponse struct {
@@ -50,23 +61,25 @@ type SetResponse struct {
 }
 
 type MatchResponse struct {
-	ID               uint64        `json:"id"`
-	Round            int           `json:"round"`
-	Position         int           `json:"position"`
-	BracketType      string        `json:"bracket_type"`
-	Participant1ID   *uint64       `json:"participant1_id,omitempty"`
-	Participant2ID   *uint64       `json:"participant2_id,omitempty"`
-	Participant1Name *string       `json:"participant1_name,omitempty"`
-	Participant2Name *string       `json:"participant2_name,omitempty"`
-	Seed1            *int          `json:"seed1,omitempty"`
-	Seed2            *int          `json:"seed2,omitempty"`
-	Sets             []SetResponse `json:"sets"`
-	Participant1Sets int           `json:"participant1_sets"`
-	Participant2Sets int           `json:"participant2_sets"`
-	WinnerID         *uint64       `json:"winner_id,omitempty"`
-	ForfeitWinnerID  *uint64       `json:"forfeit_winner_id,omitempty"`
-	Status           string        `json:"status"`
-	NextMatchID      *uint64       `json:"next_match_id,omitempty"`
+	ID                  uint64        `json:"id"`
+	Round               int           `json:"round"`
+	Position            int           `json:"position"`
+	BracketType         string        `json:"bracket_type"`
+	Participant1ID      *uint64       `json:"participant1_id,omitempty"`
+	Participant2ID      *uint64       `json:"participant2_id,omitempty"`
+	Participant1Name    *string       `json:"participant1_name,omitempty"`
+	Participant2Name    *string       `json:"participant2_name,omitempty"`
+	Participant1IconURL *string       `json:"participant1_icon_url,omitempty"`
+	Participant2IconURL *string       `json:"participant2_icon_url,omitempty"`
+	Seed1               *int          `json:"seed1,omitempty"`
+	Seed2               *int          `json:"seed2,omitempty"`
+	Sets                []SetResponse `json:"sets"`
+	Participant1Sets    int           `json:"participant1_sets"`
+	Participant2Sets    int           `json:"participant2_sets"`
+	WinnerID            *uint64       `json:"winner_id,omitempty"`
+	ForfeitWinnerID     *uint64       `json:"forfeit_winner_id,omitempty"`
+	Status              string        `json:"status"`
+	NextMatchID         *uint64       `json:"next_match_id,omitempty"`
 }
 
 func (h *BracketHandler) Generate(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +151,14 @@ func (h *BracketHandler) GetState(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp := toBracketResponse(state)
+	// Load stages
+	stages, err := h.stageRepo.GetByTournament(r.Context(), tournamentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := toBracketResponseWithStages(state, stages)
 	json.NewEncoder(w).Encode(resp)
 }
 
@@ -182,9 +202,28 @@ func (h *BracketHandler) ListMatches(w http.ResponseWriter, r *http.Request) {
 }
 
 func toBracketResponse(state *service.BracketState) *BracketResponse {
+	return toBracketResponseWithStages(state, nil)
+}
+
+func toBracketResponseWithStages(state *service.BracketState, stages []*domain.BracketStage) *BracketResponse {
 	matches := make([]*MatchResponse, len(state.Matches))
 	for i, m := range state.Matches {
 		matches[i] = toMatchResponse(m)
+	}
+
+	stageResponses := make([]*StageResponse, len(stages))
+	for i, s := range stages {
+		stageName := ""
+		if s.StageName != nil {
+			stageName = *s.StageName
+		}
+		stageResponses[i] = &StageResponse{
+			TournamentID: s.TournamentID,
+			BracketType:  string(s.BracketType),
+			Round:        s.Round,
+			StageName:    stageName,
+			BestOf:       s.BestOf,
+		}
 	}
 
 	return &BracketResponse{
@@ -194,6 +233,7 @@ func toBracketResponse(state *service.BracketState) *BracketResponse {
 		IsComplete:   state.IsComplete,
 		ChampionID:   state.ChampionID,
 		Matches:      matches,
+		Stages:       stageResponses,
 	}
 }
 
@@ -215,23 +255,25 @@ func toMatchResponse(m *domain.Match) *MatchResponse {
 	}
 
 	return &MatchResponse{
-		ID:               m.ID,
-		Round:            m.Round,
-		Position:         m.Position,
-		BracketType:      string(m.BracketType),
-		Participant1ID:   m.Participant1ID,
-		Participant2ID:   m.Participant2ID,
-		Participant1Name: m.Participant1Name,
-		Participant2Name: m.Participant2Name,
-		Seed1:            m.Seed1,
-		Seed2:            m.Seed2,
-		Sets:             sets,
-		Participant1Sets: p1Sets,
-		Participant2Sets: p2Sets,
-		WinnerID:         m.WinnerID,
-		ForfeitWinnerID:  m.ForfeitWinnerID,
-		Status:           string(m.Status),
-		NextMatchID:      m.NextMatchID,
+		ID:                  m.ID,
+		Round:               m.Round,
+		Position:            m.Position,
+		BracketType:         string(m.BracketType),
+		Participant1ID:      m.Participant1ID,
+		Participant2ID:      m.Participant2ID,
+		Participant1Name:    m.Participant1Name,
+		Participant2Name:    m.Participant2Name,
+		Participant1IconURL: m.Participant1IconURL,
+		Participant2IconURL: m.Participant2IconURL,
+		Seed1:               m.Seed1,
+		Seed2:               m.Seed2,
+		Sets:                sets,
+		Participant1Sets:    p1Sets,
+		Participant2Sets:    p2Sets,
+		WinnerID:            m.WinnerID,
+		ForfeitWinnerID:     m.ForfeitWinnerID,
+		Status:              string(m.Status),
+		NextMatchID:         m.NextMatchID,
 	}
 }
 

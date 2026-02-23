@@ -97,6 +97,8 @@ type MemberEloRatingResponse struct {
 	ID               uint64  `json:"id"`
 	MemberID         uint64  `json:"member_id"`
 	MemberName       *string `json:"member_name,omitempty"`
+	MemberRegion     *string `json:"member_region,omitempty"`
+	MemberIconURL    *string `json:"member_icon_url,omitempty"`
 	EloSystemID      uint64  `json:"elo_system_id"`
 	Rating           int     `json:"rating"`
 	GamesPlayed      int     `json:"games_played"`
@@ -179,6 +181,8 @@ func toMemberEloRatingResponse(r *domain.MemberEloRating) MemberEloRatingRespons
 		ID:               r.ID,
 		MemberID:         r.MemberID,
 		MemberName:       r.MemberDisplayName,
+		MemberRegion:     r.MemberRegion,
+		MemberIconURL:    r.MemberIconURL,
 		EloSystemID:      r.EloSystemID,
 		Rating:           r.Rating,
 		GamesPlayed:      r.GamesPlayed,
@@ -677,4 +681,65 @@ func (h *EloHandler) GetSystemByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, toEloSystemResponse(system))
+}
+
+// GetBulkMemberRatings returns ELO ratings for multiple members in a specific system
+// POST /internal/elo/bulk-ratings
+func (h *EloHandler) GetBulkMemberRatings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EloSystemID uint64   `json:"elo_system_id"`
+		MemberIDs   []uint64 `json:"member_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.EloSystemID == 0 {
+		writeError(w, http.StatusBadRequest, "elo_system_id is required")
+		return
+	}
+
+	if len(req.MemberIDs) == 0 {
+		writeJSON(w, http.StatusOK, []MemberEloRatingResponse{})
+		return
+	}
+
+	// Get the ELO system to retrieve starting_rating for members without records
+	system, err := h.eloService.GetSystem(r.Context(), req.EloSystemID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get ELO system")
+		return
+	}
+
+	ratings, err := h.eloService.GetBulkMemberRatings(r.Context(), req.MemberIDs, req.EloSystemID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to get member ratings")
+		return
+	}
+
+	// Build a map of existing ratings
+	ratingMap := make(map[uint64]*domain.MemberEloRating)
+	for _, r := range ratings {
+		ratingMap[r.MemberID] = r
+	}
+
+	// Build responses, using starting_rating for members without records
+	responses := make([]MemberEloRatingResponse, 0, len(req.MemberIDs))
+	for _, memberID := range req.MemberIDs {
+		if rating, ok := ratingMap[memberID]; ok {
+			responses = append(responses, toMemberEloRatingResponse(rating))
+		} else {
+			// Return starting rating for members without a rating record
+			responses = append(responses, MemberEloRatingResponse{
+				MemberID:      memberID,
+				EloSystemID:   req.EloSystemID,
+				Rating:        system.StartingRating,
+				HighestRating: system.StartingRating,
+				LowestRating:  system.StartingRating,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, responses)
 }

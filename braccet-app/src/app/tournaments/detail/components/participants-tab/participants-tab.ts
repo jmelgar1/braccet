@@ -1,16 +1,20 @@
-import { Component, input, output, inject, signal } from '@angular/core';
+import { Component, input, output, inject, signal, OnInit, OnDestroy, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
-import { Tournament, Participant } from '../../../../models/tournament.model';
+import { Subject, of } from 'rxjs';
+import { debounceTime, distinctUntilChanged, switchMap, takeUntil, catchError } from 'rxjs/operators';
+import { Tournament, Participant, MemberSearchResult } from '../../../../models/tournament.model';
+import { CommunityMember } from '../../../../models/community.model';
 import { TournamentService } from '../../../../services/tournament.service';
 import { AuthService } from '../../../../services/auth.service';
+import { EditMemberModal } from '../../../../components/edit-member-modal/edit-member-modal';
 
 @Component({
   selector: 'app-participants-tab',
-  imports: [FormsModule, DragDropModule],
+  imports: [FormsModule, DragDropModule, EditMemberModal],
   templateUrl: './participants-tab.html'
 })
-export class ParticipantsTab {
+export class ParticipantsTab implements OnInit, OnDestroy {
   private tournamentService = inject(TournamentService);
   authService = inject(AuthService);
 
@@ -19,18 +23,91 @@ export class ParticipantsTab {
   isOrganizer = input.required<boolean>();
   currentUserParticipant = input<Participant | null>(null);
   canSelfRegister = input(false);
+  communitySlug = input<string | null>(null);
 
   participantAdded = output<Participant>();
   participantRemoved = output<number>();
   participantWithdrawn = output<number>();
+  participantUpdated = output<Participant>();
   seedingChanged = output<Participant[]>();
   selfRegistered = output<Participant>();
   left = output<number>();
+
+  // Edit member modal state
+  editingParticipant = signal<Participant | null>(null);
+  editingMember = signal<CommunityMember | null>(null);
+  editModal = viewChild<EditMemberModal>('editModal');
 
   newParticipantName = '';
   addingParticipant = signal(false);
   savingSeeding = signal(false);
   error = signal('');
+
+  // Autocomplete state
+  searchResults = signal<MemberSearchResult[]>([]);
+  showDropdown = signal(false);
+  selectedMember = signal<MemberSearchResult | null>(null);
+  isSearching = signal(false);
+
+  private searchSubject = new Subject<string>();
+  private destroy$ = new Subject<void>();
+
+  // Check if this is a community tournament (autocomplete enabled)
+  get isEloEnabled(): boolean {
+    const t = this.tournament();
+    return !!t.community_id;
+  }
+
+  ngOnInit(): void {
+    // Set up debounced search
+    this.searchSubject.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      switchMap(query => {
+        if (!query.trim() || query.length < 2 || !this.isEloEnabled) {
+          return of([]);
+        }
+        this.isSearching.set(true);
+        return this.tournamentService.searchAvailableMembers(
+          this.tournament().slug,
+          query
+        ).pipe(
+          catchError(() => of([]))
+        );
+      }),
+      takeUntil(this.destroy$)
+    ).subscribe(results => {
+      this.searchResults.set(results);
+      this.showDropdown.set(results.length > 0);
+      this.isSearching.set(false);
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  onSearchInput(value: string): void {
+    this.newParticipantName = value;
+    this.selectedMember.set(null);  // Clear selection when typing
+
+    if (this.isEloEnabled) {
+      this.searchSubject.next(value);
+    }
+  }
+
+  selectMember(member: MemberSearchResult): void {
+    this.selectedMember.set(member);
+    this.newParticipantName = member.display_name;
+    this.showDropdown.set(false);
+    this.searchResults.set([]);
+  }
+
+  hideDropdown(): void {
+    // Delay to allow click on dropdown item
+    setTimeout(() => this.showDropdown.set(false), 200);
+  }
 
   addParticipant(): void {
     const t = this.tournament();
@@ -46,12 +123,21 @@ export class ParticipantsTab {
     this.addingParticipant.set(true);
     this.error.set('');
 
-    this.tournamentService.addParticipant(t.slug, {
+    // Build request - include community_member_id if a member was selected
+    const request: { display_name: string; community_member_id?: number } = {
       display_name: name
-    }).subscribe({
+    };
+
+    const selected = this.selectedMember();
+    if (selected) {
+      request.community_member_id = selected.id;
+    }
+
+    this.tournamentService.addParticipant(t.slug, request).subscribe({
       next: (participant) => {
         this.participantAdded.emit(participant);
         this.newParticipantName = '';
+        this.selectedMember.set(null);
         this.addingParticipant.set(false);
       },
       error: (err) => {
@@ -169,6 +255,88 @@ export class ParticipantsTab {
       error: (err) => {
         this.error.set(err.error?.error || 'Failed to update seeding');
         this.savingSeeding.set(false);
+      }
+    });
+  }
+
+  // Check if participant can be edited (any non-user participant in a community tournament)
+  canEdit(participant: Participant): boolean {
+    return !participant.user_id && !!this.communitySlug();
+  }
+
+  // Open edit modal for a participant
+  openEditModal(participant: Participant): void {
+    this.editingParticipant.set(participant);
+
+    // Construct a minimal CommunityMember for the modal
+    // Use id: 0 as marker for participants without community_member_id (will be promoted on save)
+    const member: CommunityMember = {
+      id: participant.community_member_id ?? 0,
+      community_id: this.tournament().community_id!,
+      display_name: participant.display_name,
+      role: 'member',
+      is_ghost: true,
+      icon_url: participant.icon_url,
+      region: participant.region,
+      matches_played: 0,
+      matches_won: 0,
+      joined_at: '',
+      created_at: '',
+      updated_at: ''
+    };
+
+    this.editingMember.set(member);
+  }
+
+  closeEditModal(): void {
+    this.editingParticipant.set(null);
+    this.editingMember.set(null);
+  }
+
+  onMemberUpdated(updatedMember: CommunityMember): void {
+    const participant = this.editingParticipant();
+    if (!participant) return;
+
+    // Create updated participant with new data
+    const updatedParticipant: Participant = {
+      ...participant,
+      community_member_id: updatedMember.id || participant.community_member_id,
+      display_name: updatedMember.display_name,
+      icon_url: updatedMember.icon_url,
+      region: updatedMember.region
+    };
+
+    this.participantUpdated.emit(updatedParticipant);
+    this.closeEditModal();
+  }
+
+  // Handle promotion request from edit modal (for participants without community_member_id)
+  onRequestPromotion(): void {
+    const participant = this.editingParticipant();
+    if (!participant) return;
+
+    this.tournamentService.promoteParticipant(this.tournament().slug, participant.id).subscribe({
+      next: (promotedParticipant) => {
+        // Update local participant state
+        this.editingParticipant.set(promotedParticipant);
+
+        // Update the member with the new community_member_id
+        const currentMember = this.editingMember();
+        if (currentMember) {
+          this.editingMember.set({
+            ...currentMember,
+            id: promotedParticipant.community_member_id!
+          });
+        }
+
+        // Tell the modal to continue with the pending action
+        const modal = this.editModal();
+        if (modal) {
+          modal.completePromotion(promotedParticipant.community_member_id!);
+        }
+      },
+      error: (err) => {
+        this.error.set(err.error?.error || 'Failed to promote participant');
       }
     });
   }

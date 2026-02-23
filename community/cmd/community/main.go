@@ -20,6 +20,12 @@ func main() {
 	}
 	defer db.Close()
 
+	// Load R2 config for file uploads
+	r2Config := config.LoadR2Config()
+	if !r2Config.IsConfigured() {
+		log.Println("Warning: R2 storage not configured, icon uploads will be disabled")
+	}
+
 	// Initialize repositories
 	communityRepo := repository.NewCommunityRepository(db)
 	memberRepo := repository.NewMemberRepository(db)
@@ -29,9 +35,13 @@ func main() {
 
 	// Initialize services
 	eloService := service.NewEloService(eloSystemRepo, memberEloRatingRepo, eloHistoryRepo, memberRepo)
+	storageService, err := service.NewStorageService(r2Config)
+	if err != nil {
+		log.Fatalf("Failed to initialize storage service: %v", err)
+	}
 
 	// Create router
-	router := api.NewRouter(communityRepo, memberRepo, eloService)
+	router := api.NewRouter(communityRepo, memberRepo, eloService, storageService)
 
 	// Get port from environment
 	port := os.Getenv("PORT")

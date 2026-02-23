@@ -9,10 +9,11 @@ import { AuthService } from '../../services/auth.service';
 import { Community, CommunityMember, AddMemberRequest, MemberRole } from '../../models/community.model';
 import { Tournament } from '../../models/tournament.model';
 import { EloSystem, MemberEloRating, CreateEloSystemRequest } from '../../models/elo.model';
+import { EditMemberModal } from '../../components/edit-member-modal/edit-member-modal';
 
 @Component({
   selector: 'app-community-detail',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, EditMemberModal],
   templateUrl: './community-detail.html',
   styleUrl: './community-detail.css'
 })
@@ -64,6 +65,9 @@ export class CommunityDetail implements OnInit {
   addingMember = signal(false);
   addMemberError = signal('');
   newMember: AddMemberRequest = { display_name: '' };
+
+  // Edit member modal
+  editingMember = signal<CommunityMember | null>(null);
 
   // Current user info
   currentUser = computed(() => this.authService.user());
@@ -357,6 +361,20 @@ export class CommunityDetail implements OnInit {
         this.error.set(err.error?.error || 'Failed to update member role');
       }
     });
+  }
+
+  openEditMemberModal(member: CommunityMember): void {
+    this.editingMember.set(member);
+  }
+
+  closeEditMemberModal(): void {
+    this.editingMember.set(null);
+  }
+
+  onMemberUpdated(updatedMember: CommunityMember): void {
+    this.members.update(members =>
+      members.map(m => m.id === updatedMember.id ? updatedMember : m)
+    );
   }
 
   onTournamentClick(slug: string): void {

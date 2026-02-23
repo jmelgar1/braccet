@@ -1,35 +1,59 @@
-import { Component, input, computed, inject, signal, effect, ViewChild } from '@angular/core';
+import { Component, input, computed, inject, signal, effect, ViewChild, output } from '@angular/core';
 import { Tournament, Participant } from '../../../../models/tournament.model';
 import { BracketGeneratorService, BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
-import { BracketState, Match } from '../../../../models/bracket.model';
+import { TournamentService } from '../../../../services/tournament.service';
+import { BracketState, BracketStage, Match } from '../../../../models/bracket.model';
 import { BracketViewer } from '../../../../components/bracket-viewer/bracket-viewer';
 import { MatchResultModal, MatchResultEvent } from '../../../../components/match-result-modal/match-result-modal';
+import { EditStageModal } from '../../../../components/edit-stage-modal/edit-stage-modal';
 
 @Component({
   selector: 'app-bracket-tab',
-  imports: [BracketViewer, MatchResultModal],
+  imports: [BracketViewer, MatchResultModal, EditStageModal],
   templateUrl: './bracket-tab.html'
 })
 export class BracketTab {
   private bracketGenerator = inject(BracketGeneratorService);
   private bracketService = inject(BracketService);
+  private tournamentService = inject(TournamentService);
 
   tournament = input.required<Tournament>();
   participants = input.required<Participant[]>();
   refreshKey = input(0);
   isOrganizer = input(false);
 
+  // Output for tournament ended event
+  tournamentEnded = output<Tournament>();
+
   bracketState = signal<BracketState | null>(null);
   loadingBracket = signal(false);
   bracketError = signal('');
+  endingTournament = signal(false);
 
   // Modal state
   selectedMatch = signal<Match | null>(null);
   showModal = signal(false);
   isEditMode = signal(false);
 
+  // Stage modal state
+  selectedStage = signal<BracketStage | null>(null);
+  showStageModal = signal(false);
+
   @ViewChild(MatchResultModal) matchModal?: MatchResultModal;
+
+  // Stages computed property
+  stages = computed(() => this.bracketState()?.stages ?? []);
+
+  // Get bestOf for the selected match based on its round
+  selectedMatchBestOf = computed(() => {
+    const match = this.selectedMatch();
+    const stagesData = this.stages();
+    if (!match || stagesData.length === 0) return 1;
+
+    const stage = stagesData.find(s => s.round === match.round);
+    return stage?.best_of ?? 1;
+  });
 
   // Preview is generated client-side from participants
   preview = computed<BracketPreview | null>(() => {
@@ -51,6 +75,16 @@ export class BracketTab {
   isPreviewMode = computed(() => {
     const t = this.tournament();
     return t.status !== 'in_progress' && t.status !== 'completed';
+  });
+
+  canEndTournament = computed(() => {
+    const bracket = this.bracketState();
+    return bracket?.is_complete ?? false;
+  });
+
+  showEndButton = computed(() => {
+    const t = this.tournament();
+    return this.isOrganizer() && t.status === 'in_progress';
   });
 
   constructor() {
@@ -142,5 +176,40 @@ export class BracketTab {
         this.bracketError.set(err.error?.error || 'Failed to reopen match');
       }
     });
+  }
+
+  endTournament(): void {
+    const t = this.tournament();
+    if (!this.canEndTournament()) return;
+
+    this.endingTournament.set(true);
+    this.bracketError.set('');
+
+    this.tournamentService.updateTournament(t.slug, { status: 'completed' }).subscribe({
+      next: (updatedTournament) => {
+        this.endingTournament.set(false);
+        this.tournamentEnded.emit(updatedTournament);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to end tournament');
+        this.endingTournament.set(false);
+      }
+    });
+  }
+
+  onStageClicked(event: { round: number; stage: BracketStage }): void {
+    this.selectedStage.set(event.stage);
+    this.showStageModal.set(true);
+  }
+
+  onStageUpdated(stage: BracketStage): void {
+    this.showStageModal.set(false);
+    this.selectedStage.set(null);
+    this.loadBracket(this.tournament().id);
+  }
+
+  closeStageModal(): void {
+    this.showStageModal.set(false);
+    this.selectedStage.set(null);
   }
 }

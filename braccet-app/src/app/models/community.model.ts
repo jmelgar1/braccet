@@ -26,6 +26,8 @@ export interface CommunityMember {
   display_name: string;
   role: MemberRole;
   is_ghost?: boolean;
+  icon_url?: string;
+  region?: string;
   elo_rating?: number;
   ranking_points?: number;
   matches_played: number;
@@ -42,4 +44,16 @@ export interface AddMemberRequest {
 
 export interface UpdateMemberRoleRequest {
   role: MemberRole;
+}
+
+export interface UpdateMemberRequest {
+  display_name?: string;
+  icon_url?: string;
+  region?: string;
+}
+
+export interface PresignedUploadResponse {
+  upload_url: string;
+  icon_url: string;
+  expires_at: string;
 }

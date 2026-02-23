@@ -48,16 +48,54 @@
     <div class="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
       <label class="block text-sm font-medium text-gray-700 mb-2">Add Participant</label>
       <div class="flex gap-2">
-        <input
-          type="text"
-          [(ngModel)]="newParticipantName"
-          placeholder="Enter display name"
-          class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          (keyup.enter)="addParticipant()" />
+        <div class="relative flex-1">
+          <input
+            type="text"
+            [value]="newParticipantName"
+            (input)="onSearchInput($any($event.target).value)"
+            (focus)="searchResults().length > 0 && showDropdown.set(true)"
+            (blur)="hideDropdown()"
+            [placeholder]="isEloEnabled ? 'Search member or enter new name' : 'Enter display name'"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            (keyup.enter)="addParticipant()"
+            autocomplete="off" />
+
+          <!-- Loading indicator -->
+          @if (isSearching()) {
+            <div class="absolute right-3 top-1/2 -translate-y-1/2">
+              <svg class="animate-spin h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+          }
+
+          <!-- Selected member indicator -->
+          @if (selectedMember() && !isSearching()) {
+            <div class="absolute right-3 top-1/2 -translate-y-1/2">
+              <span class="text-green-600 text-xs font-medium">Existing member</span>
+            </div>
+          }
+
+          <!-- Dropdown -->
+          @if (showDropdown() && searchResults().length > 0) {
+            <div class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+              @for (member of searchResults(); track member.id) {
+                <button
+                  type="button"
+                  (mousedown)="selectMember(member)"
+                  class="w-full px-3 py-2 text-left hover:bg-blue-50 text-sm text-gray-900">
+                  {{ member.display_name }}
+                </button>
+              }
+            </div>
+          }
+        </div>
+
         <button
           (click)="addParticipant()"
           [disabled]="!newParticipantName.trim() || addingParticipant()"
-          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+          class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium whitespace-nowrap">
           @if (addingParticipant()) {
             Adding...
           } @else {
@@ -65,6 +103,13 @@
           }
         </button>
       </div>
+
+      <!-- Help text for community tournaments -->
+      @if (isEloEnabled) {
+        <p class="mt-2 text-xs text-gray-500">
+          Select an existing member to preserve their ELO, or type a new name to create a new member.
+        </p>
+      }
     </div>
   }
 
@@ -78,11 +123,24 @@
         <div cdkDropList (cdkDropListDropped)="onDrop($event)" class="space-y-2">
           @for (participant of participants(); track participant.id; let i = $index) {
             <div cdkDrag class="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-200 cursor-move hover:border-blue-300 hover:shadow-sm">
-              <span class="w-8 h-8 flex items-center justify-center bg-gray-100 text-gray-700 rounded-full text-sm font-semibold">
+              <span class="w-6 h-6 flex items-center justify-center bg-gray-100 text-gray-600 rounded text-xs font-semibold">
                 {{ i + 1 }}
               </span>
+              @if (participant.icon_url) {
+                <img [src]="participant.icon_url" [alt]="participant.display_name" class="w-8 h-8 rounded-full object-cover" />
+              } @else {
+                <span class="w-8 h-8 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full text-sm font-semibold">
+                  {{ participant.display_name.charAt(0).toUpperCase() }}
+                </span>
+              }
               <span class="flex-1 text-gray-900">
                 {{ participant.display_name }}
+                @if (participant.region) {
+                  <span class="text-xs text-blue-600 ml-1">[{{ participant.region }}]</span>
+                }
+                @if (participant.elo_rating) {
+                  <span class="text-xs text-gray-500 ml-1">({{ participant.elo_rating }})</span>
+                }
                 @if (participant.user_id === authService.user()?.id) {
                   <span class="text-xs text-blue-600 ml-1">(You)</span>
                 }
@@ -94,6 +152,13 @@
                     [class.text-red-700]="participant.status === 'withdrawn'">
                 {{ participant.status }}
               </span>
+              @if (canEdit(participant)) {
+                <button
+                  (click)="openEditModal(participant); $event.stopPropagation()"
+                  class="text-blue-600 hover:text-blue-800 text-sm ml-2">
+                  Edit
+                </button>
+              }
               @if (canWithdraw(participant)) {
                 <button
                   (click)="withdrawParticipant(participant); $event.stopPropagation()"
@@ -129,10 +194,27 @@
                     {{ i + 1 }}
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-900">
-                    {{ participant.display_name }}
-                    @if (participant.user_id === authService.user()?.id) {
-                      <span class="text-xs text-blue-600 ml-1">(You)</span>
-                    }
+                    <div class="flex items-center gap-2">
+                      @if (participant.icon_url) {
+                        <img [src]="participant.icon_url" [alt]="participant.display_name" class="w-6 h-6 rounded-full object-cover" />
+                      } @else {
+                        <span class="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                          {{ participant.display_name.charAt(0).toUpperCase() }}
+                        </span>
+                      }
+                      <span>
+                        {{ participant.display_name }}
+                        @if (participant.region) {
+                          <span class="text-xs text-blue-600 ml-1">[{{ participant.region }}]</span>
+                        }
+                        @if (participant.elo_rating) {
+                          <span class="text-xs text-gray-500 ml-1">({{ participant.elo_rating }})</span>
+                        }
+                        @if (participant.user_id === authService.user()?.id) {
+                          <span class="text-xs text-blue-600 ml-1">(You)</span>
+                        }
+                      </span>
+                    </div>
                   </td>
                   <td class="px-4 py-3 text-sm">
                     <span class="px-2 py-1 text-xs rounded-full"
@@ -152,3 +234,15 @@
     }
   </div>
 </div>
+
+<!-- Edit Member Modal -->
+@if (editingMember() && communitySlug()) {
+  <app-edit-member-modal
+    #editModal
+    [member]="editingMember()!"
+    [communitySlug]="communitySlug()!"
+    (close)="closeEditModal()"
+    (memberUpdated)="onMemberUpdated($event)"
+    (requestPromotion)="onRequestPromotion()"
+  />
+}

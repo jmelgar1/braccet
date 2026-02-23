@@ -6,8 +6,10 @@ import { TournamentService } from '../../services/tournament.service';
 import { BracketService } from '../../services/bracket.service';
 import { AuthService } from '../../services/auth.service';
 import { CommunityService } from '../../services/community.service';
+import { EloService } from '../../services/elo.service';
 import { Tournament, Participant } from '../../models/tournament.model';
 import { Community } from '../../models/community.model';
+import { EloSystem } from '../../models/elo.model';
 import { Breadcrumb, BreadcrumbItem } from '../../components/breadcrumb/breadcrumb';
 import { SidePanel } from './components/side-panel/side-panel';
 
@@ -22,10 +24,12 @@ export class TournamentDetail implements OnInit {
   private tournamentService = inject(TournamentService);
   private bracketService = inject(BracketService);
   private communityService = inject(CommunityService);
+  private eloService = inject(EloService);
   authService = inject(AuthService);
 
   tournament = signal<Tournament | null>(null);
   community = signal<Community | null>(null);
+  eloSystem = signal<EloSystem | null>(null);
   loading = signal(true);
   error = signal('');
   startingTournament = signal(false);
@@ -97,10 +101,27 @@ export class TournamentDetail implements OnInit {
     this.communityService.getCommunityById(communityId).subscribe({
       next: (community) => {
         this.community.set(community);
+        // Load ELO system if tournament has one
+        const t = this.tournament();
+        if (t?.elo_system_id && community.slug) {
+          this.loadEloSystem(community.slug, t.elo_system_id);
+        }
       },
       error: () => {
         // Silently fail - community display is optional
         this.community.set(null);
+      }
+    });
+  }
+
+  loadEloSystem(communitySlug: string, eloSystemId: number): void {
+    this.eloService.getEloSystem(communitySlug, eloSystemId).subscribe({
+      next: (eloSystem) => {
+        this.eloSystem.set(eloSystem);
+      },
+      error: () => {
+        // Silently fail - ELO system display is optional
+        this.eloSystem.set(null);
       }
     });
   }
@@ -158,6 +179,12 @@ export class TournamentDetail implements OnInit {
     this.bracketRefreshKey.update(k => k + 1);
   }
 
+  onParticipantUpdated(participant: Participant): void {
+    this.participants.update(list =>
+      list.map(p => p.id === participant.id ? participant : p)
+    );
+  }
+
   onSeedingChanged(participants: Participant[]): void {
     this.participants.set(participants);
   }
@@ -189,7 +216,8 @@ export class TournamentDetail implements OnInit {
     const bracketParticipants = p.map((participant, index) => ({
       id: participant.id,
       name: participant.display_name,
-      seed: index + 1
+      seed: index + 1,
+      icon_url: participant.icon_url
     }));
 
     this.bracketService.createBracket({
