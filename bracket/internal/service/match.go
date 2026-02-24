@@ -48,6 +48,7 @@ type matchService struct {
 	repo              repository.MatchRepository
 	setRepo           repository.SetRepository
 	swissRepo         repository.SwissRepository
+	tiebreakerRepo    repository.TiebreakerRepository
 	tournamentClient  client.TournamentClient
 	communityClient   client.CommunityClient
 }
@@ -78,6 +79,25 @@ func NewMatchServiceWithSwiss(
 		repo:             repo,
 		setRepo:          setRepo,
 		swissRepo:        swissRepo,
+		tournamentClient: tournamentClient,
+		communityClient:  communityClient,
+	}
+}
+
+// NewMatchServiceWithTiebreakers creates a match service with Swiss and tiebreaker support
+func NewMatchServiceWithTiebreakers(
+	repo repository.MatchRepository,
+	setRepo repository.SetRepository,
+	swissRepo repository.SwissRepository,
+	tiebreakerRepo repository.TiebreakerRepository,
+	tournamentClient client.TournamentClient,
+	communityClient client.CommunityClient,
+) MatchService {
+	return &matchService{
+		repo:             repo,
+		setRepo:          setRepo,
+		swissRepo:        swissRepo,
+		tiebreakerRepo:   tiebreakerRepo,
 		tournamentClient: tournamentClient,
 		communityClient:  communityClient,
 	}
@@ -140,6 +160,13 @@ func (s *matchService) ReportResult(ctx context.Context, matchID uint64, result 
 	// For Swiss: update standings and check for round advancement
 	if match.BracketType == domain.BracketSwiss && s.swissRepo != nil {
 		if err := s.handleSwissMatchComplete(ctx, match, result.Sets, winnerID); err != nil {
+			return err
+		}
+	}
+
+	// For Tiebreakers: advance winner in mini bracket and check for completion
+	if match.BracketType == domain.BracketTiebreaker && s.tiebreakerRepo != nil {
+		if err := s.handleTiebreakerMatchComplete(ctx, match, winnerID); err != nil {
 			return err
 		}
 	}
@@ -835,6 +862,46 @@ func (s *matchService) handleSwissMatchComplete(ctx context.Context, match *doma
 
 	// Round advancement is manual - organizer clicks "Advance Round" button
 	// which calls SwissService.AdvanceRound()
+
+	return nil
+}
+
+// handleTiebreakerMatchComplete handles completion of a tiebreaker match.
+// Advances winner to next match in mini bracket and checks for tiebreaker completion.
+func (s *matchService) handleTiebreakerMatchComplete(ctx context.Context, match *domain.Match, winnerID uint64) error {
+	// Create tiebreaker service
+	tiebreakerSvc := NewTiebreakerService(s.tiebreakerRepo, s.swissRepo, s.repo)
+
+	// Advance winner to next match if there is one
+	if match.NextMatchID != nil {
+		if err := tiebreakerSvc.AdvanceWinnerInTiebreaker(ctx, match, winnerID); err != nil {
+			return err
+		}
+	}
+
+	// Check if this tiebreaker (and all others) is complete
+	allComplete, err := tiebreakerSvc.OnTiebreakerMatchComplete(ctx, match, winnerID)
+	if err != nil {
+		return err
+	}
+
+	// If all tiebreakers are complete, mark Swiss as complete
+	if allComplete && s.swissRepo != nil {
+		if err := s.swissRepo.SetTiebreakersComplete(ctx, match.TournamentID, true); err != nil {
+			return err
+		}
+
+		// Get and update config to mark as complete
+		config, err := s.swissRepo.GetConfig(ctx, match.TournamentID)
+		if err != nil {
+			return err
+		}
+		config.TiebreakersComplete = true
+		config.IsComplete = true
+		if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

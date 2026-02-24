@@ -448,9 +448,51 @@ func (h *ParticipantHandler) UpdateSeeding(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Collect community_member_ids for enrichment
+	var memberIDs []uint64
+	for _, p := range participants {
+		if p.CommunityMemberID != nil {
+			memberIDs = append(memberIDs, *p.CommunityMemberID)
+		}
+	}
+
+	// Fetch ELO ratings if tournament has an ELO system
+	var eloRatings map[uint64]int
+	if tournament.EloSystemID != nil && len(memberIDs) > 0 {
+		eloRatings, err = h.communityClient.GetBulkMemberRatings(r.Context(), *tournament.EloSystemID, memberIDs)
+		if err != nil {
+			log.Printf("Warning: failed to fetch ELO ratings: %v", err)
+		}
+	}
+
+	// Fetch icon URLs and regions for community members
+	var memberData map[uint64]client.MemberDataResponse
+	if len(memberIDs) > 0 {
+		memberData, err = h.communityClient.GetBulkMemberData(r.Context(), memberIDs)
+		if err != nil {
+			log.Printf("Warning: failed to fetch member data: %v", err)
+		}
+	}
+
 	response := make([]ParticipantResponse, len(participants))
 	for i, p := range participants {
-		response[i] = toParticipantResponse(p)
+		var eloRating *int
+		var iconURL *string
+		var region *string
+		if p.CommunityMemberID != nil {
+			if eloRatings != nil {
+				if rating, ok := eloRatings[*p.CommunityMemberID]; ok {
+					eloRating = &rating
+				}
+			}
+			if memberData != nil {
+				if data, ok := memberData[*p.CommunityMemberID]; ok {
+					iconURL = data.IconURL
+					region = data.Region
+				}
+			}
+		}
+		response[i] = toParticipantResponseWithExtras(p, eloRating, iconURL, region)
 	}
 
 	writeJSON(w, http.StatusOK, response)

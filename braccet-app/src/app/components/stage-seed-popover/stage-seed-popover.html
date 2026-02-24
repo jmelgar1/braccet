@@ -1,0 +1,150 @@
+<!-- Backdrop -->
+<div class="popover-backdrop" (click)="close.emit()"></div>
+
+<!-- Main modal -->
+<div class="popover-container" (click)="$event.stopPropagation()">
+  <!-- Header -->
+  <div class="popover-header">
+    <h4 class="text-gray-900">
+      Seed Participants - {{ stage().stage_type === 'final' ? 'Finals' : 'Group Stage ' + stage().stage_order }}
+    </h4>
+    <button (click)="close.emit()" class="text-gray-400 hover:text-gray-600 p-1">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- Error message -->
+  @if (error()) {
+    <div class="px-4 py-3 bg-red-50 text-red-600 text-sm border-b border-red-100">
+      {{ error() }}
+    </div>
+  }
+
+  <!-- Body -->
+  <div class="popover-body">
+    <div class="groups-grid">
+      @for (groupName of groupNames(); track groupName; let groupOrder = $index) {
+        <div class="group-column">
+          <div class="group-header">
+            <span>{{ stage().stage_type === 'final' ? 'Seeded Participants' : 'Group ' + groupName }}</span>
+            <span class="text-sm text-gray-400">({{ getSeedsForGroup(groupOrder).length }})</span>
+          </div>
+
+          <!-- Seeded participants in this group -->
+          <div class="seeded-list">
+            @for (seed of getSeedsForGroup(groupOrder); track seed.participant_id) {
+              @let participant = getParticipant(seed.participant_id);
+              @if (participant) {
+                <div class="seeded-item">
+                  @if (participant.icon_url) {
+                    <img [src]="participant.icon_url" [alt]="participant.display_name" class="rounded-full object-cover" />
+                  } @else {
+                    <span class="avatar-placeholder">
+                      {{ participant.display_name.charAt(0).toUpperCase() }}
+                    </span>
+                  }
+                  <span class="name">{{ participant.display_name }}</span>
+                  <button (click)="removeSeed(seed.participant_id)" title="Remove">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              }
+            }
+          </div>
+
+          <!-- Add participant button -->
+          <div class="add-seed-container">
+            <button
+              (click)="toggleGroupDropdown(groupOrder); $event.stopPropagation()"
+              class="add-seed-btn"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Add Participant</span>
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="popover-footer">
+    <button (click)="close.emit()" class="btn-cancel">
+      Cancel
+    </button>
+    <button
+      (click)="save()"
+      [disabled]="saving()"
+      class="btn-save"
+    >
+      @if (saving()) {
+        Saving...
+      } @else {
+        Save Seeds
+      }
+    </button>
+  </div>
+</div>
+
+<!-- Participant selection modal (when adding to a group) -->
+@if (activeGroupDropdown() !== null) {
+  <div class="dropdown-backdrop" (click)="activeGroupDropdown.set(null)"></div>
+  <div class="dropdown-menu" (click)="$event.stopPropagation()">
+    <div class="dropdown-header">
+      <h5>Select Participant for Group {{ getGroupLetter(activeGroupDropdown()!) }}</h5>
+      <button (click)="activeGroupDropdown.set(null)" class="text-gray-400 hover:text-gray-600 p-1">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Search input -->
+    <div class="dropdown-search">
+      <input
+        type="text"
+        placeholder="Search participants..."
+        [value]="searchQuery()"
+        (input)="onSearchInput($event)"
+        autofocus
+      />
+    </div>
+
+    <!-- Participant grid -->
+    <div class="dropdown-list">
+      @if (getUnseededParticipants().length > 0) {
+        <div class="participants-grid">
+          @for (p of getUnseededParticipants(); track p.id) {
+            <button
+              class="participant-card"
+              (click)="addSeed(p.id, activeGroupDropdown()!)"
+            >
+              @if (p.icon_url) {
+                <img [src]="p.icon_url" [alt]="p.display_name" />
+              } @else {
+                <span class="avatar-placeholder">
+                  {{ p.display_name.charAt(0).toUpperCase() }}
+                </span>
+              }
+              <span class="name">{{ p.display_name }}</span>
+            </button>
+          }
+        </div>
+      } @else {
+        <div class="empty-state">
+          @if (searchQuery()) {
+            No participants match "{{ searchQuery() }}"
+          } @else {
+            All participants have been seeded
+          }
+        </div>
+      }
+    </div>
+  </div>
+}

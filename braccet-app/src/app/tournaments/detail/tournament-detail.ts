@@ -7,16 +7,17 @@ import { BracketService } from '../../services/bracket.service';
 import { AuthService } from '../../services/auth.service';
 import { CommunityService } from '../../services/community.service';
 import { EloService } from '../../services/elo.service';
-import { Tournament, Participant } from '../../models/tournament.model';
+import { Tournament, Participant, TournamentStage, StageSeedAssignment } from '../../models/tournament.model';
 import { CreateBracketRequest } from '../../models/bracket.model';
 import { Community } from '../../models/community.model';
 import { EloSystem } from '../../models/elo.model';
 import { Breadcrumb, BreadcrumbItem } from '../../components/breadcrumb/breadcrumb';
 import { SidePanel } from './components/side-panel/side-panel';
+import { StageSeedPopover } from '../../components/stage-seed-popover/stage-seed-popover';
 
 @Component({
   selector: 'app-tournament-detail',
-  imports: [DatePipe, Breadcrumb, SidePanel, RouterLink],
+  imports: [DatePipe, Breadcrumb, SidePanel, RouterLink, StageSeedPopover],
   templateUrl: './tournament-detail.html',
   styleUrl: './tournament-detail.css'
 })
@@ -41,6 +42,13 @@ export class TournamentDetail implements OnInit {
 
   // Bracket refresh trigger - increment to trigger reload
   bracketRefreshKey = signal(0);
+
+  // Stage details toggle for multi-stage tournaments
+  showStageDetails = signal(false);
+
+  // Seeding popover state
+  activeSeedPopoverStage = signal<TournamentStage | null>(null);
+  stageSeeds = signal<Map<number, StageSeedAssignment[]>>(new Map());
 
   // Computed properties
   isOrganizer = computed(() => {
@@ -90,10 +98,26 @@ export class TournamentDetail implements OnInit {
         if (tournament.community_id) {
           this.loadCommunity(tournament.community_id);
         }
+        // Load stages for multi-stage tournaments
+        if (tournament.format === 'multi_stage') {
+          this.loadStages(slug);
+        }
       },
       error: (err) => {
         this.error.set(err.error?.error || 'Failed to load tournament');
         this.loading.set(false);
+      }
+    });
+  }
+
+  loadStages(slug: string): void {
+    this.tournamentService.getStages(slug).subscribe({
+      next: (stages) => {
+        // Update tournament with loaded stages
+        this.tournament.update(t => t ? { ...t, stages } : null);
+      },
+      error: () => {
+        // Silently fail - stages display is optional
       }
     });
   }
@@ -162,6 +186,31 @@ export class TournamentDetail implements OnInit {
     return colors[status] || 'bg-gray-100 text-gray-800';
   }
 
+  // Stage details toggle and helpers
+  toggleStageDetails(): void {
+    this.showStageDetails.update(v => !v);
+  }
+
+  getSortedStages(): TournamentStage[] {
+    const stages = this.tournament()?.stages;
+    if (!stages) return [];
+    // Sort: group stages by stage_order first, then final stage last
+    return [...stages].sort((a, b) => {
+      if (a.stage_type === 'final') return 1;
+      if (b.stage_type === 'final') return -1;
+      return a.stage_order - b.stage_order;
+    });
+  }
+
+  getStageFormatLabel(format: string): string {
+    const labels: Record<string, string> = {
+      single_elimination: 'Single Elim',
+      double_elimination: 'Double Elim',
+      swiss: 'Swiss'
+    };
+    return labels[format] || format;
+  }
+
   // Event handlers from SidePanel
   onParticipantAdded(participant: Participant): void {
     this.participants.update(list => [...list, participant]);
@@ -206,6 +255,16 @@ export class TournamentDetail implements OnInit {
     ];
   }
 
+  onStageUpdated(updatedStage: TournamentStage): void {
+    this.tournament.update(t => {
+      if (!t || !t.stages) return t;
+      return {
+        ...t,
+        stages: t.stages.map(s => s.id === updatedStage.id ? updatedStage : s)
+      };
+    });
+  }
+
   startTournament(): void {
     const t = this.tournament();
     const p = this.participants();
@@ -213,6 +272,22 @@ export class TournamentDetail implements OnInit {
 
     this.startingTournament.set(true);
     this.error.set('');
+
+    // Multi-stage tournaments use a different flow - start the first stage
+    if (t.format === 'multi_stage') {
+      this.tournamentService.startStage(t.slug).subscribe({
+        next: () => {
+          // Reload tournament to get updated status and stages
+          this.loadTournament(t.slug);
+          this.startingTournament.set(false);
+        },
+        error: (err) => {
+          this.error.set(err.error?.error || 'Failed to start tournament');
+          this.startingTournament.set(false);
+        }
+      });
+      return;
+    }
 
     const bracketParticipants = p.map((participant, index) => ({
       id: participant.id,
@@ -244,5 +319,82 @@ export class TournamentDetail implements OnInit {
         this.startingTournament.set(false);
       }
     });
+  }
+
+  // Seeding popover methods
+
+  canSeedStage(stage: TournamentStage): boolean {
+    return this.isOrganizer() &&
+           !stage.is_active &&
+           !stage.is_complete &&
+           this.tournament()?.status === 'registration';
+  }
+
+  openSeedPopover(stage: TournamentStage, event: Event): void {
+    event.stopPropagation();
+    // Load existing seeds if not loaded
+    if (!this.stageSeeds().has(stage.id)) {
+      this.loadStageSeeds(stage.id);
+    }
+    this.activeSeedPopoverStage.set(stage);
+  }
+
+  closeSeedPopover(): void {
+    this.activeSeedPopoverStage.set(null);
+  }
+
+  loadStageSeeds(stageId: number): void {
+    const t = this.tournament();
+    if (!t) return;
+
+    this.tournamentService.getStageSeeds(t.slug, stageId).subscribe({
+      next: (seeds) => {
+        this.stageSeeds.update(map => {
+          const newMap = new Map(map);
+          newMap.set(stageId, seeds);
+          return newMap;
+        });
+      },
+      error: () => {
+        // Silently fail, seeds are optional
+      }
+    });
+  }
+
+  onSeedsUpdated(stageId: number, seeds: StageSeedAssignment[]): void {
+    this.stageSeeds.update(map => {
+      const newMap = new Map(map);
+      newMap.set(stageId, seeds);
+      return newMap;
+    });
+    this.closeSeedPopover();
+  }
+
+  getParticipantById(participantId: number): Participant | undefined {
+    return this.participants().find(p => p.id === participantId);
+  }
+
+  getGroupedSeeds(stageId: number): { group: number; groupLabel: string; seeds: StageSeedAssignment[] }[] {
+    const seeds = this.stageSeeds().get(stageId) || [];
+    const grouped = new Map<number, StageSeedAssignment[]>();
+
+    for (const seed of seeds) {
+      if (!grouped.has(seed.target_group_order)) {
+        grouped.set(seed.target_group_order, []);
+      }
+      grouped.get(seed.target_group_order)!.push(seed);
+    }
+
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([group, seeds]) => ({
+        group,
+        groupLabel: String.fromCharCode(65 + group),
+        seeds
+      }));
+  }
+
+  getStageSeedsArray(stageId: number): StageSeedAssignment[] {
+    return this.stageSeeds().get(stageId) || [];
   }
 }

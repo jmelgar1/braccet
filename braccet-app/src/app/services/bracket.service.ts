@@ -14,7 +14,10 @@ import {
   BracketFormat,
   Participant as BracketParticipant,
   SwissBracketState,
-  EliminationStandingsResponse
+  EliminationStandingsResponse,
+  GroupBracketState,
+  GroupStanding,
+  StageStanding
 } from '../models/bracket.model';
 import { Participant as TournamentParticipant } from '../models/tournament.model';
 import { BracketPreview } from './bracket-generator.service';
@@ -141,5 +144,49 @@ export class BracketService {
       matches: state.matches,
       stages: state.stages
     };
+  }
+
+  // Multi-stage / Group bracket methods
+
+  /**
+   * Get bracket for a specific group in a multi-stage tournament.
+   */
+  getGroupBracket(tournamentId: number, groupId: number): Observable<GroupBracketState> {
+    return this.http.get<GroupBracketState>(`${this.apiUrl}/${tournamentId}/groups/${groupId}/bracket`);
+  }
+
+  /**
+   * Get Swiss bracket for a specific group in a multi-stage tournament.
+   */
+  getGroupSwissBracket(tournamentId: number, groupId: number): Observable<SwissBracketState> {
+    return this.http.get<SwissBracketState>(`${this.apiUrl}/${tournamentId}/groups/${groupId}/standings`);
+  }
+
+  /**
+   * Get standings for a specific group.
+   */
+  getGroupStandings(tournamentId: number, groupId: number): Observable<GroupStanding[]> {
+    return this.http.get<GroupStanding[]>(`${this.apiUrl}/${tournamentId}/groups/${groupId}/standings`);
+  }
+
+  /**
+   * Get cross-group standings for a stage.
+   */
+  getStageStandings(tournamentId: number, stageId: number): Observable<StageStanding[]> {
+    return this.http.get<StageStanding[]>(`${this.apiUrl}/${tournamentId}/stages/${stageId}/standings`);
+  }
+
+  /**
+   * Generate bracket for a group (starts the group's competition).
+   */
+  generateGroupBracket(tournamentId: number, groupId: number): Observable<GroupBracketState> {
+    return this.http.post<GroupBracketState>(`${this.apiUrl}/${tournamentId}/groups/${groupId}/bracket`, {});
+  }
+
+  /**
+   * Complete a stage (finalize rankings when all groups are done).
+   */
+  completeStage(tournamentId: number, stageId: number): Observable<StageStanding[]> {
+    return this.http.post<StageStanding[]>(`${this.apiUrl}/${tournamentId}/stages/${stageId}/complete`, {});
   }
 }

@@ -22,12 +22,14 @@ type SwissStanding struct {
 
 // SwissConfig stores tournament-level Swiss configuration
 type SwissConfig struct {
-	TournamentID uint64
-	TotalRounds  int
-	CurrentRound int
-	IsComplete   bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	TournamentID        uint64
+	TotalRounds         int
+	CurrentRound        int
+	IsComplete          bool
+	HasTiebreakers      bool // True if tiebreaker matches are needed
+	TiebreakersComplete bool // True when all tiebreakers resolved
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // SwissPairingHistory records which participants have played each other
@@ -47,6 +49,7 @@ type SwissBracketState struct {
 	Standings    []*SwissStanding
 	Matches      []*Match // All matches across all rounds
 	Stages       []*BracketStage
+	Tiebreakers  []*TiebreakerBracket // Tiebreaker brackets if any
 }
 
 // Pairing represents two participants matched for a Swiss round

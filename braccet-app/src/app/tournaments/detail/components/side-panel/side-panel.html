@@ -55,7 +55,9 @@
       @case ('settings') {
         <app-settings-tab
           [tournament]="tournament()"
+          [stages]="stages()"
           (tournamentUpdated)="onTournamentUpdated($event)"
+          (stageUpdated)="onStageUpdated($event)"
         />
       }
     }

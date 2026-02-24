@@ -131,18 +131,20 @@
               <div class="icon-preview-container">
                 <img [src]="iconPreview()" alt="Icon preview" class="icon-preview" />
                 <div class="icon-actions">
-                  <button
-                    class="crop-icon-btn"
-                    (click)="openCropper(); $event.stopPropagation()"
-                    [disabled]="saving()"
-                    type="button"
-                    title="Crop image"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M6 2v14a2 2 0 0 0 2 2h14"/>
-                      <path d="M18 22V8a2 2 0 0 0-2-2H2"/>
-                    </svg>
-                  </button>
+                  @if (!isSvgFile()) {
+                    <button
+                      class="crop-icon-btn"
+                      (click)="openCropper(); $event.stopPropagation()"
+                      [disabled]="saving()"
+                      type="button"
+                      title="Crop image"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M6 2v14a2 2 0 0 0 2 2h14"/>
+                        <path d="M18 22V8a2 2 0 0 0-2-2H2"/>
+                      </svg>
+                    </button>
+                  }
                   <button
                     class="remove-icon-btn"
                     (click)="removeIcon(); $event.stopPropagation()"
@@ -164,13 +166,13 @@
                   <polyline points="21 15 16 10 5 21"/>
                 </svg>
                 <p>Drag and drop an image here, or click to select</p>
-                <span class="upload-hint">JPEG, PNG, or WebP (max 2MB)</span>
+                <span class="upload-hint">JPEG, PNG, WebP, or SVG (max 2MB)</span>
               </div>
             }
             <input
               type="file"
               class="file-input"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png,image/webp,image/svg+xml"
               (change)="onFileSelected($event)"
               [disabled]="saving()"
             />

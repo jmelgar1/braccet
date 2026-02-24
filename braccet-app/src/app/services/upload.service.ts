@@ -34,11 +34,11 @@ export class UploadService {
    * Validate that a file is an allowed image type
    */
   validateImageFile(file: File): { valid: boolean; error?: string } {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
     const maxSize = 2 * 1024 * 1024; // 2MB
 
     if (!allowedTypes.includes(file.type)) {
-      return { valid: false, error: 'File must be JPEG, PNG, or WebP' };
+      return { valid: false, error: 'File must be JPEG, PNG, WebP, or SVG' };
     }
 
     if (file.size > maxSize) {

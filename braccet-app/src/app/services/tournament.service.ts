@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Tournament, CreateTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult } from '../models/tournament.model';
+import { Tournament, CreateTournamentRequest, CreateMultiStageTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult, TournamentStage, StageGroup, UpdateStageRequest, StageSeedAssignment, UpdateStageSeedsRequest } from '../models/tournament.model';
 
 @Injectable({ providedIn: 'root' })
 export class TournamentService {
@@ -62,5 +62,41 @@ export class TournamentService {
 
   promoteParticipant(slug: string, participantId: number): Observable<Participant> {
     return this.http.post<Participant>(`${this.baseUrl}/${slug}/participants/${participantId}/promote`, {});
+  }
+
+  // Multi-stage tournament methods
+
+  createMultiStageTournament(request: CreateMultiStageTournamentRequest): Observable<Tournament> {
+    return this.http.post<Tournament>(`${this.baseUrl}/multi-stage`, request);
+  }
+
+  getStages(slug: string): Observable<TournamentStage[]> {
+    return this.http.get<TournamentStage[]>(`${this.baseUrl}/${slug}/stages`);
+  }
+
+  getGroups(slug: string, stageId: number): Observable<StageGroup[]> {
+    return this.http.get<StageGroup[]>(`${this.baseUrl}/${slug}/stages/${stageId}/groups`);
+  }
+
+  startStage(slug: string): Observable<StageGroup[]> {
+    return this.http.post<StageGroup[]>(`${this.baseUrl}/${slug}/stages/start`, {});
+  }
+
+  advanceStage(slug: string): Observable<TournamentStage> {
+    return this.http.post<TournamentStage>(`${this.baseUrl}/${slug}/stages/advance`, {});
+  }
+
+  updateStage(slug: string, stageId: number, request: UpdateStageRequest): Observable<TournamentStage> {
+    return this.http.put<TournamentStage>(`${this.baseUrl}/${slug}/stages/${stageId}`, request);
+  }
+
+  // Stage seeding methods (manual seed assignments before stage starts)
+
+  getStageSeeds(slug: string, stageId: number): Observable<StageSeedAssignment[]> {
+    return this.http.get<StageSeedAssignment[]>(`${this.baseUrl}/${slug}/stages/${stageId}/seeds`);
+  }
+
+  updateStageSeeds(slug: string, stageId: number, request: UpdateStageSeedsRequest): Observable<StageSeedAssignment[]> {
+    return this.http.put<StageSeedAssignment[]>(`${this.baseUrl}/${slug}/stages/${stageId}/seeds`, request);
   }
 }

@@ -23,6 +23,7 @@ func main() {
 	// Initialize repositories
 	tournamentRepo := repository.NewTournamentRepository(db)
 	participantRepo := repository.NewParticipantRepository(db)
+	stageRepo := repository.NewStageRepository(db)
 
 	// Initialize bracket service client
 	bracketServiceURL := os.Getenv("BRACKET_SERVICE_URL")
@@ -39,7 +40,7 @@ func main() {
 	communityClient := client.NewCommunityClient(communityServiceURL)
 
 	// Create router
-	router := api.NewRouter(tournamentRepo, participantRepo, bracketClient, communityClient)
+	router := api.NewRouter(tournamentRepo, participantRepo, stageRepo, bracketClient, communityClient)
 
 	// Get port from environment
 	port := os.Getenv("PORT")

@@ -201,9 +201,14 @@ export class EditMemberModal {
     this.iconPreview.set(null);
   }
 
+  // Check if selected file is SVG (SVGs cannot be cropped)
+  isSvgFile(): boolean {
+    return this.selectedFile()?.type === 'image/svg+xml';
+  }
+
   // Cropper methods
   openCropper(): void {
-    if (!this.iconPreview()) return;
+    if (!this.iconPreview() || this.isSvgFile()) return;
     this.imageTransform.set({ scale: 1 });
     this.showCropper.set(true);
   }

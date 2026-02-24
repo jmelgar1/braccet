@@ -5,7 +5,7 @@ import { Breadcrumb, BreadcrumbItem } from '../../components/breadcrumb/breadcru
 import { TournamentService } from '../../services/tournament.service';
 import { CommunityService } from '../../services/community.service';
 import { EloService } from '../../services/elo.service';
-import { CreateTournamentRequest } from '../../models/tournament.model';
+import { CreateTournamentRequest, CreateMultiStageTournamentRequest, StageConfigRequest, RankingCriterion, StageFormat, TournamentFormat } from '../../models/tournament.model';
 import { Community } from '../../models/community.model';
 import { EloSystem } from '../../models/elo.model';
 
@@ -38,7 +38,8 @@ export class TournamentNew implements OnInit {
   name = signal('');
   game = signal('');
   description = signal('');
-  format = signal<'single_elimination' | 'double_elimination' | 'swiss'>('single_elimination');
+  format = signal<StageFormat>('single_elimination');
+  multiStageEnabled = signal(false);
   maxParticipants = signal<number | null>(null);
   startsAt = signal('');
   startsAtTentative = signal(false);
@@ -48,7 +49,38 @@ export class TournamentNew implements OnInit {
   // Swiss format settings
   swissRounds = signal<number>(3);
   showSwissModal = signal(false);
-  previousFormat = signal<'single_elimination' | 'double_elimination' | 'swiss'>('single_elimination');
+  previousFormat = signal<StageFormat>('single_elimination');
+
+  // Multi-stage tournament settings
+  showMultiStageModal = signal(false);
+  showCancelConfirmation = signal(false);
+  groupStages = signal<StageConfigRequest[]>([]);
+  finalStage = signal<StageConfigRequest | null>(null);
+  // Backup for cancel/restore
+  private groupStagesBackup: StageConfigRequest[] = [];
+  private finalStageBackup: StageConfigRequest | null = null;
+
+  // Current stage being edited in multi-stage wizard
+  // -1 means final stage is selected, 0+ means group stage index
+  currentStageIndex = signal(0);
+  editingFinalStage = signal(false);
+  stageParticipantsPerGroup = signal(4);
+  stageAdvancingPerGroup = signal(2);
+  stageFormat = signal<StageFormat>('swiss');
+  stageSwissRounds = signal(3);
+  stageRankingCriteria = signal<RankingCriterion[]>(['seed']);
+  stagePlacementMatches = signal(false);
+  stagePlacementDepth = signal(1);
+
+  availableRankingCriteria: { value: RankingCriterion; label: string }[] = [
+    { value: 'seed', label: 'Original Seed' },
+    { value: 'match_wins', label: 'Match Wins' },
+    { value: 'set_wins', label: 'Set Wins' },
+    { value: 'set_win_pct', label: 'Set Win %' },
+    { value: 'set_differential', label: 'Set Differential' },
+    { value: 'points_scored', label: 'Points Scored' },
+    { value: 'points_differential', label: 'Point Differential' }
+  ];
 
   constructor() {
     // Load ELO systems when community changes
@@ -124,12 +156,37 @@ export class TournamentNew implements OnInit {
     });
   }
 
-  onFormatChange(newFormat: 'single_elimination' | 'double_elimination' | 'swiss'): void {
+  onFormatChange(newFormat: StageFormat): void {
     if (newFormat === 'swiss') {
       this.previousFormat.set(this.format());
       this.showSwissModal.set(true);
     }
     this.format.set(newFormat);
+  }
+
+  onMultiStageToggle(enabled: boolean): void {
+    if (enabled) {
+      // Initialize with one group stage if none exist
+      if (this.groupStages().length === 0) {
+        this.addGroupStage();
+      }
+      // Final stage is always required
+      if (!this.finalStage()) {
+        this.setFinalStage();
+      }
+      // Create backup before opening modal
+      this.groupStagesBackup = JSON.parse(JSON.stringify(this.groupStages()));
+      this.finalStageBackup = this.finalStage() ? JSON.parse(JSON.stringify(this.finalStage())) : null;
+      this.showMultiStageModal.set(true);
+    }
+    this.multiStageEnabled.set(enabled);
+  }
+
+  openMultiStageModal(): void {
+    // Create backup before opening modal
+    this.groupStagesBackup = JSON.parse(JSON.stringify(this.groupStages()));
+    this.finalStageBackup = this.finalStage() ? JSON.parse(JSON.stringify(this.finalStage())) : null;
+    this.showMultiStageModal.set(true);
   }
 
   confirmSwissFormat(): void {
@@ -141,6 +198,168 @@ export class TournamentNew implements OnInit {
     this.format.set(this.previousFormat());
   }
 
+  // Multi-stage methods
+  addGroupStage(): void {
+    if (this.groupStages().length >= 2) return; // Max 2 group stages
+
+    const newStage: StageConfigRequest = {
+      stage_order: this.groupStages().length + 1,
+      format: 'swiss',
+      participants_per_group: 4,
+      advancing_per_group: 2,
+      ranking_criteria: ['seed']
+    };
+    this.groupStages.update(stages => [...stages, newStage]);
+    this.currentStageIndex.set(this.groupStages().length - 1);
+    this.loadStageToForm(newStage);
+  }
+
+  removeGroupStage(index: number): void {
+    this.groupStages.update(stages => {
+      const newStages = stages.filter((_, i) => i !== index);
+      // Renumber stages
+      return newStages.map((s, i) => ({ ...s, stage_order: i + 1 }));
+    });
+    if (this.currentStageIndex() >= this.groupStages().length) {
+      this.currentStageIndex.set(Math.max(0, this.groupStages().length - 1));
+    }
+    if (this.groupStages().length > 0) {
+      this.loadStageToForm(this.groupStages()[this.currentStageIndex()]);
+    }
+  }
+
+  selectStage(index: number): void {
+    // Save current stage before switching
+    if (!this.editingFinalStage()) {
+      this.saveCurrentStage();
+    }
+    this.editingFinalStage.set(false);
+    this.currentStageIndex.set(index);
+    this.loadStageToForm(this.groupStages()[index]);
+  }
+
+  selectFinalStage(): void {
+    // Save current group stage before switching
+    if (!this.editingFinalStage()) {
+      this.saveCurrentStage();
+    }
+    this.editingFinalStage.set(true);
+  }
+
+  private loadStageToForm(stage: StageConfigRequest): void {
+    this.stageParticipantsPerGroup.set(stage.participants_per_group || 4);
+    this.stageAdvancingPerGroup.set(stage.advancing_per_group || 2);
+    this.stageFormat.set(stage.format);
+    this.stageSwissRounds.set(stage.swiss_rounds || 3);
+    this.stageRankingCriteria.set(stage.ranking_criteria || ['seed']);
+    this.stagePlacementMatches.set(stage.placement_matches || false);
+    this.stagePlacementDepth.set(stage.placement_depth || 1);
+  }
+
+  private saveCurrentStage(): void {
+    const index = this.currentStageIndex();
+    if (index < 0 || index >= this.groupStages().length) return;
+
+    const updatedStage: StageConfigRequest = {
+      stage_order: index + 1,
+      format: this.stageFormat(),
+      participants_per_group: this.stageParticipantsPerGroup(),
+      advancing_per_group: this.stageAdvancingPerGroup(),
+      ranking_criteria: this.stageRankingCriteria(),
+      placement_matches: this.stagePlacementMatches(),
+      placement_depth: this.stagePlacementDepth()
+    };
+
+    if (this.stageFormat() === 'swiss') {
+      updatedStage.swiss_rounds = this.stageSwissRounds();
+    }
+
+    this.groupStages.update(stages =>
+      stages.map((s, i) => i === index ? updatedStage : s)
+    );
+  }
+
+  private setFinalStage(): void {
+    this.finalStage.set({
+      stage_order: 0,
+      format: 'single_elimination'
+    });
+  }
+
+  updateFinalStageFormat(format: StageFormat): void {
+    this.finalStage.update(f => f ? { ...f, format } : null);
+  }
+
+  toggleRankingCriterion(criterion: RankingCriterion): void {
+    const current = this.stageRankingCriteria();
+    if (current.includes(criterion)) {
+      this.stageRankingCriteria.set(current.filter(c => c !== criterion));
+    } else {
+      this.stageRankingCriteria.set([...current, criterion]);
+    }
+  }
+
+  // Drag and drop for ranking criteria
+  draggedCriterionIndex: number | null = null;
+
+  onDragStart(index: number): void {
+    this.draggedCriterionIndex = index;
+  }
+
+  onDragOver(event: DragEvent, index: number): void {
+    event.preventDefault();
+  }
+
+  onDrop(event: DragEvent, dropIndex: number): void {
+    event.preventDefault();
+    if (this.draggedCriterionIndex === null || this.draggedCriterionIndex === dropIndex) return;
+
+    const criteria = [...this.stageRankingCriteria()];
+    const [removed] = criteria.splice(this.draggedCriterionIndex, 1);
+    criteria.splice(dropIndex, 0, removed);
+    this.stageRankingCriteria.set(criteria);
+    this.draggedCriterionIndex = null;
+  }
+
+  onDragEnd(): void {
+    this.draggedCriterionIndex = null;
+  }
+
+  getCriterionLabel(criterion: RankingCriterion): string {
+    const found = this.availableRankingCriteria.find(c => c.value === criterion);
+    return found?.label ?? criterion;
+  }
+
+  confirmMultiStage(): void {
+    if (!this.editingFinalStage()) {
+      this.saveCurrentStage();
+    }
+    this.showMultiStageModal.set(false);
+  }
+
+  requestCancelMultiStage(): void {
+    this.showCancelConfirmation.set(true);
+  }
+
+  confirmCancelMultiStage(): void {
+    this.showCancelConfirmation.set(false);
+    this.showMultiStageModal.set(false);
+    // Restore from backup
+    this.groupStages.set(this.groupStagesBackup);
+    this.finalStage.set(this.finalStageBackup);
+    // Always uncheck multi-stage when canceling
+    this.multiStageEnabled.set(false);
+    // Reset form to first stage if there are stages
+    if (this.groupStages().length > 0) {
+      this.currentStageIndex.set(0);
+      this.loadStageToForm(this.groupStages()[0]);
+    }
+  }
+
+  dismissCancelConfirmation(): void {
+    this.showCancelConfirmation.set(false);
+  }
+
   onSubmit() {
     this.nameTouched.set(true);
 
@@ -150,6 +369,12 @@ export class TournamentNew implements OnInit {
 
     this.loading.set(true);
     this.error.set('');
+
+    // Handle multi-stage tournaments separately
+    if (this.multiStageEnabled()) {
+      this.submitMultiStage();
+      return;
+    }
 
     const request: CreateTournamentRequest = {
       name: this.name().trim(),
@@ -180,6 +405,49 @@ export class TournamentNew implements OnInit {
     }
 
     this.tournamentService.createTournament(request).subscribe({
+      next: (tournament) => {
+        this.router.navigate(['/tournaments', tournament.slug]);
+      },
+      error: (err) => {
+        this.loading.set(false);
+        this.error.set(err.error?.message || 'Failed to create tournament');
+      }
+    });
+  }
+
+  private submitMultiStage(): void {
+    // Make sure current stage is saved
+    this.saveCurrentStage();
+
+    const request: CreateMultiStageTournamentRequest = {
+      name: this.name().trim(),
+      group_stages: this.groupStages()
+    };
+
+    if (this.description().trim()) {
+      request.description = this.description().trim();
+    }
+    if (this.game().trim()) {
+      request.game = this.game().trim();
+    }
+    if (this.maxParticipants()) {
+      request.max_participants = this.maxParticipants()!;
+    }
+    if (this.startsAt()) {
+      request.starts_at = new Date(this.startsAt()).toISOString();
+      request.starts_at_tentative = this.startsAtTentative();
+    }
+    if (this.communityId()) {
+      request.community_id = this.communityId()!;
+    }
+    if (this.eloSystemId()) {
+      request.elo_system_id = this.eloSystemId()!;
+    }
+    if (this.finalStage()) {
+      request.final_stage = this.finalStage()!;
+    }
+
+    this.tournamentService.createMultiStageTournament(request).subscribe({
       next: (tournament) => {
         this.router.navigate(['/tournaments', tournament.slug]);
       },

@@ -1,0 +1,207 @@
+<div class="multi-stage-bracket">
+  <!-- Stage Progress Indicator -->
+  <div class="stage-progress">
+    @for (stage of sortedStages(); track stage.id) {
+      <button
+        class="stage-indicator"
+        [class.active]="stage.is_active"
+        [class.complete]="stage.is_complete"
+        [class.selected]="activeStage()?.id === stage.id"
+        (click)="selectStage(stage)"
+      >
+        <span class="stage-number">
+          @if (stage.stage_type === 'final') {
+            F
+          } @else {
+            {{ stage.stage_order }}
+          }
+        </span>
+        <span class="stage-label">{{ getStageLabel(stage) }}</span>
+        <span class="stage-format">{{ getStageFormatLabel(stage) }}</span>
+        @if (stage.is_complete) {
+          <span class="checkmark">&#10003;</span>
+        }
+      </button>
+    }
+  </div>
+
+  <!-- Loading State -->
+  @if (loading()) {
+    <div class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading groups...</p>
+    </div>
+  }
+
+  <!-- Error State -->
+  @if (error()) {
+    <div class="error-state">
+      <p>{{ error() }}</p>
+    </div>
+  }
+
+  <!-- Stage Content -->
+  @if (!loading() && activeStage()) {
+    <!-- Group Tabs (for group stages) -->
+    @if (activeStage()?.stage_type === 'group' && groups().length > 0) {
+      <div class="group-tabs">
+        @for (group of groups(); track group.id; let i = $index) {
+          <button
+            class="group-tab"
+            [class.active]="selectedGroupIndex() === i"
+            (click)="selectGroup(i)"
+          >
+            {{ group.group_name }}
+          </button>
+        }
+      </div>
+
+      <!-- Group Content -->
+      @if (activeGroup()) {
+        <div class="group-content">
+          <!-- Group Bracket -->
+          @if (currentGroupBracket()) {
+            <div class="bracket-container">
+              @switch (activeStage()?.format) {
+                @case ('single_elimination') {
+                  <app-bracket-viewer
+                    [preview]="{
+                      totalRounds: currentGroupBracket()!.total_rounds,
+                      matches: currentGroupBracket()!.matches
+                    }"
+                    [isOrganizer]="isOrganizer()"
+                    [isPreview]="false"
+                    [stages]="currentGroupBracket()!.stages"
+                    (matchClicked)="onMatchClicked($event)"
+                    (matchEditClicked)="onMatchEditClicked($event)"
+                    (matchReopened)="onMatchReopened($event)"
+                  />
+                }
+                @case ('double_elimination') {
+                  <app-double-elim-bracket
+                    [preview]="{
+                      format: 'double_elimination',
+                      totalRounds: currentGroupBracket()!.total_rounds,
+                      winnersRounds: currentGroupBracket()!.winners_rounds,
+                      losersRounds: currentGroupBracket()!.losers_rounds,
+                      bracketSize: 0,
+                      matches: currentGroupBracket()!.matches
+                    }"
+                    [isOrganizer]="isOrganizer()"
+                    [isPreview]="false"
+                    [stages]="currentGroupBracket()!.stages"
+                    (matchClicked)="onMatchClicked($event)"
+                    (matchEditClicked)="onMatchEditClicked($event)"
+                    (matchReopened)="onMatchReopened($event)"
+                  />
+                }
+                @case ('swiss') {
+                  <app-swiss-bracket
+                    [bracketState]="currentGroupSwissBracket()!"
+                    [isOrganizer]="isOrganizer()"
+                    [isPreview]="false"
+                    (matchClicked)="onMatchClicked($event)"
+                    (matchEditClicked)="onMatchEditClicked($event)"
+                    (matchReopened)="onMatchReopened($event)"
+                  />
+                }
+              }
+            </div>
+          } @else {
+            <div class="no-bracket">
+              <p>No bracket generated yet for this group.</p>
+            </div>
+          }
+
+          <!-- Group Standings -->
+          @if (currentGroupStandings().length > 0) {
+            <div class="standings-container">
+              <h3>Group Standings</h3>
+              <app-group-standings
+                [standings]="currentGroupStandings()"
+                [advancingCount]="activeStage()?.advancing_per_group"
+              />
+            </div>
+          }
+        </div>
+      }
+    }
+
+    <!-- No Groups Yet -->
+    @if (activeStage()?.stage_type === 'group' && groups().length === 0 && !loading()) {
+      <div class="no-groups">
+        <p>No groups have been created for this stage yet.</p>
+        @if (canStartStage()) {
+          <button class="start-stage-btn" (click)="onStartStage()">
+            Start Stage
+          </button>
+        }
+      </div>
+    }
+
+    <!-- Final Stage -->
+    @if (activeStage()?.stage_type === 'final') {
+      <div class="final-stage">
+        @if (finalBracket()) {
+          @switch (activeStage()?.format) {
+            @case ('single_elimination') {
+              <app-bracket-viewer
+                [preview]="{
+                  totalRounds: finalBracket()!.total_rounds,
+                  matches: finalBracket()!.matches
+                }"
+                [isOrganizer]="isOrganizer()"
+                [isPreview]="false"
+                [stages]="finalBracket()!.stages"
+                (matchClicked)="onMatchClicked($event)"
+                (matchEditClicked)="onMatchEditClicked($event)"
+                (matchReopened)="onMatchReopened($event)"
+              />
+            }
+            @case ('double_elimination') {
+              <app-double-elim-bracket
+                [preview]="{
+                  format: 'double_elimination',
+                  totalRounds: finalBracket()!.total_rounds,
+                  winnersRounds: finalBracket()!.winners_rounds,
+                  losersRounds: finalBracket()!.losers_rounds,
+                  bracketSize: 0,
+                  matches: finalBracket()!.matches
+                }"
+                [isOrganizer]="isOrganizer()"
+                [isPreview]="false"
+                [stages]="finalBracket()!.stages"
+                (matchClicked)="onMatchClicked($event)"
+                (matchEditClicked)="onMatchEditClicked($event)"
+                (matchReopened)="onMatchReopened($event)"
+              />
+            }
+            @case ('swiss') {
+              <app-swiss-bracket
+                [bracketState]="finalSwissBracket()!"
+                [isOrganizer]="isOrganizer()"
+                [isPreview]="false"
+                (matchClicked)="onMatchClicked($event)"
+                (matchEditClicked)="onMatchEditClicked($event)"
+                (matchReopened)="onMatchReopened($event)"
+              />
+            }
+          }
+        } @else {
+          <div class="no-bracket">
+            <p>Finals bracket will be generated when previous stages are complete.</p>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- Advance Stage Button -->
+    @if (canAdvanceStage()) {
+      <div class="stage-actions">
+        <button class="advance-stage-btn" (click)="onAdvanceStage()">
+          Advance to Next Stage
+        </button>
+      </div>
+    }
+  }
+</div>

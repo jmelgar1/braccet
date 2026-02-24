@@ -1,0 +1,3 @@
+-- PostgreSQL doesn't support removing enum values directly
+-- To fully reverse, would need to recreate the type without 'seed'
+-- For simplicity, this is a no-op (seed value remains but is unused)

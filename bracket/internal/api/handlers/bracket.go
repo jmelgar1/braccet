@@ -15,12 +15,13 @@ import (
 )
 
 type BracketHandler struct {
-	bracketSvc service.BracketService
-	matchSvc   service.MatchService
-	swissSvc   service.SwissService
-	repo       repository.MatchRepository
-	setRepo    repository.SetRepository
-	stageRepo  repository.StageRepository
+	bracketSvc    service.BracketService
+	matchSvc      service.MatchService
+	swissSvc      service.SwissService
+	tiebreakerSvc service.TiebreakerService
+	repo          repository.MatchRepository
+	setRepo       repository.SetRepository
+	stageRepo     repository.StageRepository
 }
 
 func NewBracketHandler(bracketSvc service.BracketService, matchSvc service.MatchService, repo repository.MatchRepository, setRepo repository.SetRepository, stageRepo repository.StageRepository) *BracketHandler {
@@ -42,6 +43,19 @@ func NewBracketHandlerWithSwiss(bracketSvc service.BracketService, matchSvc serv
 		repo:       repo,
 		setRepo:    setRepo,
 		stageRepo:  stageRepo,
+	}
+}
+
+// NewBracketHandlerWithTiebreakers creates a bracket handler with Swiss and tiebreaker support
+func NewBracketHandlerWithTiebreakers(bracketSvc service.BracketService, matchSvc service.MatchService, swissSvc service.SwissService, tiebreakerSvc service.TiebreakerService, repo repository.MatchRepository, setRepo repository.SetRepository, stageRepo repository.StageRepository) *BracketHandler {
+	return &BracketHandler{
+		bracketSvc:    bracketSvc,
+		matchSvc:      matchSvc,
+		swissSvc:      swissSvc,
+		tiebreakerSvc: tiebreakerSvc,
+		repo:          repo,
+		setRepo:       setRepo,
+		stageRepo:     stageRepo,
 	}
 }
 
@@ -584,14 +598,25 @@ func (h *BracketHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // Swiss-specific response types
 
 type SwissBracketResponse struct {
-	TournamentID uint64                  `json:"tournament_id"`
-	Format       string                  `json:"format"`
-	TotalRounds  int                     `json:"total_rounds"`
-	CurrentRound int                     `json:"current_round"`
-	IsComplete   bool                    `json:"is_complete"`
-	Standings    []SwissStandingResponse `json:"standings"`
-	Matches      []*MatchResponse        `json:"matches"`
-	Stages       []*StageResponse        `json:"stages"`
+	TournamentID        uint64                  `json:"tournament_id"`
+	Format              string                  `json:"format"`
+	TotalRounds         int                     `json:"total_rounds"`
+	CurrentRound        int                     `json:"current_round"`
+	IsComplete          bool                    `json:"is_complete"`
+	HasTiebreakers      bool                    `json:"has_tiebreakers"`
+	TiebreakersComplete bool                    `json:"tiebreakers_complete"`
+	Standings           []SwissStandingResponse `json:"standings"`
+	Matches             []*MatchResponse        `json:"matches"`
+	Stages              []*StageResponse        `json:"stages"`
+	Tiebreakers         []TiebreakerResponse    `json:"tiebreakers,omitempty"`
+}
+
+type TiebreakerResponse struct {
+	ID             uint64           `json:"id"`
+	TiePosition    int              `json:"tie_position"`
+	ParticipantIDs []uint64         `json:"participant_ids"`
+	IsComplete     bool             `json:"is_complete"`
+	Matches        []*MatchResponse `json:"matches,omitempty"`
 }
 
 type SwissStandingResponse struct {
@@ -635,12 +660,15 @@ func toSwissBracketResponse(state *domain.SwissBracketState) *SwissBracketRespon
 		Standings:    make([]SwissStandingResponse, 0),
 		Matches:      make([]*MatchResponse, 0),
 		Stages:       make([]*StageResponse, 0),
+		Tiebreakers:  make([]TiebreakerResponse, 0),
 	}
 
 	if state.Config != nil {
 		resp.TotalRounds = state.Config.TotalRounds
 		resp.CurrentRound = state.Config.CurrentRound
 		resp.IsComplete = state.Config.IsComplete
+		resp.HasTiebreakers = state.Config.HasTiebreakers
+		resp.TiebreakersComplete = state.Config.TiebreakersComplete
 	}
 
 	for i, s := range state.Standings {
@@ -657,8 +685,15 @@ func toSwissBracketResponse(state *domain.SwissBracketState) *SwissBracketRespon
 		})
 	}
 
+	// Separate tiebreaker matches from regular Swiss matches
+	tiebreakerMatches := make(map[int][]*MatchResponse) // tiePosition -> matches
 	for _, m := range state.Matches {
-		resp.Matches = append(resp.Matches, toMatchResponse(m))
+		matchResp := toMatchResponse(m)
+		if m.BracketType == domain.BracketTiebreaker {
+			tiebreakerMatches[m.Round] = append(tiebreakerMatches[m.Round], matchResp)
+		} else {
+			resp.Matches = append(resp.Matches, matchResp)
+		}
 	}
 
 	for _, s := range state.Stages {
@@ -673,6 +708,18 @@ func toSwissBracketResponse(state *domain.SwissBracketState) *SwissBracketRespon
 			StageName:    stageName,
 			BestOf:       s.BestOf,
 		})
+	}
+
+	// Add tiebreakers to response
+	for _, tb := range state.Tiebreakers {
+		tbResp := TiebreakerResponse{
+			ID:             tb.ID,
+			TiePosition:    tb.TiePosition,
+			ParticipantIDs: tb.ParticipantIDs,
+			IsComplete:     tb.IsComplete,
+			Matches:        tiebreakerMatches[tb.TiePosition],
+		}
+		resp.Tiebreakers = append(resp.Tiebreakers, tbResp)
 	}
 
 	return resp

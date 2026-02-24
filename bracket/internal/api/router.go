@@ -16,6 +16,7 @@ func NewRouter(
 	setRepo repository.SetRepository,
 	stageRepo repository.StageRepository,
 	swissRepo repository.SwissRepository,
+	tiebreakerRepo repository.TiebreakerRepository,
 	tournamentClient client.TournamentClient,
 	communityClient client.CommunityClient,
 ) chi.Router {
@@ -28,13 +29,14 @@ func NewRouter(
 
 	// Create services
 	bracketSvc := service.NewBracketServiceWithSwiss(repo, stageRepo, swissRepo, communityClient)
-	matchSvc := service.NewMatchServiceWithSwiss(repo, setRepo, swissRepo, tournamentClient, communityClient)
-	swissSvc := service.NewSwissService(swissRepo, repo, stageRepo)
+	matchSvc := service.NewMatchServiceWithTiebreakers(repo, setRepo, swissRepo, tiebreakerRepo, tournamentClient, communityClient)
+	swissSvc := service.NewSwissServiceWithTiebreakers(swissRepo, repo, stageRepo, tiebreakerRepo)
+	tiebreakerSvc := service.NewTiebreakerService(tiebreakerRepo, swissRepo, repo)
 	forfeitSvc := service.NewForfeitService(repo)
 	stageSvc := service.NewStageService(stageRepo)
 
 	// Create handlers
-	bracketHandler := handlers.NewBracketHandlerWithSwiss(bracketSvc, matchSvc, swissSvc, repo, setRepo, stageRepo)
+	bracketHandler := handlers.NewBracketHandlerWithTiebreakers(bracketSvc, matchSvc, swissSvc, tiebreakerSvc, repo, setRepo, stageRepo)
 	matchHandler := handlers.NewMatchHandler(matchSvc, repo, setRepo)
 	forfeitHandler := handlers.NewForfeitHandler(forfeitSvc)
 	stageHandler := handlers.NewStageHandler(stageSvc)

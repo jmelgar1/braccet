@@ -119,9 +119,10 @@ func (s *storageService) GeneratePresignedUploadURL(ctx context.Context, communi
 // ValidateContentType checks if the content type is allowed
 func (s *storageService) ValidateContentType(contentType string) bool {
 	allowed := map[string]bool{
-		"image/jpeg": true,
-		"image/png":  true,
-		"image/webp": true,
+		"image/jpeg":    true,
+		"image/png":     true,
+		"image/webp":    true,
+		"image/svg+xml": true,
 	}
 	return allowed[contentType]
 }
@@ -142,6 +143,8 @@ func contentTypeToExt(contentType string) string {
 		return ".png"
 	case "image/webp":
 		return ".webp"
+	case "image/svg+xml":
+		return ".svg"
 	default:
 		return filepath.Ext(contentType)
 	}

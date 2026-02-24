@@ -1,5 +1,5 @@
 import { Component, input, computed, inject, signal, effect, ViewChild, output } from '@angular/core';
-import { Tournament, Participant } from '../../../../models/tournament.model';
+import { Tournament, Participant, TournamentStage } from '../../../../models/tournament.model';
 import { BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
 import { TournamentService } from '../../../../services/tournament.service';
@@ -7,12 +7,13 @@ import { BracketState, BracketStage, Match, BracketType, SwissBracketState } fro
 import { BracketViewer } from '../../../../components/bracket-viewer/bracket-viewer';
 import { DoubleElimBracket } from '../../../../components/double-elim-bracket/double-elim-bracket';
 import { SwissBracket } from '../../../../components/swiss-bracket/swiss-bracket';
+import { MultiStageBracketComponent } from '../../../../components/multi-stage-bracket/multi-stage-bracket';
 import { MatchResultModal, MatchResultEvent } from '../../../../components/match-result-modal/match-result-modal';
 import { EditStageModal } from '../../../../components/edit-stage-modal/edit-stage-modal';
 
 @Component({
   selector: 'app-bracket-tab',
-  imports: [BracketViewer, DoubleElimBracket, SwissBracket, MatchResultModal, EditStageModal],
+  imports: [BracketViewer, DoubleElimBracket, SwissBracket, MultiStageBracketComponent, MatchResultModal, EditStageModal],
   templateUrl: './bracket-tab.html'
 })
 export class BracketTab {
@@ -34,6 +35,11 @@ export class BracketTab {
   loadingBracket = signal(false);
   bracketError = signal('');
   advancingRound = signal(false);
+
+  // Multi-stage state
+  tournamentStages = signal<TournamentStage[]>([]);
+  loadingStages = signal(false);
+  multiStageRefreshKey = signal(0);
 
   // Preview state (loaded from backend API)
   previewState = signal<BracketPreview | null>(null);
@@ -112,6 +118,12 @@ export class BracketTab {
   isSwiss = computed(() => {
     const t = this.tournament();
     return t.format === 'swiss';
+  });
+
+  // Check if tournament uses multi-stage format
+  isMultiStage = computed(() => {
+    const t = this.tournament();
+    return t.format === 'multi_stage';
   });
 
   // Check if we're on the final round of Swiss
@@ -199,7 +211,9 @@ export class BracketTab {
     effect(() => {
       const t = this.tournament();
       if (t.status === 'in_progress' || t.status === 'completed') {
-        if (t.format === 'swiss') {
+        if (t.format === 'multi_stage') {
+          this.loadStages(t.slug);
+        } else if (t.format === 'swiss') {
           this.loadSwissBracket(t.id);
         } else {
           this.loadBracket(t.id);
@@ -213,7 +227,9 @@ export class BracketTab {
       const t = this.tournament();
       // Only reload if key > 0 (not initial) and bracket is active
       if (key > 0 && (t.status === 'in_progress' || t.status === 'completed')) {
-        if (t.format === 'swiss') {
+        if (t.format === 'multi_stage') {
+          this.multiStageRefreshKey.update(k => k + 1);
+        } else if (t.format === 'swiss') {
           this.loadSwissBracket(t.id);
         } else {
           this.loadBracket(t.id);
@@ -292,6 +308,60 @@ export class BracketTab {
     });
   }
 
+  private loadStages(slug: string): void {
+    this.loadingStages.set(true);
+    this.bracketError.set('');
+
+    this.tournamentService.getStages(slug).subscribe({
+      next: (stages) => {
+        this.tournamentStages.set(stages);
+        this.loadingStages.set(false);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to load stages');
+        this.loadingStages.set(false);
+      }
+    });
+  }
+
+  onMultiStageMatchClicked(match: Match): void {
+    this.onMatchClicked(match);
+  }
+
+  onMultiStageMatchEditClicked(match: Match): void {
+    this.onMatchEditClicked(match);
+  }
+
+  onMultiStageMatchReopened(match: Match): void {
+    this.onMatchReopened(match);
+  }
+
+  onMultiStageAdvance(): void {
+    const t = this.tournament();
+    this.tournamentService.advanceStage(t.slug).subscribe({
+      next: () => {
+        this.loadStages(t.slug);
+        this.multiStageRefreshKey.update(k => k + 1);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to advance stage');
+      }
+    });
+  }
+
+  onMultiStageStart(): void {
+    const t = this.tournament();
+    this.tournamentService.startStage(t.slug).subscribe({
+      next: () => {
+        this.loadStages(t.slug);
+        this.multiStageRefreshKey.update(k => k + 1);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to start stage');
+      }
+    });
+  }
+
   advanceSwissRound(): void {
     const t = this.tournament();
     if (!this.canAdvanceSwissRound() || this.advancingRound()) return;
@@ -335,7 +405,9 @@ export class BracketTab {
 
     const handleSuccess = () => {
       this.closeModal();
-      if (t.format === 'swiss') {
+      if (t.format === 'multi_stage') {
+        this.multiStageRefreshKey.update(k => k + 1);
+      } else if (t.format === 'swiss') {
         this.loadSwissBracket(t.id);
       } else {
         this.loadBracket(t.id);
@@ -364,7 +436,9 @@ export class BracketTab {
     const t = this.tournament();
     this.bracketService.reopenMatch(match.id).subscribe({
       next: () => {
-        if (t.format === 'swiss') {
+        if (t.format === 'multi_stage') {
+          this.multiStageRefreshKey.update(k => k + 1);
+        } else if (t.format === 'swiss') {
           this.loadSwissBracket(t.id);
         } else {
           this.loadBracket(t.id);

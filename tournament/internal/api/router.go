@@ -11,7 +11,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo repository.ParticipantRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *chi.Mux {
+func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo repository.ParticipantRepository, stageRepo repository.StageRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middleware
@@ -28,6 +28,7 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 	// Tournament handlers
 	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo, participantRepo, bracketClient, communityClient)
 	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo, bracketClient, communityClient)
+	stageHandler := handlers.NewStageHandler(tournamentRepo, participantRepo, stageRepo, bracketClient)
 
 	// Internal routes (service-to-service, no auth required)
 	r.Route("/internal/tournaments", func(r chi.Router) {
@@ -51,6 +52,7 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 
 			r.Get("/", tournamentHandler.List)
 			r.Post("/", tournamentHandler.Create)
+			r.Post("/multi-stage", stageHandler.CreateMultiStage)
 			r.Get("/{slug}", tournamentHandler.Get)
 			r.Put("/{slug}", tournamentHandler.Update)
 			r.Delete("/{slug}", tournamentHandler.Delete)
@@ -65,6 +67,15 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 				r.Post("/{participantId}/promote", participantHandler.Promote)
 				r.Put("/seeding", participantHandler.UpdateSeeding)
 			})
+
+			// Stage routes (for multi-stage tournaments)
+			r.Get("/{slug}/stages", stageHandler.GetStages)
+			r.Put("/{slug}/stages/{stageId}", stageHandler.UpdateStage)
+			r.Post("/{slug}/stages/start", stageHandler.StartStage)
+			r.Post("/{slug}/stages/advance", stageHandler.AdvanceStage)
+			r.Get("/{slug}/stages/{stageId}/groups", stageHandler.GetGroups)
+			r.Get("/{slug}/stages/{stageId}/seeds", stageHandler.GetStageSeeds)
+			r.Put("/{slug}/stages/{stageId}/seeds", stageHandler.UpdateStageSeeds)
 		})
 	})
 

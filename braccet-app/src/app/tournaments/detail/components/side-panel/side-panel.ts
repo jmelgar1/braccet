@@ -1,5 +1,5 @@
 import { Component, input, output, signal, computed } from '@angular/core';
-import { Tournament, Participant } from '../../../../models/tournament.model';
+import { Tournament, Participant, TournamentStage } from '../../../../models/tournament.model';
 import { User } from '../../../../services/auth.service';
 import { BracketTab } from '../bracket-tab/bracket-tab';
 import { ParticipantsTab } from '../participants-tab/participants-tab';
@@ -21,6 +21,7 @@ interface Tab {
 export class SidePanel {
   tournament = input.required<Tournament>();
   participants = input.required<Participant[]>();
+  stages = input<TournamentStage[]>([]);
   isOrganizer = input.required<boolean>();
   isLoggedIn = input.required<boolean>();
   currentUser = input<User | null>(null);
@@ -38,6 +39,7 @@ export class SidePanel {
 
   // Forward tournament update events
   tournamentUpdated = output<Tournament>();
+  stageUpdated = output<TournamentStage>();
 
   activeTab = signal<TabId>('bracket');
 
@@ -111,5 +113,9 @@ export class SidePanel {
 
   onParticipantUpdated(participant: Participant): void {
     this.participantUpdated.emit(participant);
+  }
+
+  onStageUpdated(stage: TournamentStage): void {
+    this.stageUpdated.emit(stage);
   }
 }

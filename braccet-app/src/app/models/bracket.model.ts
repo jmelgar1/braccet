@@ -18,6 +18,8 @@ export interface Match {
   round: number;
   position: number;
   bracket_type: BracketType;
+  stage_id?: number; // For multi-stage tournaments
+  group_id?: number; // For group brackets
   participant1_id?: number;
   participant2_id?: number;
   participant1_name?: string;
@@ -125,4 +127,69 @@ export interface EliminationStandingsResponse {
   format: 'single_elimination' | 'double_elimination';
   is_complete: boolean;
   standings: EliminationStanding[];
+}
+
+// Group bracket types for multi-stage tournaments
+
+export interface GroupStanding {
+  rank: number;
+  participant_id: number;
+  participant_name: string;
+  icon_url?: string;
+  seed: number;
+  match_wins: number;
+  match_losses: number;
+  set_wins: number;
+  set_losses: number;
+  set_differential: number;
+  points_scored: number;
+  points_against: number;
+  point_differential: number;
+  opponent_match_wins: number;
+}
+
+export interface StageStanding {
+  rank: number;
+  participant_id: number;
+  participant_name?: string;
+  group_id: number;
+  group_name?: string;
+  group_rank: number;
+  match_wins: number;
+  match_losses: number;
+  set_wins: number;
+  set_losses: number;
+  advances: boolean;
+}
+
+export interface GroupBracketState extends BracketState {
+  stage_id: number;
+  group_id: number;
+  group_name: string;
+  standings: GroupStanding[];
+}
+
+export interface MultiStageState {
+  tournament_id: number;
+  stages: StageState[];
+  current_stage_id?: number;
+}
+
+export interface StageState {
+  stage_id: number;
+  stage_order: number;
+  stage_type: 'group' | 'final';
+  format: BracketFormat;
+  is_active: boolean;
+  is_complete: boolean;
+  groups?: GroupState[];
+  standings?: StageStanding[];
+}
+
+export interface GroupState {
+  group_id: number;
+  group_name: string;
+  group_order: number;
+  bracket?: GroupBracketState;
+  standings?: GroupStanding[];
 }

@@ -1,0 +1,54 @@
+<div class="group-standings">
+  <table class="standings-table">
+    <thead>
+      <tr>
+        @if (showRanking()) {
+          <th class="rank-col">#</th>
+        }
+        <th class="participant-col">Participant</th>
+        <th class="record-col">Record</th>
+        <th class="sets-col">Sets</th>
+        <th class="diff-col">Diff</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (standing of standings(); track standing.participant_id) {
+        <tr [class.advancing]="isAdvancing(standing.rank)" [class.eliminated]="!isAdvancing(standing.rank) && advancingCount()">
+          @if (showRanking()) {
+            <td class="rank-col">
+              <span class="rank-badge" [class.top-rank]="standing.rank <= 3">
+                {{ standing.rank }}
+              </span>
+            </td>
+          }
+          <td class="participant-col">
+            <div class="participant-info">
+              @if (standing.icon_url) {
+                <img [src]="standing.icon_url" [alt]="standing.participant_name" class="participant-icon" />
+              } @else {
+                <div class="participant-icon placeholder">
+                  {{ standing.participant_name.charAt(0).toUpperCase() }}
+                </div>
+              }
+              <span class="participant-name">{{ standing.participant_name }}</span>
+              @if (standing.seed) {
+                <span class="seed-badge">#{{ standing.seed }}</span>
+              }
+            </div>
+          </td>
+          <td class="record-col">
+            <span class="record">{{ formatRecord(standing.match_wins, standing.match_losses) }}</span>
+          </td>
+          <td class="sets-col">
+            <span class="sets">{{ formatRecord(standing.set_wins, standing.set_losses) }}</span>
+          </td>
+          <td class="diff-col">
+            <span class="diff" [class.positive]="standing.set_differential > 0" [class.negative]="standing.set_differential < 0">
+              {{ formatDifferential(standing.set_differential) }}
+            </span>
+          </td>
+        </tr>
+      }
+    </tbody>
+  </table>
+</div>

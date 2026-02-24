@@ -33,6 +33,10 @@ type SwissRepository interface {
 	HavePlayed(ctx context.Context, tournamentID, p1ID, p2ID uint64) (bool, error)
 	GetOpponentIDs(ctx context.Context, tournamentID, participantID uint64) ([]uint64, error)
 
+	// Tiebreaker state operations
+	SetHasTiebreakers(ctx context.Context, tournamentID uint64, has bool) error
+	SetTiebreakersComplete(ctx context.Context, tournamentID uint64, complete bool) error
+
 	// Cleanup
 	DeleteByTournament(ctx context.Context, tournamentID uint64) error
 }
@@ -60,14 +64,17 @@ func (r *swissRepository) CreateConfig(ctx context.Context, config *domain.Swiss
 
 func (r *swissRepository) GetConfig(ctx context.Context, tournamentID uint64) (*domain.SwissConfig, error) {
 	query := `
-		SELECT tournament_id, total_rounds, current_round, is_complete, created_at, updated_at
+		SELECT tournament_id, total_rounds, current_round, is_complete,
+		       COALESCE(has_tiebreakers, false), COALESCE(tiebreakers_complete, false),
+		       created_at, updated_at
 		FROM swiss_config
 		WHERE tournament_id = $1
 	`
 	config := &domain.SwissConfig{}
 	err := r.db.QueryRowContext(ctx, query, tournamentID).Scan(
 		&config.TournamentID, &config.TotalRounds, &config.CurrentRound,
-		&config.IsComplete, &config.CreatedAt, &config.UpdatedAt,
+		&config.IsComplete, &config.HasTiebreakers, &config.TiebreakersComplete,
+		&config.CreatedAt, &config.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -81,11 +88,13 @@ func (r *swissRepository) GetConfig(ctx context.Context, tournamentID uint64) (*
 func (r *swissRepository) UpdateConfig(ctx context.Context, config *domain.SwissConfig) error {
 	query := `
 		UPDATE swiss_config
-		SET total_rounds = $2, current_round = $3, is_complete = $4
+		SET total_rounds = $2, current_round = $3, is_complete = $4,
+		    has_tiebreakers = $5, tiebreakers_complete = $6
 		WHERE tournament_id = $1
 	`
 	_, err := r.db.ExecContext(ctx, query,
 		config.TournamentID, config.TotalRounds, config.CurrentRound, config.IsComplete,
+		config.HasTiebreakers, config.TiebreakersComplete,
 	)
 	return err
 }
@@ -339,6 +348,28 @@ func (r *swissRepository) GetOpponentIDs(ctx context.Context, tournamentID, part
 	}
 
 	return opponents, rows.Err()
+}
+
+// Tiebreaker state operations
+
+func (r *swissRepository) SetHasTiebreakers(ctx context.Context, tournamentID uint64, has bool) error {
+	query := `
+		UPDATE swiss_config
+		SET has_tiebreakers = $2
+		WHERE tournament_id = $1
+	`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, has)
+	return err
+}
+
+func (r *swissRepository) SetTiebreakersComplete(ctx context.Context, tournamentID uint64, complete bool) error {
+	query := `
+		UPDATE swiss_config
+		SET tiebreakers_complete = $2
+		WHERE tournament_id = $1
+	`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, complete)
+	return err
 }
 
 // Cleanup

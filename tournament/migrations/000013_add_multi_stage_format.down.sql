@@ -1,0 +1,5 @@
+-- Note: PostgreSQL does not support removing values from an ENUM type directly.
+-- The multi_stage value will remain in the enum but tournaments with this format
+-- should be deleted before rolling back if needed.
+-- To fully remove, would need to recreate the type which is complex.
+-- This is a no-op down migration.

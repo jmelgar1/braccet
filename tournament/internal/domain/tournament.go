@@ -11,6 +11,7 @@ const (
 	FormatSingleElimination TournamentFormat = "single_elimination"
 	FormatDoubleElimination TournamentFormat = "double_elimination"
 	FormatSwiss             TournamentFormat = "swiss"
+	FormatMultiStage        TournamentFormat = "multi_stage"
 )
 
 type TournamentStatus string

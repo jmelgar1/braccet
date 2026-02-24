@@ -144,8 +144,33 @@
             <option value="double_elimination">Double Elimination</option>
             <option value="swiss">Swiss</option>
           </select>
-          @if (format() === 'swiss') {
+          @if (format() === 'swiss' && !multiStageEnabled()) {
             <p class="text-sm text-gray-500 mt-1">Players are paired each round based on standings. No one is eliminated. ({{ swissRounds() }} rounds)</p>
+          }
+        </div>
+
+        <!-- Multi-Stage Toggle -->
+        <div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="multiStage"
+              [ngModel]="multiStageEnabled()"
+              (ngModelChange)="onMultiStageToggle($event)"
+              class="w-5 h-5 text-blue-400 border-gray-300 rounded focus:ring-blue-400"
+            />
+            <span class="text-sm font-medium text-gray-700">Multi-Stage (Groups)</span>
+          </label>
+          @if (multiStageEnabled()) {
+            <p class="text-sm text-gray-500 mt-2 ml-8">
+              {{ groupStages().length }} group stage(s) configured.
+              @if (finalStage()) {
+                Finals: {{ finalStage()!.format === 'single_elimination' ? 'Single Elim' : finalStage()!.format === 'double_elimination' ? 'Double Elim' : 'Swiss' }}.
+              }
+              <button type="button" (click)="openMultiStageModal()" class="text-blue-500 hover:underline ml-1">Edit</button>
+            </p>
+          } @else {
+            <p class="text-sm text-gray-500 mt-1 ml-8">Split participants into groups with advancement to later stages.</p>
           }
         </div>
 
@@ -247,6 +272,251 @@
           class="px-4 py-2 bg-blue-400 text-gray-900 rounded-lg font-semibold hover:bg-blue-500 transition-colors"
         >
           Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Multi-Stage Configuration Modal -->
+@if (showMultiStageModal()) {
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" (click)="requestCancelMultiStage()">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" (click)="$event.stopPropagation()">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Multi-Stage Tournament Setup</h3>
+
+      <!-- Stage Tabs -->
+      <div class="flex gap-2 mb-6 border-b border-gray-200 pb-2 overflow-x-auto">
+        @for (stage of groupStages(); track stage.stage_order; let i = $index) {
+          <button
+            type="button"
+            (click)="selectStage(i)"
+            [class.bg-blue-100]="!editingFinalStage() && currentStageIndex() === i"
+            [class.text-blue-700]="!editingFinalStage() && currentStageIndex() === i"
+            class="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap hover:bg-gray-100 transition-colors"
+          >
+            Group Stage {{ i + 1 }}
+          </button>
+        }
+        @if (groupStages().length < 2) {
+          <button
+            type="button"
+            (click)="addGroupStage()"
+            class="px-4 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+          >
+            + Add Group Stage
+          </button>
+        }
+        <div class="border-l border-gray-300 mx-1"></div>
+        <button
+          type="button"
+          (click)="selectFinalStage()"
+          [class.bg-blue-100]="editingFinalStage()"
+          [class.text-blue-700]="editingFinalStage()"
+          class="px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap hover:bg-gray-100 transition-colors"
+        >
+          Final Stage
+        </button>
+      </div>
+
+      <!-- Stage Configuration Content -->
+      @if (editingFinalStage()) {
+        <!-- Final Stage Configuration -->
+        <div class="space-y-4 mb-6">
+          <h4 class="font-medium text-gray-900">Final Stage Configuration</h4>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Format</label>
+            <select
+              [ngModel]="finalStage()?.format || 'single_elimination'"
+              (ngModelChange)="updateFinalStageFormat($event)"
+              class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="single_elimination">Single Elimination</option>
+              <option value="double_elimination">Double Elimination</option>
+              <option value="swiss">Swiss</option>
+            </select>
+            <p class="text-sm text-gray-500 mt-2">Top participants from all groups will compete in the final stage.</p>
+          </div>
+        </div>
+      } @else if (groupStages().length > 0) {
+        <!-- Group Stage Configuration -->
+        <div class="space-y-4 mb-6">
+          <div class="flex justify-between items-center">
+            <h4 class="font-medium text-gray-900">Group Stage {{ currentStageIndex() + 1 }} Configuration</h4>
+            @if (groupStages().length > 1) {
+              <button
+                type="button"
+                (click)="removeGroupStage(currentStageIndex())"
+                class="text-sm text-red-500 hover:text-red-700"
+              >
+                Remove Stage
+              </button>
+            }
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <!-- Participants per Group -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Participants per Group</label>
+              <input
+                type="number"
+                [ngModel]="stageParticipantsPerGroup()"
+                (ngModelChange)="stageParticipantsPerGroup.set($event)"
+                min="2"
+                max="32"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <!-- Advancing per Group -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Advancing per Group</label>
+              <input
+                type="number"
+                [ngModel]="stageAdvancingPerGroup()"
+                (ngModelChange)="stageAdvancingPerGroup.set($event)"
+                min="1"
+                [max]="stageParticipantsPerGroup() - 1"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <!-- Group Format -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Group Format</label>
+            <select
+              [ngModel]="stageFormat()"
+              (ngModelChange)="stageFormat.set($event)"
+              class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="single_elimination">Single Elimination</option>
+              <option value="double_elimination">Double Elimination</option>
+              <option value="swiss">Swiss</option>
+            </select>
+          </div>
+
+          @if (stageFormat() === 'swiss') {
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Swiss Rounds</label>
+              <input
+                type="number"
+                [ngModel]="stageSwissRounds()"
+                (ngModelChange)="stageSwissRounds.set($event)"
+                min="1"
+                max="10"
+                class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          }
+
+          <!-- Ranking Criteria -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">Ranking Criteria (drag to reorder)</label>
+            <div class="space-y-1">
+              @for (criterion of stageRankingCriteria(); track criterion; let i = $index) {
+                <div
+                  class="flex items-center gap-2 bg-gray-50 p-2 rounded cursor-move border border-transparent hover:border-gray-300"
+                  draggable="true"
+                  (dragstart)="onDragStart(i)"
+                  (dragover)="onDragOver($event, i)"
+                  (drop)="onDrop($event, i)"
+                  (dragend)="onDragEnd()"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-gray-400">
+                    <circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/>
+                    <circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>
+                  </svg>
+                  <span class="text-sm font-medium text-gray-600 w-5">{{ i + 1 }}.</span>
+                  <span class="flex-grow text-sm">{{ getCriterionLabel(criterion) }}</span>
+                  <button type="button" (click)="toggleRankingCriterion(criterion)" class="p-1 text-red-400 hover:text-red-600">×</button>
+                </div>
+              }
+            </div>
+            <div class="mt-2 flex flex-wrap gap-2">
+              @for (criterion of availableRankingCriteria; track criterion.value) {
+                @if (!stageRankingCriteria().includes(criterion.value)) {
+                  <button
+                    type="button"
+                    (click)="toggleRankingCriterion(criterion.value)"
+                    class="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
+                  >
+                    + {{ criterion.label }}
+                  </button>
+                }
+              }
+            </div>
+          </div>
+
+          <!-- Placement Matches -->
+          <div>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                [ngModel]="stagePlacementMatches()"
+                (ngModelChange)="stagePlacementMatches.set($event)"
+                class="w-4 h-4 text-blue-400 border-gray-300 rounded"
+              />
+              <span class="text-sm text-gray-700">Use placement matches to break ties</span>
+            </label>
+            @if (stagePlacementMatches()) {
+              <div class="mt-2 ml-6">
+                <label class="block text-sm text-gray-600 mb-1">Resolve ties up to position:</label>
+                <input
+                  type="number"
+                  [ngModel]="stagePlacementDepth()"
+                  (ngModelChange)="stagePlacementDepth.set($event)"
+                  min="1"
+                  [max]="stageParticipantsPerGroup()"
+                  class="w-24 border border-gray-300 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Actions -->
+      <div class="flex gap-3 justify-end">
+        <button
+          type="button"
+          (click)="requestCancelMultiStage()"
+          class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          (click)="confirmMultiStage()"
+          [disabled]="groupStages().length === 0"
+          class="px-4 py-2 bg-blue-400 text-gray-900 rounded-lg font-semibold hover:bg-blue-500 transition-colors disabled:opacity-50"
+        >
+          Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Cancel Confirmation Dialog -->
+@if (showCancelConfirmation()) {
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" (click)="dismissCancelConfirmation()">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-sm mx-4" (click)="$event.stopPropagation()">
+      <h3 class="text-lg font-semibold text-gray-900 mb-2">Discard Changes?</h3>
+      <p class="text-sm text-gray-600 mb-6">Your multi-stage configuration changes will be discarded.</p>
+      <div class="flex gap-3 justify-end">
+        <button
+          type="button"
+          (click)="dismissCancelConfirmation()"
+          class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Keep Editing
+        </button>
+        <button
+          type="button"
+          (click)="confirmCancelMultiStage()"
+          class="px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition-colors"
+        >
+          Discard
         </button>
       </div>
     </div>

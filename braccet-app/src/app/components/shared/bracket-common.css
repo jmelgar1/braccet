@@ -132,7 +132,7 @@
 .card-logo {
   width: 64px;
   height: 64px;
-  border-radius: 50%;
+  border-radius: 0.25rem;
   object-fit: cover;
   margin-bottom: 0.5rem;
   background: var(--border-primary);

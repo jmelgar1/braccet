@@ -75,7 +75,16 @@
     <div class="flex-1 overflow-hidden flex flex-col min-h-0">
       @if (isPreviewMode()) {
         <!-- Preview mode -->
-        @if (isSwiss()) {
+        @if (isMultiStage()) {
+          <!-- Multi-stage format: no preview available -->
+          <div class="flex items-center justify-center h-full text-gray-500">
+            <div class="text-center">
+              <p class="text-lg font-medium">Multi-Stage Tournament</p>
+              <p class="text-sm mt-1">Groups will be created when the tournament starts.</p>
+              <p class="text-sm mt-1 text-gray-400">Participants advance through group stages to the finals.</p>
+            </div>
+          </div>
+        } @else if (isSwiss()) {
           <!-- Swiss format: no preview available -->
           <div class="flex items-center justify-center h-full text-gray-500">
             <div class="text-center">
@@ -111,7 +120,32 @@
         }
       } @else {
         <!-- Actual bracket mode -->
-        @if (isSwiss()) {
+        @if (isMultiStage()) {
+          <!-- Multi-stage format -->
+          @if (loadingStages()) {
+            <div class="flex items-center justify-center h-full text-gray-500">
+              <p>Loading stages...</p>
+            </div>
+          } @else if (tournamentStages().length > 0) {
+            <div class="flex-1 min-h-0">
+              <app-multi-stage-bracket
+                [tournament]="tournament()"
+                [stages]="tournamentStages()"
+                [isOrganizer]="isOrganizer()"
+                [refreshKey]="multiStageRefreshKey()"
+                (matchClicked)="onMultiStageMatchClicked($event)"
+                (matchEditClicked)="onMultiStageMatchEditClicked($event)"
+                (matchReopened)="onMultiStageMatchReopened($event)"
+                (advanceStageClicked)="onMultiStageAdvance()"
+                (startStageClicked)="onMultiStageStart()"
+              />
+            </div>
+          } @else {
+            <div class="flex items-center justify-center h-full text-gray-500">
+              <p>No stages configured for this tournament</p>
+            </div>
+          }
+        } @else if (isSwiss()) {
           <!-- Swiss format -->
           @if (swissBracketState()) {
             <div class="flex-1 min-h-0">

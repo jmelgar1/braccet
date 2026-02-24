@@ -106,7 +106,7 @@ func (h *UploadHandler) GetMemberIconUploadURL(w http.ResponseWriter, r *http.Re
 
 	// Validate content type
 	if !h.storageService.ValidateContentType(req.ContentType) {
-		writeError(w, http.StatusBadRequest, "invalid content type: must be image/jpeg, image/png, or image/webp")
+		writeError(w, http.StatusBadRequest, "invalid content type: must be image/jpeg, image/png, image/webp, or image/svg+xml")
 		return
 	}
 

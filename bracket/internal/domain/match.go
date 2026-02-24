@@ -9,6 +9,7 @@ const (
 	BracketLosers     BracketType = "losers"
 	BracketGrandFinal BracketType = "grand_final"
 	BracketSwiss      BracketType = "swiss"
+	BracketTiebreaker BracketType = "tiebreaker"
 )
 
 type MatchStatus string
@@ -23,6 +24,8 @@ const (
 type Match struct {
 	ID                  uint64
 	TournamentID        uint64
+	StageID             *uint64 // For multi-stage tournaments
+	GroupID             *uint64 // For group brackets
 	BracketType         BracketType
 	Round               int
 	Position            int

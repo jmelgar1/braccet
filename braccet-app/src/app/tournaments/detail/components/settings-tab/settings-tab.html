@@ -1,162 +1,377 @@
 <div class="h-full flex flex-col">
   <h3 class="text-lg font-semibold text-gray-900 mb-4">Settings</h3>
 
-  @if (error()) {
-    <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-4 text-sm">
-      {{ error() }}
-    </div>
-  }
-
-  @if (success()) {
-    <div class="bg-green-100 border border-green-400 text-green-400 px-4 py-3 rounded mb-4 text-sm">
-      {{ success() }}
-    </div>
-  }
-
-  <form (ngSubmit)="onSubmit()" class="flex-1 overflow-y-auto">
-    <div class="space-y-4">
-      <!-- Name -->
-      <div>
-        <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
-          Tournament Name <span class="text-red-500">*</span>
-        </label>
-        <input
-          type="text"
-          id="name"
-          name="name"
-          [ngModel]="name()"
-          (ngModelChange)="name.set($event)"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          placeholder="Enter tournament name"
-          maxlength="200"
-          required
-        />
-      </div>
-
-      <!-- Game -->
-      <div>
-        <label for="game" class="block text-sm font-medium text-gray-700 mb-1">
-          Game
-        </label>
-        <input
-          type="text"
-          id="game"
-          name="game"
-          [ngModel]="game()"
-          (ngModelChange)="game.set($event)"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          placeholder="e.g., Super Smash Bros"
-          maxlength="100"
-        />
-      </div>
-
-      <!-- Description -->
-      <div>
-        <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
-          Description
-        </label>
-        <textarea
-          id="description"
-          name="description"
-          [ngModel]="description()"
-          (ngModelChange)="description.set($event)"
-          rows="3"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
-          placeholder="Describe your tournament..."
-        ></textarea>
-      </div>
-
-      <!-- Max Participants -->
-      <div>
-        <label for="maxParticipants" class="block text-sm font-medium text-gray-700 mb-1">
-          Max Participants
-        </label>
-        <input
-          type="number"
-          id="maxParticipants"
-          name="maxParticipants"
-          [ngModel]="maxParticipants()"
-          (ngModelChange)="maxParticipants.set($event)"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          placeholder="Leave empty for unlimited"
-          min="2"
-        />
-      </div>
-
-      <!-- Starts At -->
-      <div>
-        <label for="startsAt" class="block text-sm font-medium text-gray-700 mb-1">
-          Start Date & Time
-        </label>
-        <input
-          type="datetime-local"
-          id="startsAt"
-          name="startsAt"
-          [ngModel]="startsAt()"
-          (ngModelChange)="startsAt.set($event)"
-          class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-        />
-        <label class="flex items-center gap-2 mt-2 cursor-pointer">
-          <input
-            type="checkbox"
-            name="startsAtTentative"
-            [ngModel]="startsAtTentative()"
-            (ngModelChange)="startsAtTentative.set($event)"
-            class="w-4 h-4 text-blue-400 border-gray-300 rounded focus:ring-blue-400"
-          />
-          <span class="text-sm text-gray-600">Tentative (date may change)</span>
-        </label>
-      </div>
-
-      <!-- Registration Open -->
-      <div class="pt-2 border-t border-gray-200">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            name="registrationOpen"
-            [ngModel]="registrationOpen()"
-            (ngModelChange)="registrationOpen.set($event)"
-            class="w-4 h-4 text-blue-400 border-gray-300 rounded focus:ring-blue-400"
-          />
-          <span class="text-sm font-medium text-gray-700">Registration Open</span>
-        </label>
-        <p class="text-xs text-gray-500 mt-1 ml-6">Allow new participants to join</p>
-      </div>
-    </div>
-
-    <!-- Save Button -->
-    <div class="mt-6 pt-4 border-t border-gray-200">
+  <!-- Sub-tabs (only show if multi-stage) -->
+  @if (isMultiStage()) {
+    <div class="flex border-b border-gray-200 mb-4">
       <button
-        type="submit"
-        [disabled]="saving() || !name().trim()"
-        class="w-full bg-blue-400 text-gray-900 py-2 rounded-lg font-medium hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+        type="button"
+        (click)="activeSettingsTab.set('general')"
+        [class]="'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ' +
+          (activeSettingsTab() === 'general'
+            ? 'border-blue-500 text-blue-600'
+            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300')"
       >
-        @if (saving()) {
-          Saving...
+        General
+      </button>
+      <button
+        type="button"
+        (click)="activeSettingsTab.set('stages')"
+        [class]="'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ' +
+          (activeSettingsTab() === 'stages'
+            ? 'border-blue-500 text-blue-600'
+            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300')"
+      >
+        Stages
+      </button>
+    </div>
+  }
+
+  <!-- General Settings Tab -->
+  @if (activeSettingsTab() === 'general' || !isMultiStage()) {
+    @if (error()) {
+      <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-4 text-sm">
+        {{ error() }}
+      </div>
+    }
+
+    @if (success()) {
+      <div class="bg-green-100 border border-green-400 text-green-400 px-4 py-3 rounded mb-4 text-sm">
+        {{ success() }}
+      </div>
+    }
+
+    <form (ngSubmit)="onSubmit()" class="flex-1 overflow-y-auto">
+      <div class="space-y-4">
+        <!-- Name -->
+        <div>
+          <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+            Tournament Name <span class="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            id="name"
+            name="name"
+            [ngModel]="name()"
+            (ngModelChange)="name.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            placeholder="Enter tournament name"
+            maxlength="200"
+            required
+          />
+        </div>
+
+        <!-- Game -->
+        <div>
+          <label for="game" class="block text-sm font-medium text-gray-700 mb-1">
+            Game
+          </label>
+          <input
+            type="text"
+            id="game"
+            name="game"
+            [ngModel]="game()"
+            (ngModelChange)="game.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            placeholder="e.g., Super Smash Bros"
+            maxlength="100"
+          />
+        </div>
+
+        <!-- Description -->
+        <div>
+          <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
+            Description
+          </label>
+          <textarea
+            id="description"
+            name="description"
+            [ngModel]="description()"
+            (ngModelChange)="description.set($event)"
+            rows="3"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
+            placeholder="Describe your tournament..."
+          ></textarea>
+        </div>
+
+        <!-- Max Participants -->
+        <div>
+          <label for="maxParticipants" class="block text-sm font-medium text-gray-700 mb-1">
+            Max Participants
+          </label>
+          <input
+            type="number"
+            id="maxParticipants"
+            name="maxParticipants"
+            [ngModel]="maxParticipants()"
+            (ngModelChange)="maxParticipants.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            placeholder="Leave empty for unlimited"
+            min="2"
+          />
+        </div>
+
+        <!-- Starts At -->
+        <div>
+          <label for="startsAt" class="block text-sm font-medium text-gray-700 mb-1">
+            Start Date & Time
+          </label>
+          <input
+            type="datetime-local"
+            id="startsAt"
+            name="startsAt"
+            [ngModel]="startsAt()"
+            (ngModelChange)="startsAt.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+          />
+          <label class="flex items-center gap-2 mt-2 cursor-pointer">
+            <input
+              type="checkbox"
+              name="startsAtTentative"
+              [ngModel]="startsAtTentative()"
+              (ngModelChange)="startsAtTentative.set($event)"
+              class="w-4 h-4 text-blue-400 border-gray-300 rounded focus:ring-blue-400"
+            />
+            <span class="text-sm text-gray-600">Tentative (date may change)</span>
+          </label>
+        </div>
+
+        <!-- Registration Open -->
+        <div class="pt-2 border-t border-gray-200">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              name="registrationOpen"
+              [ngModel]="registrationOpen()"
+              (ngModelChange)="registrationOpen.set($event)"
+              class="w-4 h-4 text-blue-400 border-gray-300 rounded focus:ring-blue-400"
+            />
+            <span class="text-sm font-medium text-gray-700">Registration Open</span>
+          </label>
+          <p class="text-xs text-gray-500 mt-1 ml-6">Allow new participants to join</p>
+        </div>
+      </div>
+
+      <!-- Save Button -->
+      <div class="mt-6 pt-4 border-t border-gray-200">
+        <button
+          type="submit"
+          [disabled]="saving() || !name().trim()"
+          class="w-full bg-blue-400 text-gray-900 py-2 rounded-lg font-medium hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+        >
+          @if (saving()) {
+            Saving...
+          } @else {
+            Save Changes
+          }
+        </button>
+      </div>
+    </form>
+
+    <!-- Danger Zone -->
+    <div class="mt-6 pt-4 border-t border-red-200">
+      <h4 class="text-sm font-medium text-red-400 mb-2">Danger Zone</h4>
+      <p class="text-xs text-gray-600 mb-3">
+        Deleting a tournament is permanent and cannot be undone.
+      </p>
+      <button
+        type="button"
+        (click)="deleteTournament()"
+        [disabled]="deleting()"
+        class="w-full bg-red-400 text-gray-900 py-2 rounded-lg font-medium hover:bg-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+      >
+        @if (deleting()) {
+          Deleting...
         } @else {
-          Save Changes
+          Delete Tournament
         }
       </button>
     </div>
-  </form>
+  }
 
-  <!-- Danger Zone -->
-  <div class="mt-6 pt-4 border-t border-red-200">
-    <h4 class="text-sm font-medium text-red-400 mb-2">Danger Zone</h4>
-    <p class="text-xs text-gray-600 mb-3">
-      Deleting a tournament is permanent and cannot be undone.
-    </p>
-    <button
-      type="button"
-      (click)="deleteTournament()"
-      [disabled]="deleting()"
-      class="w-full bg-red-400 text-gray-900 py-2 rounded-lg font-medium hover:bg-red-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-    >
-      @if (deleting()) {
-        Deleting...
-      } @else {
-        Delete Tournament
+  <!-- Stages Settings Tab -->
+  @if (activeSettingsTab() === 'stages' && isMultiStage()) {
+    <div class="flex-1 overflow-y-auto">
+      @if (isLocked()) {
+        <div class="bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 rounded-lg mb-4 text-xs">
+          Stage settings are locked while the tournament is in progress.
+        </div>
       }
-    </button>
-  </div>
+
+      @if (stageSuccess()) {
+        <div class="bg-green-100 border border-green-400 text-green-700 px-3 py-2 rounded mb-3 text-xs">
+          {{ stageSuccess() }}
+        </div>
+      }
+
+      @if (stages().length === 0) {
+        <div class="text-center py-8 text-gray-500 text-sm">
+          No stages configured for this tournament.
+        </div>
+      } @else {
+        <div class="space-y-3">
+          @for (stage of getSortedStages(); track stage.id) {
+            <div class="border border-gray-200 rounded-lg overflow-hidden">
+              <!-- Stage Header -->
+              <div class="bg-gray-50 px-3 py-2 flex items-center justify-between">
+                <div>
+                  <span class="font-medium text-sm text-gray-900">{{ getStageLabel(stage) }}</span>
+                  <span class="ml-2 text-xs text-gray-500">{{ getFormatLabel(stage.format) }}</span>
+                </div>
+                @if (!isLocked() && editingStageId() !== stage.id) {
+                  <button
+                    type="button"
+                    (click)="editStage(stage)"
+                    class="text-xs text-blue-600 hover:text-blue-800"
+                  >
+                    Edit
+                  </button>
+                }
+              </div>
+
+              <!-- Stage Details (collapsed) -->
+              @if (editingStageId() !== stage.id) {
+                <div class="px-3 py-2 text-xs text-gray-600 space-y-1">
+                  @if (stage.stage_type === 'group') {
+                    <div>Participants per group: {{ stage.participants_per_group }}</div>
+                    <div>Advancing per group: {{ stage.advancing_per_group }}</div>
+                  }
+                  @if (stage.format === 'swiss' && stage.swiss_rounds) {
+                    <div>Swiss rounds: {{ stage.swiss_rounds }}</div>
+                  }
+                  @if (stage.ranking_criteria && stage.ranking_criteria.length > 0) {
+                    <div>Tiebreakers: {{ stage.ranking_criteria.join(', ') }}</div>
+                  }
+                </div>
+              }
+
+              <!-- Stage Edit Form (expanded) -->
+              @if (editingStageId() === stage.id) {
+                <div class="px-3 py-3 space-y-3 bg-white">
+                  @if (stageError()) {
+                    <div class="bg-red-100 border border-red-400 text-red-600 px-3 py-2 rounded text-xs">
+                      {{ stageError() }}
+                    </div>
+                  }
+
+                  <!-- Format -->
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Format</label>
+                    <select
+                      [ngModel]="stageFormat()"
+                      (ngModelChange)="stageFormat.set($event)"
+                      class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      @for (format of availableFormats; track format.value) {
+                        <option [value]="format.value">{{ format.label }}</option>
+                      }
+                    </select>
+                  </div>
+
+                  <!-- Group Stage specific fields -->
+                  @if (stage.stage_type === 'group') {
+                    <div class="grid grid-cols-2 gap-3">
+                      <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Per Group</label>
+                        <input
+                          type="number"
+                          [ngModel]="stageParticipantsPerGroup()"
+                          (ngModelChange)="stageParticipantsPerGroup.set($event)"
+                          min="2"
+                          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Advancing</label>
+                        <input
+                          type="number"
+                          [ngModel]="stageAdvancingPerGroup()"
+                          (ngModelChange)="stageAdvancingPerGroup.set($event)"
+                          min="1"
+                          class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  }
+
+                  <!-- Swiss Rounds -->
+                  @if (stageFormat() === 'swiss') {
+                    <div>
+                      <label class="block text-xs font-medium text-gray-700 mb-1">Swiss Rounds (optional)</label>
+                      <input
+                        type="number"
+                        [ngModel]="stageSwissRounds()"
+                        (ngModelChange)="stageSwissRounds.set($event)"
+                        min="1"
+                        placeholder="Auto-calculated"
+                        class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  }
+
+                  <!-- Ranking Criteria -->
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Ranking Criteria (priority order)</label>
+
+                    <!-- Selected criteria with ordering -->
+                    @if (stageRankingCriteria().length > 0) {
+                      <div class="mb-2 space-y-1">
+                        @for (criterion of stageRankingCriteria(); track criterion; let i = $index) {
+                          <div class="flex items-center gap-2 bg-blue-50 px-2 py-1 rounded text-xs">
+                            <span class="text-gray-500">{{ i + 1 }}.</span>
+                            <span class="flex-1">{{ criterion }}</span>
+                            <button type="button" (click)="moveCriterionUp(i)" [disabled]="i === 0" class="text-gray-400 hover:text-gray-600 disabled:opacity-30">↑</button>
+                            <button type="button" (click)="moveCriterionDown(i)" [disabled]="i === stageRankingCriteria().length - 1" class="text-gray-400 hover:text-gray-600 disabled:opacity-30">↓</button>
+                            <button type="button" (click)="toggleCriterion(criterion)" class="text-red-400 hover:text-red-600">×</button>
+                          </div>
+                        }
+                      </div>
+                    }
+
+                    <!-- Available criteria to add -->
+                    <div class="flex flex-wrap gap-1">
+                      @for (criterion of availableCriteria; track criterion.value) {
+                        @if (!stageRankingCriteria().includes(criterion.value)) {
+                          <button
+                            type="button"
+                            (click)="toggleCriterion(criterion.value)"
+                            class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+                          >
+                            + {{ criterion.label }}
+                          </button>
+                        }
+                      }
+                    </div>
+                  </div>
+
+                  <!-- Action buttons -->
+                  <div class="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      (click)="cancelStageEdit()"
+                      class="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      (click)="saveStage()"
+                      [disabled]="savingStage()"
+                      class="flex-1 px-3 py-1.5 text-sm bg-blue-400 text-gray-900 rounded hover:bg-blue-500 disabled:opacity-50"
+                    >
+                      @if (savingStage()) {
+                        Saving...
+                      } @else {
+                        Save
+                      }
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  }
 </div>
