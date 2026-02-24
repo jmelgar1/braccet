@@ -151,15 +151,15 @@ export class BracketService {
   /**
    * Get bracket for a specific group in a multi-stage tournament.
    */
-  getGroupBracket(tournamentId: number, groupId: number): Observable<GroupBracketState> {
-    return this.http.get<GroupBracketState>(`${this.apiUrl}/${tournamentId}/groups/${groupId}/bracket`);
+  getGroupBracket(tournamentId: number, stageId: number, groupId: number): Observable<GroupBracketState> {
+    return this.http.get<GroupBracketState>(`${this.apiUrl}/${tournamentId}/stages/${stageId}/groups/${groupId}`);
   }
 
   /**
    * Get Swiss bracket for a specific group in a multi-stage tournament.
    */
-  getGroupSwissBracket(tournamentId: number, groupId: number): Observable<SwissBracketState> {
-    return this.http.get<SwissBracketState>(`${this.apiUrl}/${tournamentId}/groups/${groupId}/standings`);
+  getGroupSwissBracket(tournamentId: number, stageId: number, groupId: number): Observable<SwissBracketState> {
+    return this.http.get<SwissBracketState>(`${this.apiUrl}/${tournamentId}/stages/${stageId}/groups/${groupId}`);
   }
 
   /**

@@ -1,0 +1,99 @@
+<div class="modal-backdrop" (click)="onBackdropClick($event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>ELO History - {{ member().member_name }}</h3>
+      <button class="close-btn" (click)="close.emit()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      @if (error()) {
+        <div class="error-message">{{ error() }}</div>
+      }
+
+      @if (loading()) {
+        <div class="loading-state">Loading history...</div>
+      } @else if (history().length === 0) {
+        <div class="empty-state">No ELO history available</div>
+      } @else {
+        <div class="table-wrapper">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Change</th>
+                <th>Result</th>
+                <th>Opponent</th>
+                <th class="text-right">Rating</th>
+                @if (isOwnerOrAdmin()) {
+                  <th></th>
+                }
+              </tr>
+            </thead>
+            <tbody>
+              @for (entry of history(); track entry.id; let i = $index) {
+                <tr>
+                  <td class="date-cell">{{ entry.created_at | date:'MMM d, y' }}</td>
+                  <td>
+                    <span [class]="entry.rating_change >= 0 ? 'change-positive' : 'change-negative'">
+                      {{ entry.rating_change >= 0 ? '+' : '' }}{{ entry.rating_change }}
+                    </span>
+                  </td>
+                  <td>
+                    @if (entry.is_winner !== undefined && entry.is_winner !== null) {
+                      <span [class]="entry.is_winner ? 'result-win' : 'result-loss'">
+                        {{ entry.is_winner ? 'W' : 'L' }}
+                      </span>
+                    } @else {
+                      <span class="result-other">{{ entry.change_type }}</span>
+                    }
+                  </td>
+                  <td class="opponent-cell">{{ entry.opponent_display_name || '-' }}</td>
+                  <td class="text-right rating-cell">{{ entry.rating_after }}</td>
+                  @if (isOwnerOrAdmin()) {
+                    <td class="action-cell">
+                      @if (!isOldestEntry(i)) {
+                        <button
+                          class="revert-btn"
+                          (click)="onRevertClick(entry)"
+                          [disabled]="reverting()">
+                          Revert to here
+                        </button>
+                      }
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      <!-- Confirmation Dialog -->
+      @if (confirmRevertEntry()) {
+        <div class="confirm-overlay">
+          <div class="confirm-dialog">
+            <h4>Confirm Revert</h4>
+            <p>
+              This will revert <strong>{{ member().member_name }}</strong>'s rating to
+              <strong>{{ confirmRevertEntry()!.rating_after }}</strong> and remove all
+              later history entries.
+            </p>
+            <p class="warning">This action cannot be undone.</p>
+            <div class="confirm-actions">
+              <button class="btn-secondary" (click)="cancelRevert()" [disabled]="reverting()">
+                Cancel
+              </button>
+              <button class="btn-danger" (click)="confirmRevert()" [disabled]="reverting()">
+                {{ reverting() ? 'Reverting...' : 'Confirm Revert' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

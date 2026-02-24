@@ -68,9 +68,17 @@ export class TournamentNew implements OnInit {
   stageAdvancingPerGroup = signal(2);
   stageFormat = signal<StageFormat>('swiss');
   stageSwissRounds = signal(3);
-  stageRankingCriteria = signal<RankingCriterion[]>(['seed']);
+  stageRankingCriteria = signal<RankingCriterion[]>([]);
   stagePlacementMatches = signal(false);
   stagePlacementDepth = signal(1);
+  stageSkipFinals = signal(false);
+
+  // For bracket formats (single/double elim), rankings are determined by bracket placement
+  // Ranking criteria only applies to Swiss format or as an optional override for elim formats
+  stageUseBracketRanking = computed(() => {
+    const format = this.stageFormat();
+    return format === 'single_elimination' || format === 'double_elimination';
+  });
 
   availableRankingCriteria: { value: RankingCriterion; label: string }[] = [
     { value: 'seed', label: 'Original Seed' },
@@ -207,7 +215,9 @@ export class TournamentNew implements OnInit {
       format: 'swiss',
       participants_per_group: 4,
       advancing_per_group: 2,
-      ranking_criteria: ['seed']
+      // For Swiss format, default to match_wins + set_differential
+      // For elim formats, empty array means use bracket placement
+      ranking_criteria: ['match_wins', 'set_differential']
     };
     this.groupStages.update(stages => [...stages, newStage]);
     this.currentStageIndex.set(this.groupStages().length - 1);
@@ -251,7 +261,13 @@ export class TournamentNew implements OnInit {
     this.stageAdvancingPerGroup.set(stage.advancing_per_group || 2);
     this.stageFormat.set(stage.format);
     this.stageSwissRounds.set(stage.swiss_rounds || 3);
-    this.stageRankingCriteria.set(stage.ranking_criteria || ['seed']);
+    this.stageSkipFinals.set(stage.skip_finals || false);
+    // For elim formats, empty criteria means use bracket ranking (which is the default)
+    // For swiss, if no criteria set, use sensible defaults
+    const defaultCriteria = (stage.format === 'swiss' && (!stage.ranking_criteria || stage.ranking_criteria.length === 0))
+      ? ['match_wins', 'set_differential'] as RankingCriterion[]
+      : (stage.ranking_criteria || []);
+    this.stageRankingCriteria.set(defaultCriteria);
     this.stagePlacementMatches.set(stage.placement_matches || false);
     this.stagePlacementDepth.set(stage.placement_depth || 1);
   }
@@ -265,6 +281,7 @@ export class TournamentNew implements OnInit {
       format: this.stageFormat(),
       participants_per_group: this.stageParticipantsPerGroup(),
       advancing_per_group: this.stageAdvancingPerGroup(),
+      skip_finals: this.stageSkipFinals(),
       ranking_criteria: this.stageRankingCriteria(),
       placement_matches: this.stagePlacementMatches(),
       placement_depth: this.stagePlacementDepth()
@@ -288,6 +305,26 @@ export class TournamentNew implements OnInit {
 
   updateFinalStageFormat(format: StageFormat): void {
     this.finalStage.update(f => f ? { ...f, format } : null);
+  }
+
+  onStageFormatChange(format: StageFormat): void {
+    this.stageFormat.set(format);
+
+    // Update ranking criteria defaults based on format
+    if (format === 'single_elimination' || format === 'double_elimination') {
+      // For bracket formats, default to empty (bracket determines ranking)
+      // but preserve user's choice if they've already set criteria
+      if (this.stageRankingCriteria().length > 0) {
+        // Ask user if they want to keep criteria or use bracket ranking
+        // For now, just clear it since we're setting a new format
+        this.stageRankingCriteria.set([]);
+      }
+    } else if (format === 'swiss') {
+      // For Swiss, set sensible defaults if empty
+      if (this.stageRankingCriteria().length === 0) {
+        this.stageRankingCriteria.set(['match_wins', 'set_differential']);
+      }
+    }
   }
 
   toggleRankingCriterion(criterion: RankingCriterion): void {

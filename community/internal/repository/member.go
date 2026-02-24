@@ -120,7 +120,7 @@ func (r *memberRepository) GetByCommunityAndDisplayName(ctx context.Context, com
 	query := `
 		SELECT id, community_id, user_id, display_name, role::text, icon_url, region, elo_rating, ranking_points, matches_played, matches_won, joined_at, created_at, updated_at
 		FROM community_members
-		WHERE community_id = $1 AND display_name = $2
+		WHERE community_id = $1 AND LOWER(display_name) = LOWER($2)
 		LIMIT 1
 	`
 	m := &domain.CommunityMember{}

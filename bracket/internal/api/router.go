@@ -17,6 +17,7 @@ func NewRouter(
 	stageRepo repository.StageRepository,
 	swissRepo repository.SwissRepository,
 	tiebreakerRepo repository.TiebreakerRepository,
+	groupRepo repository.GroupRepository,
 	tournamentClient client.TournamentClient,
 	communityClient client.CommunityClient,
 ) chi.Router {
@@ -28,7 +29,7 @@ func NewRouter(
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
 	// Create services
-	bracketSvc := service.NewBracketServiceWithSwiss(repo, stageRepo, swissRepo, communityClient)
+	bracketSvc := service.NewBracketServiceFull(repo, stageRepo, swissRepo, groupRepo, communityClient)
 	matchSvc := service.NewMatchServiceWithTiebreakers(repo, setRepo, swissRepo, tiebreakerRepo, tournamentClient, communityClient)
 	swissSvc := service.NewSwissServiceWithTiebreakers(swissRepo, repo, stageRepo, tiebreakerRepo)
 	tiebreakerSvc := service.NewTiebreakerService(tiebreakerRepo, swissRepo, repo)
@@ -47,8 +48,10 @@ func NewRouter(
 	// Bracket routes
 	r.Post("/brackets", bracketHandler.Generate)
 	r.Post("/brackets/preview", bracketHandler.Preview) // Preview without persistence (same BYE logic as Generate)
+	r.Post("/brackets/groups", bracketHandler.GenerateGroup) // Generate bracket for a specific group
 	r.Get("/brackets/{tournamentId}", bracketHandler.GetState)
 	r.Get("/brackets/{tournamentId}/matches", bracketHandler.ListMatches)
+	r.Get("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}", bracketHandler.GetGroupBracket) // Get bracket for a group
 	r.Delete("/brackets/{tournamentId}", bracketHandler.Delete) // Delete bracket and revert ELO (for tournament reset)
 
 	// Standings routes (works for both Swiss and elimination formats)

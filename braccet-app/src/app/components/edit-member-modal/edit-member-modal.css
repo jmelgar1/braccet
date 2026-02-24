@@ -385,3 +385,27 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.convert-icon-btn {
+  width: 24px;
+  height: 24px;
+  background: var(--accent-green, #22c55e);
+  border: 2px solid var(--bg-card);
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  padding: 0;
+  z-index: 1;
+}
+
+.convert-icon-btn:hover:not(:disabled) {
+  background: var(--accent-green-hover, #16a34a);
+}
+
+.convert-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

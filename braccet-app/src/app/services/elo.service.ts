@@ -51,4 +51,11 @@ export class EloService {
     const params = limit ? `?limit=${limit}` : '';
     return this.http.get<EloHistory[]>(`${this.baseUrl}/${slug}/members/${memberId}/elo/${systemId}/history${params}`);
   }
+
+  revertMemberElo(slug: string, memberId: number, systemId: number, historyId: number): Observable<void> {
+    return this.http.post<void>(
+      `${this.baseUrl}/${slug}/members/${memberId}/elo/${systemId}/revert-to/${historyId}`,
+      {}
+    );
+  }
 }

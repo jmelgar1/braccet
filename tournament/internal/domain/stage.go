@@ -10,6 +10,15 @@ const (
 	StageTypeFinal StageType = "final"
 )
 
+// VenueType represents the venue type for power ranking LAN tracking
+type VenueType string
+
+const (
+	VenueTypeLAN    VenueType = "lan"
+	VenueTypeOnline VenueType = "online"
+	VenueTypeHybrid VenueType = "hybrid"
+)
+
 // RankingCriterion represents a criterion used for ranking participants in a stage
 type RankingCriterion string
 
@@ -33,6 +42,8 @@ type TournamentStage struct {
 	ParticipantsPerGroup *int // NULL for final stage
 	AdvancingPerGroup    *int // NULL for final stage
 	SwissRounds          *int // Optional override for Swiss format
+	VenueType            VenueType // Venue type for power ranking LAN tracking
+	SkipFinals           bool      // When true, skip final match(es) and determine standings by bracket position
 	IsActive             bool
 	IsComplete           bool
 	CreatedAt            time.Time
@@ -86,6 +97,18 @@ type StageSeedAssignment struct {
 	TargetGroupOrder int // 0 = Group A, 1 = Group B, etc.
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+// StageParticipantPool tracks which stage each participant starts in for multi-stage tournaments.
+// Participants assigned to later stages (e.g., Finals) wait idle until their stage becomes active.
+// This allows top seeds to skip early stages and start directly in later rounds.
+type StageParticipantPool struct {
+	ID            uint64
+	TournamentID  uint64
+	StageID       uint64
+	ParticipantID uint64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // MultiStageConfig represents the complete configuration for a multi-stage tournament

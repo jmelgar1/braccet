@@ -119,6 +119,21 @@
       <p class="text-gray-500 text-sm">No participants yet.</p>
     } @else {
       @if (isOrganizer()) {
+        <!-- Order by ELO button (for community tournaments in registration) -->
+        @if (canOrderByElo()) {
+          <div class="mb-3 flex justify-end">
+            <button
+              (click)="orderByElo()"
+              [disabled]="savingSeeding()"
+              class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg disabled:opacity-50 flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M3 12h12M3 18h6"/>
+              </svg>
+              Order by ELO
+            </button>
+          </div>
+        }
+
         <!-- Draggable list for organizers -->
         <div cdkDropList (cdkDropListDropped)="onDrop($event)" class="space-y-2">
           @for (participant of participants(); track participant.id; let i = $index) {

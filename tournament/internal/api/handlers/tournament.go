@@ -21,14 +21,16 @@ import (
 type TournamentHandler struct {
 	repo            repository.TournamentRepository
 	participantRepo repository.ParticipantRepository
+	stageRepo       repository.StageRepository
 	bracketClient   client.BracketClient
 	communityClient client.CommunityClient
 }
 
-func NewTournamentHandler(repo repository.TournamentRepository, participantRepo repository.ParticipantRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *TournamentHandler {
+func NewTournamentHandler(repo repository.TournamentRepository, participantRepo repository.ParticipantRepository, stageRepo repository.StageRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *TournamentHandler {
 	return &TournamentHandler{
 		repo:            repo,
 		participantRepo: participantRepo,
+		stageRepo:       stageRepo,
 		bracketClient:   bracketClient,
 		communityClient: communityClient,
 	}
@@ -372,7 +374,7 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		}
 		// Resetting tournament: in_progress -> registration
 		if newStatus == domain.StatusRegistration && tournament.Status == domain.StatusInProgress {
-			// 1. Delete bracket data (includes ELO reversion)
+			// 1. Delete bracket data (includes ELO reversion, group standings, stage standings)
 			if err := h.bracketClient.DeleteBracket(r.Context(), tournament.ID); err != nil {
 				log.Printf("Error deleting bracket for tournament %d: %v", tournament.ID, err)
 				writeError(w, http.StatusInternalServerError, "failed to delete bracket data")
@@ -386,7 +388,31 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// 3. Re-open registration
+			// 3. For multi-stage tournaments, clean up stage-related data
+			if tournament.Format == domain.FormatMultiStage && h.stageRepo != nil {
+				// Delete group assignments
+				if err := h.stageRepo.DeleteAssignmentsByTournament(r.Context(), tournament.ID); err != nil {
+					log.Printf("Error deleting group assignments for tournament %d: %v", tournament.ID, err)
+					writeError(w, http.StatusInternalServerError, "failed to delete group assignments")
+					return
+				}
+
+				// Delete groups
+				if err := h.stageRepo.DeleteGroupsByTournament(r.Context(), tournament.ID); err != nil {
+					log.Printf("Error deleting groups for tournament %d: %v", tournament.ID, err)
+					writeError(w, http.StatusInternalServerError, "failed to delete groups")
+					return
+				}
+
+				// Reset stage statuses (first group stage active, all not complete)
+				if err := h.stageRepo.ResetStageStatuses(r.Context(), tournament.ID); err != nil {
+					log.Printf("Error resetting stage statuses for tournament %d: %v", tournament.ID, err)
+					writeError(w, http.StatusInternalServerError, "failed to reset stage statuses")
+					return
+				}
+			}
+
+			// 4. Re-open registration
 			tournament.RegistrationOpen = true
 		}
 		// When starting a tournament, link participants to community members and close registration

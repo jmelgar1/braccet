@@ -49,9 +49,17 @@
           <button
             class="group-tab"
             [class.active]="selectedGroupIndex() === i"
+            [class.complete]="getGroupStats(group.id)?.isComplete"
             (click)="selectGroup(i)"
           >
-            {{ group.group_name }}
+            <span class="group-tab-name">{{ group.group_name }}</span>
+            @if (getGroupStats(group.id); as stats) {
+              @if (stats.isComplete) {
+                <img src="checkmark.png" alt="Complete" class="group-checkmark" />
+              } @else if (stats.total > 0) {
+                <span class="group-progress">{{ stats.completed }}/{{ stats.total }}</span>
+              }
+            }
           </button>
         }
       </div>

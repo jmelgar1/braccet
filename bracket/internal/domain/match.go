@@ -21,6 +21,14 @@ const (
 	MatchCompleted  MatchStatus = "completed"
 )
 
+// MatchVenueType represents the venue override for individual matches in hybrid stages
+type MatchVenueType string
+
+const (
+	MatchVenueLAN    MatchVenueType = "lan"
+	MatchVenueOnline MatchVenueType = "online"
+)
+
 type Match struct {
 	ID                  uint64
 	TournamentID        uint64
@@ -44,7 +52,8 @@ type Match struct {
 	CompletedAt         *time.Time
 	NextMatchID         *uint64
 	LoserMatchID        *uint64
-	ForfeitWinnerID     *uint64 // Non-nil if match was won by forfeit (opponent withdrew)
+	ForfeitWinnerID     *uint64         // Non-nil if match was won by forfeit (opponent withdrew)
+	VenueOverride       *MatchVenueType // Overrides stage venue type for hybrid stages (nil = inherit)
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 }

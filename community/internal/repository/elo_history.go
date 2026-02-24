@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/braccet/community/internal/domain"
 )
@@ -12,11 +13,13 @@ var ErrEloHistoryNotFound = errors.New("elo history not found")
 
 type EloHistoryRepository interface {
 	Create(ctx context.Context, h *domain.EloHistory) error
+	GetByID(ctx context.Context, id uint64) (*domain.EloHistory, error)
 	GetByMemberAndSystem(ctx context.Context, memberID, systemID uint64, limit int) ([]*domain.EloHistory, error)
 	GetByMatch(ctx context.Context, matchID uint64) ([]*domain.EloHistory, error)
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.EloHistory, error)
 	DeleteByMatch(ctx context.Context, matchID uint64) error
 	DeleteByTournament(ctx context.Context, tournamentID uint64) error
+	DeleteAfter(ctx context.Context, memberID, systemID uint64, afterTime time.Time) error
 }
 
 type eloHistoryRepository struct {
@@ -161,5 +164,34 @@ func (r *eloHistoryRepository) DeleteByMatch(ctx context.Context, matchID uint64
 func (r *eloHistoryRepository) DeleteByTournament(ctx context.Context, tournamentID uint64) error {
 	query := `DELETE FROM elo_history WHERE tournament_id = $1`
 	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
+}
+
+func (r *eloHistoryRepository) GetByID(ctx context.Context, id uint64) (*domain.EloHistory, error) {
+	query := `
+		SELECT eh.id, eh.member_id, eh.elo_system_id, eh.change_type::text, eh.rating_before, eh.rating_change, eh.rating_after,
+			eh.match_id, eh.tournament_id, eh.opponent_member_id, eh.opponent_rating_before, eh.is_winner,
+			eh.k_factor_used, eh.expected_score, eh.win_streak_bonus, eh.notes, eh.created_at,
+			cm.display_name
+		FROM elo_history eh
+		LEFT JOIN community_members cm ON cm.id = eh.opponent_member_id
+		WHERE eh.id = $1
+	`
+	h := &domain.EloHistory{}
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&h.ID, &h.MemberID, &h.EloSystemID, &h.ChangeType, &h.RatingBefore, &h.RatingChange, &h.RatingAfter,
+		&h.MatchID, &h.TournamentID, &h.OpponentMemberID, &h.OpponentRatingBefore, &h.IsWinner,
+		&h.KFactorUsed, &h.ExpectedScore, &h.WinStreakBonus, &h.Notes, &h.CreatedAt,
+		&h.OpponentDisplayName,
+	)
+	if err == sql.ErrNoRows {
+		return nil, ErrEloHistoryNotFound
+	}
+	return h, err
+}
+
+func (r *eloHistoryRepository) DeleteAfter(ctx context.Context, memberID, systemID uint64, afterTime time.Time) error {
+	query := `DELETE FROM elo_history WHERE member_id = $1 AND elo_system_id = $2 AND created_at > $3`
+	_, err := r.db.ExecContext(ctx, query, memberID, systemID, afterTime)
 	return err
 }

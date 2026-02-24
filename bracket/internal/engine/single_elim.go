@@ -11,6 +11,12 @@ import (
 // Participants are seeded by their Seed field (lower = better).
 // Returns all matches including round 1 and placeholder matches for subsequent rounds.
 func SingleElimination(tournamentID uint64, participants []domain.Participant) ([]*domain.Match, error) {
+	return SingleEliminationWithOptions(tournamentID, participants, false)
+}
+
+// SingleEliminationWithOptions generates a single elimination bracket with configurable options.
+// If skipFinals is true, the final match (last round) is not created.
+func SingleEliminationWithOptions(tournamentID uint64, participants []domain.Participant, skipFinals bool) ([]*domain.Match, error) {
 	if len(participants) < 2 {
 		return nil, fmt.Errorf("need at least 2 participants, got %d", len(participants))
 	}
@@ -25,6 +31,12 @@ func SingleElimination(tournamentID uint64, participants []domain.Participant) (
 	bracketSize := CalculateBracketSize(len(participants))
 	totalRounds := TotalRounds(bracketSize)
 	pairings := GenerateSeedPairings(bracketSize)
+
+	// If skipFinals is true and we have more than 1 round, don't generate the final round
+	maxRound := totalRounds
+	if skipFinals && totalRounds > 1 {
+		maxRound = totalRounds - 1
+	}
 
 	// Create a map of seed -> participant (nil for byes)
 	seedMap := make(map[int]*domain.Participant)
@@ -44,10 +56,10 @@ func SingleElimination(tournamentID uint64, participants []domain.Participant) (
 		matches = append(matches, match)
 	}
 
-	// Generate subsequent round placeholders
+	// Generate subsequent round placeholders (up to maxRound)
 	// Each round has half the matches of the previous
 	prevRoundMatches := round1Matches
-	for round := 2; round <= totalRounds; round++ {
+	for round := 2; round <= maxRound; round++ {
 		numMatches := len(prevRoundMatches) / 2
 		roundMatches := make([]*domain.Match, numMatches)
 

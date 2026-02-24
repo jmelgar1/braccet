@@ -75,20 +75,42 @@
 
   <!-- Footer -->
   <div class="popover-footer">
-    <button (click)="close.emit()" class="btn-cancel">
-      Cancel
-    </button>
-    <button
-      (click)="save()"
-      [disabled]="saving()"
-      class="btn-save"
-    >
-      @if (saving()) {
-        Saving...
-      } @else {
-        Save Seeds
+    <div class="footer-left">
+      @if (getUnseededParticipants().length > 0) {
+        <button
+          (click)="autoFillRemaining()"
+          class="btn-secondary"
+          title="Distribute remaining participants using serpentine seeding"
+        >
+          Auto-Fill ({{ getUnseededParticipants().length }})
+        </button>
       }
-    </button>
+      @if (currentSeeds().length > 0) {
+        <button
+          (click)="clearAllSeeds()"
+          class="btn-secondary btn-danger"
+          title="Remove all seed assignments"
+        >
+          Clear All
+        </button>
+      }
+    </div>
+    <div class="footer-right">
+      <button (click)="close.emit()" class="btn-cancel">
+        Cancel
+      </button>
+      <button
+        (click)="save()"
+        [disabled]="saving()"
+        class="btn-save"
+      >
+        @if (saving()) {
+          Saving...
+        } @else {
+          Save Seeds
+        }
+      </button>
+    </div>
   </div>
 </div>
 

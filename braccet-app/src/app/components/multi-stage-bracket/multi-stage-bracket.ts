@@ -77,6 +77,54 @@ export class MultiStageBracketComponent {
     return this.groupSwissBrackets().get(group.id) || null;
   });
 
+  // Computed: group completion stats for displaying progress indicators
+  groupCompletionStats = computed(() => {
+    const stage = this.activeStage();
+    const groupList = this.groups();
+    const brackets = this.groupBrackets();
+    const swissBrackets = this.groupSwissBrackets();
+
+    const stats = new Map<number, { completed: number; total: number; isComplete: boolean }>();
+
+    for (const group of groupList) {
+      let completed = 0;
+      let total = 0;
+      let isComplete = false;
+
+      if (stage?.format === 'swiss') {
+        const bracket = swissBrackets.get(group.id);
+        if (bracket) {
+          isComplete = bracket.is_complete;
+          for (const match of bracket.matches) {
+            if (match.status !== 'bye') {
+              total++;
+              if (match.status === 'completed') {
+                completed++;
+              }
+            }
+          }
+        }
+      } else {
+        const bracket = brackets.get(group.id);
+        if (bracket) {
+          isComplete = bracket.is_complete;
+          for (const match of bracket.matches) {
+            if (match.status !== 'bye') {
+              total++;
+              if (match.status === 'completed') {
+                completed++;
+              }
+            }
+          }
+        }
+      }
+
+      stats.set(group.id, { completed, total, isComplete });
+    }
+
+    return stats;
+  });
+
   finalBracket = computed(() => this.finalBracketState());
   finalSwissBracket = computed(() => this.finalSwissBracketState());
 
@@ -112,7 +160,9 @@ export class MultiStageBracketComponent {
         const active = stageList.find(s => s.is_active);
         this.activeStage.set(active || stageList[0]);
         if (active) {
-          this.loadGroups(active);
+          // Preserve current group index when refreshing (refreshKey > 0 means it's a refresh)
+          const preserveIndex = refreshKey > 0;
+          this.loadGroups(active, preserveIndex);
         }
       }
     });
@@ -121,7 +171,7 @@ export class MultiStageBracketComponent {
   selectStage(stage: TournamentStage): void {
     this.activeStage.set(stage);
     this.selectedGroupIndex.set(0);
-    this.loadGroups(stage);
+    this.loadGroups(stage, false);
   }
 
   selectGroup(index: number): void {
@@ -138,7 +188,7 @@ export class MultiStageBracketComponent {
     }
   }
 
-  private loadGroups(stage: TournamentStage): void {
+  private loadGroups(stage: TournamentStage, preserveIndex: boolean): void {
     // For final stage, load the final bracket directly
     if (stage.stage_type === 'final') {
       this.groups.set([]);
@@ -151,9 +201,13 @@ export class MultiStageBracketComponent {
     this.tournamentService.getGroups(this.tournament().slug, stage.id).subscribe({
       next: (groups) => {
         this.groups.set(groups);
-        this.selectedGroupIndex.set(0);
-        if (groups.length > 0) {
-          this.loadGroupBracket(groups[0].id, stage.format);
+        // Only reset to first group if not preserving index (e.g., on initial load or stage change)
+        if (!preserveIndex) {
+          this.selectedGroupIndex.set(0);
+        }
+        // Load brackets for ALL groups so completion stats are visible
+        for (const group of groups) {
+          this.loadGroupBracket(group.id, stage.format);
         }
         this.loading.set(false);
       },
@@ -189,9 +243,15 @@ export class MultiStageBracketComponent {
   }
 
   private loadGroupBracket(groupId: number, format?: string): void {
+    const stage = this.activeStage();
+    if (!stage) {
+      console.log('No active stage to load bracket for');
+      return;
+    }
+
     // For Swiss format groups, load Swiss bracket
     if (format === 'swiss') {
-      this.bracketService.getGroupSwissBracket(this.tournament().id, groupId).subscribe({
+      this.bracketService.getGroupSwissBracket(this.tournament().id, stage.id, groupId).subscribe({
         next: (bracket) => {
           const brackets = new Map(this.groupSwissBrackets());
           brackets.set(groupId, bracket);
@@ -204,7 +264,7 @@ export class MultiStageBracketComponent {
       return;
     }
 
-    this.bracketService.getGroupBracket(this.tournament().id, groupId).subscribe({
+    this.bracketService.getGroupBracket(this.tournament().id, stage.id, groupId).subscribe({
       next: (bracket) => {
         const brackets = new Map(this.groupBrackets());
         brackets.set(groupId, bracket);
@@ -259,5 +319,9 @@ export class MultiStageBracketComponent {
       case 'swiss': return 'Swiss';
       default: return stage.format;
     }
+  }
+
+  getGroupStats(groupId: number): { completed: number; total: number; isComplete: boolean } | null {
+    return this.groupCompletionStats().get(groupId) || null;
   }
 }

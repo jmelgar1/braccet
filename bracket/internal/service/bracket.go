@@ -12,6 +12,7 @@ import (
 type BracketService interface {
 	GenerateSingleElimination(ctx context.Context, tournamentID uint64, participants []domain.Participant) (*BracketState, error)
 	GenerateDoubleElimination(ctx context.Context, tournamentID uint64, participants []domain.Participant) (*BracketState, error)
+	GenerateGroupBracket(ctx context.Context, params engine.GroupBracketParams) (*BracketState, error)
 	DeleteBracket(ctx context.Context, tournamentID uint64) error
 }
 
@@ -19,6 +20,7 @@ type bracketService struct {
 	repo            repository.MatchRepository
 	stageRepo       repository.StageRepository
 	swissRepo       repository.SwissRepository
+	groupRepo       repository.GroupRepository
 	communityClient client.CommunityClient
 }
 
@@ -34,6 +36,11 @@ func NewBracketServiceWithCommunity(repo repository.MatchRepository, stageRepo r
 // NewBracketServiceWithSwiss creates a bracket service with Swiss support
 func NewBracketServiceWithSwiss(repo repository.MatchRepository, stageRepo repository.StageRepository, swissRepo repository.SwissRepository, communityClient client.CommunityClient) BracketService {
 	return &bracketService{repo: repo, stageRepo: stageRepo, swissRepo: swissRepo, communityClient: communityClient}
+}
+
+// NewBracketServiceFull creates a bracket service with all repositories
+func NewBracketServiceFull(repo repository.MatchRepository, stageRepo repository.StageRepository, swissRepo repository.SwissRepository, groupRepo repository.GroupRepository, communityClient client.CommunityClient) BracketService {
+	return &bracketService{repo: repo, stageRepo: stageRepo, swissRepo: swissRepo, groupRepo: groupRepo, communityClient: communityClient}
 }
 
 // GenerateSingleElimination creates a single elimination bracket and persists it.
@@ -448,6 +455,56 @@ func buildBracketState(tournamentID uint64, matches []*domain.Match) *BracketSta
 	return state
 }
 
+// GenerateGroupBracket creates a bracket for a specific group within a stage.
+// It generates matches tagged with the stage and group IDs for proper filtering.
+func (s *bracketService) GenerateGroupBracket(ctx context.Context, params engine.GroupBracketParams) (*BracketState, error) {
+	// Generate matches in memory
+	matches, err := engine.GenerateGroupBracket(params)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(matches) == 0 {
+		return &BracketState{TournamentID: params.TournamentID}, nil
+	}
+
+	// Save matches to DB (assigns IDs)
+	if err := s.repo.CreateBatch(ctx, matches); err != nil {
+		return nil, err
+	}
+
+	// Link matches now that we have IDs
+	if params.Format == "double_elimination" {
+		engine.LinkDoubleElimMatches(matches)
+	} else {
+		engine.LinkMatches(matches)
+	}
+
+	// Persist the links
+	if err := s.repo.UpdateNextMatchLinks(ctx, matches); err != nil {
+		return nil, err
+	}
+
+	// Advance bye winners through the bracket
+	if params.Format == "double_elimination" {
+		if err := s.advanceByeWinnersDoubleElim(ctx, matches); err != nil {
+			return nil, err
+		}
+	} else if params.Format != "swiss" {
+		if err := s.advanceByeWinners(ctx, matches); err != nil {
+			return nil, err
+		}
+	}
+
+	// Reload matches to get final state
+	matches, err = s.repo.GetByTournamentStageGroup(ctx, params.TournamentID, params.StageID, params.GroupID)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildBracketState(params.TournamentID, matches), nil
+}
+
 // DeleteBracket deletes all bracket data for a tournament and reverts ELO changes.
 // This is used when resetting a tournament back to registration phase.
 func (s *bracketService) DeleteBracket(ctx context.Context, tournamentID uint64) error {
@@ -474,6 +531,16 @@ func (s *bracketService) DeleteBracket(ctx context.Context, tournamentID uint64)
 	// Delete Swiss data if Swiss repo is configured
 	if s.swissRepo != nil {
 		if err := s.swissRepo.DeleteByTournament(ctx, tournamentID); err != nil {
+			return err
+		}
+	}
+
+	// Delete group standings and stage standings (for multi-stage tournaments)
+	if s.groupRepo != nil {
+		if err := s.groupRepo.DeleteGroupStandingsByTournament(ctx, tournamentID); err != nil {
+			return err
+		}
+		if err := s.groupRepo.DeleteStageStandingsByTournament(ctx, tournamentID); err != nil {
 			return err
 		}
 	}

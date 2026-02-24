@@ -33,6 +33,7 @@ export class SettingsTab {
   stageParticipantsPerGroup = signal<number>(4);
   stageAdvancingPerGroup = signal<number>(2);
   stageSwissRounds = signal<number | null>(null);
+  stageSkipFinals = signal(false);
   stageRankingCriteria = signal<RankingCriterion[]>([]);
   savingStage = signal(false);
   stageError = signal('');
@@ -46,6 +47,12 @@ export class SettingsTab {
   // Computed
   isLocked = computed(() => this.tournament().status !== 'registration');
   isMultiStage = computed(() => this.tournament().format === 'multi_stage');
+
+  // For bracket formats (single/double elim), rankings are determined by bracket placement
+  stageUseBracketRanking = computed(() => {
+    const format = this.stageFormat();
+    return format === 'single_elimination' || format === 'double_elimination';
+  });
 
   availableFormats: { value: StageFormat; label: string }[] = [
     { value: 'single_elimination', label: 'Single Elimination' },
@@ -174,6 +181,7 @@ export class SettingsTab {
     this.stageParticipantsPerGroup.set(stage.participants_per_group || 4);
     this.stageAdvancingPerGroup.set(stage.advancing_per_group || 2);
     this.stageSwissRounds.set(stage.swiss_rounds || null);
+    this.stageSkipFinals.set(stage.skip_finals || false);
     this.stageRankingCriteria.set(stage.ranking_criteria || []);
     this.stageError.set('');
     this.stageSuccess.set('');
@@ -183,6 +191,21 @@ export class SettingsTab {
     this.editingStageId.set(null);
     this.stageError.set('');
     this.stageSuccess.set('');
+  }
+
+  onStageFormatChange(format: StageFormat): void {
+    this.stageFormat.set(format);
+
+    // Update ranking criteria defaults based on format
+    if (format === 'single_elimination' || format === 'double_elimination') {
+      // For bracket formats, default to empty (bracket determines ranking)
+      this.stageRankingCriteria.set([]);
+    } else if (format === 'swiss') {
+      // For Swiss, set sensible defaults if empty
+      if (this.stageRankingCriteria().length === 0) {
+        this.stageRankingCriteria.set(['match_wins', 'set_differential']);
+      }
+    }
   }
 
   toggleCriterion(criterion: RankingCriterion): void {
@@ -221,6 +244,7 @@ export class SettingsTab {
 
     const request: UpdateStageRequest = {
       format: this.stageFormat(),
+      skip_finals: this.stageSkipFinals(),
       ranking_criteria: this.stageRankingCriteria()
     };
 

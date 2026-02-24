@@ -57,6 +57,8 @@ export interface UpdateEloSystemRequest {
   is_active?: boolean;
 }
 
+export type MatchResult = 'W' | 'L' | 'D';
+
 export interface MemberEloRating {
   id: number;
   member_id: number;
@@ -71,6 +73,7 @@ export interface MemberEloRating {
   highest_rating: number;
   lowest_rating: number;
   last_game_at?: string;
+  recent_results?: MatchResult[];
   created_at: string;
   updated_at: string;
 }

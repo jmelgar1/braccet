@@ -13,6 +13,7 @@ type CommunityClient interface {
 	ProcessMatchElo(ctx context.Context, req ProcessMatchEloRequest) (*ProcessMatchEloResponse, error)
 	GetEloSystem(ctx context.Context, systemID uint64) (*EloSystemResponse, error)
 	RevertTournamentElo(ctx context.Context, tournamentID uint64) error
+	RevertMatchElo(ctx context.Context, matchID uint64) error
 }
 
 type ProcessMatchEloRequest struct {
@@ -120,6 +121,28 @@ func (c *communityClient) GetEloSystem(ctx context.Context, systemID uint64) (*E
 // RevertTournamentElo reverts all ELO changes for a tournament
 func (c *communityClient) RevertTournamentElo(ctx context.Context, tournamentID uint64) error {
 	url := fmt.Sprintf("%s/internal/elo/tournament/%d", c.baseURL, tournamentID)
+	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to call community service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 204 No Content is success, 404 is also acceptable (no ELO history to revert)
+	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("community service returned status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// RevertMatchElo reverts ELO changes for a specific match
+func (c *communityClient) RevertMatchElo(ctx context.Context, matchID uint64) error {
+	url := fmt.Sprintf("%s/internal/elo/match/%d", c.baseURL, matchID)
 	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)

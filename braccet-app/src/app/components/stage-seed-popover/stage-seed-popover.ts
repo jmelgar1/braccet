@@ -127,6 +127,40 @@ export class StageSeedPopover implements OnInit, OnDestroy {
     );
   }
 
+  // Auto-fill remaining unseeded participants using serpentine distribution
+  autoFillRemaining(): void {
+    const unseeded = this.getUnseededParticipants();
+    if (unseeded.length === 0) return;
+
+    const numGroups = this.expectedGroups();
+    const currentSeeds = [...this.currentSeeds()];
+
+    // Serpentine distribution: alternate direction each row
+    // Row 0: 0, 1, 2 (left to right)
+    // Row 1: 2, 1, 0 (right to left)
+    // Row 2: 0, 1, 2 (left to right)
+    // etc.
+    unseeded.forEach((p, i) => {
+      const row = Math.floor(i / numGroups);
+      const posInRow = i % numGroups;
+      const groupOrder = row % 2 === 0
+        ? posInRow                    // Even rows: left to right
+        : numGroups - 1 - posInRow;   // Odd rows: right to left
+
+      currentSeeds.push({
+        participant_id: p.id,
+        target_group_order: groupOrder
+      });
+    });
+
+    this.currentSeeds.set(currentSeeds);
+  }
+
+  // Clear all seeds
+  clearAllSeeds(): void {
+    this.currentSeeds.set([]);
+  }
+
   save(): void {
     this.saving.set(true);
     this.error.set('');

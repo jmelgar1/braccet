@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/braccet/tournament/internal/domain"
 )
@@ -13,6 +14,7 @@ var ErrParticipantNotFound = errors.New("participant not found")
 type ParticipantRepository interface {
 	Create(ctx context.Context, p *domain.Participant) error
 	GetByID(ctx context.Context, id uint64) (*domain.Participant, error)
+	GetByIDs(ctx context.Context, ids []uint64) ([]*domain.Participant, error)
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Participant, error)
 	GetByTournamentAndUser(ctx context.Context, tournamentID, userID uint64) (*domain.Participant, error)
 	CountByTournament(ctx context.Context, tournamentID uint64) (int, error)
@@ -66,6 +68,64 @@ func (r *participantRepository) GetByID(ctx context.Context, id uint64) (*domain
 	}
 
 	return p, nil
+}
+
+func (r *participantRepository) GetByIDs(ctx context.Context, ids []uint64) ([]*domain.Participant, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	// Build query with placeholders
+	query := `
+		SELECT id, tournament_id, user_id, community_member_id, display_name, seed, status, checked_in_at, created_at
+		FROM participants
+		WHERE id = ANY($1)
+		ORDER BY seed ASC NULLS LAST, created_at ASC
+	`
+
+	// Convert []uint64 to []interface{} for pq.Array
+	rows, err := r.db.QueryContext(ctx, query, pqUint64Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var participants []*domain.Participant
+	for rows.Next() {
+		p := &domain.Participant{}
+		err := rows.Scan(
+			&p.ID, &p.TournamentID, &p.UserID, &p.CommunityMemberID, &p.DisplayName, &p.Seed, &p.Status, &p.CheckedInAt, &p.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		participants = append(participants, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return participants, nil
+}
+
+// pqUint64Array converts []uint64 to a type that works with PostgreSQL's ANY operator
+type pqUint64Array []uint64
+
+func (a pqUint64Array) Value() (interface{}, error) {
+	if len(a) == 0 {
+		return "{}", nil
+	}
+	// Build PostgreSQL array literal
+	result := "{"
+	for i, v := range a {
+		if i > 0 {
+			result += ","
+		}
+		result += fmt.Sprintf("%d", v)
+	}
+	result += "}"
+	return result, nil
 }
 
 func (r *participantRepository) GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Participant, error) {

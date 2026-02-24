@@ -1,4 +1,4 @@
-import { Component, input, output, inject, signal, OnInit, OnDestroy, viewChild } from '@angular/core';
+import { Component, input, output, inject, signal, computed, OnInit, OnDestroy, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { Subject, of } from 'rxjs';
@@ -58,6 +58,14 @@ export class ParticipantsTab implements OnInit, OnDestroy {
     return !!t.community_id;
   }
 
+  // Check if "Order by ELO" button should be shown (community tournament in registration with participants that have ELO)
+  canOrderByElo = computed(() => {
+    const t = this.tournament();
+    if (!t.community_id || t.status !== 'registration') return false;
+    // Check if at least one participant has an ELO rating
+    return this.participants().some(p => p.elo_rating != null);
+  });
+
   ngOnInit(): void {
     // Set up debounced search
     this.searchSubject.pipe(
@@ -107,6 +115,20 @@ export class ParticipantsTab implements OnInit, OnDestroy {
   hideDropdown(): void {
     // Delay to allow click on dropdown item
     setTimeout(() => this.showDropdown.set(false), 200);
+  }
+
+  // Order participants by ELO ranking and save the new seeding
+  orderByElo(): void {
+    const list = [...this.participants()];
+
+    // Sort by ELO descending (highest first), participants without ELO go to end
+    list.sort((a, b) => {
+      const eloA = a.elo_rating ?? 0;
+      const eloB = b.elo_rating ?? 0;
+      return eloB - eloA;
+    });
+
+    this.saveSeeding(list);
   }
 
   addParticipant(): void {

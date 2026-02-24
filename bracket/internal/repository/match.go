@@ -14,6 +14,7 @@ type MatchRepository interface {
 	CreateBatch(ctx context.Context, matches []*domain.Match) error
 	GetByID(ctx context.Context, id uint64) (*domain.Match, error)
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Match, error)
+	GetByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) ([]*domain.Match, error)
 	GetPendingByParticipant(ctx context.Context, tournamentID, participantID uint64) ([]*domain.Match, error)
 	UpdateResult(ctx context.Context, matchID uint64, winnerID uint64) error
 	UpdateStatus(ctx context.Context, matchID uint64, status domain.MatchStatus) error
@@ -22,6 +23,7 @@ type MatchRepository interface {
 	UpdateNextMatchLinks(ctx context.Context, matches []*domain.Match) error
 	ReopenMatch(ctx context.Context, matchID uint64) error
 	ClearParticipant(ctx context.Context, matchID uint64, slot int) error
+	UpdateVenueOverride(ctx context.Context, matchID uint64, venueOverride *domain.MatchVenueType) error
 	DeleteByTournament(ctx context.Context, tournamentID uint64) error
 }
 
@@ -42,8 +44,8 @@ func (r *matchRepository) CreateBatch(ctx context.Context, matches []*domain.Mat
 	defer tx.Rollback()
 
 	query := `
-		INSERT INTO matches (tournament_id, bracket_type, round, position, participant1_id, participant2_id, participant1_name, participant2_name, participant1_icon_url, participant2_icon_url, seed1, seed2, status, scheduled_at, next_match_id, loser_match_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		INSERT INTO matches (tournament_id, stage_id, group_id, bracket_type, round, position, participant1_id, participant2_id, participant1_name, participant2_name, participant1_icon_url, participant2_icon_url, seed1, seed2, status, scheduled_at, next_match_id, loser_match_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
 		RETURNING id
 	`
 	stmt, err := tx.PrepareContext(ctx, query)
@@ -54,7 +56,7 @@ func (r *matchRepository) CreateBatch(ctx context.Context, matches []*domain.Mat
 
 	for _, m := range matches {
 		err := stmt.QueryRowContext(ctx,
-			m.TournamentID, m.BracketType, m.Round, m.Position,
+			m.TournamentID, m.StageID, m.GroupID, m.BracketType, m.Round, m.Position,
 			m.Participant1ID, m.Participant2ID, m.Participant1Name, m.Participant2Name,
 			m.Participant1IconURL, m.Participant2IconURL,
 			m.Seed1, m.Seed2, m.Status, m.ScheduledAt, m.NextMatchID, m.LoserMatchID,
@@ -69,22 +71,22 @@ func (r *matchRepository) CreateBatch(ctx context.Context, matches []*domain.Mat
 
 func (r *matchRepository) GetByID(ctx context.Context, id uint64) (*domain.Match, error) {
 	query := `
-		SELECT id, tournament_id, bracket_type, round, position,
+		SELECT id, tournament_id, stage_id, group_id, bracket_type, round, position,
 		       participant1_id, participant2_id, participant1_name, participant2_name,
 		       participant1_icon_url, participant2_icon_url,
 		       seed1, seed2, winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
-		       forfeit_winner_id, created_at, updated_at
+		       forfeit_winner_id, venue_override, created_at, updated_at
 		FROM matches
 		WHERE id = $1
 	`
 	m := &domain.Match{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&m.ID, &m.TournamentID, &m.BracketType, &m.Round, &m.Position,
+		&m.ID, &m.TournamentID, &m.StageID, &m.GroupID, &m.BracketType, &m.Round, &m.Position,
 		&m.Participant1ID, &m.Participant2ID, &m.Participant1Name, &m.Participant2Name,
 		&m.Participant1IconURL, &m.Participant2IconURL,
 		&m.Seed1, &m.Seed2, &m.WinnerID, &m.Status,
 		&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
-		&m.ForfeitWinnerID, &m.CreatedAt, &m.UpdatedAt,
+		&m.ForfeitWinnerID, &m.VenueOverride, &m.CreatedAt, &m.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -98,11 +100,11 @@ func (r *matchRepository) GetByID(ctx context.Context, id uint64) (*domain.Match
 
 func (r *matchRepository) GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Match, error) {
 	query := `
-		SELECT id, tournament_id, bracket_type, round, position,
+		SELECT id, tournament_id, stage_id, group_id, bracket_type, round, position,
 		       participant1_id, participant2_id, participant1_name, participant2_name,
 		       participant1_icon_url, participant2_icon_url,
 		       seed1, seed2, winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
-		       forfeit_winner_id, created_at, updated_at
+		       forfeit_winner_id, venue_override, created_at, updated_at
 		FROM matches
 		WHERE tournament_id = $1
 		ORDER BY bracket_type, round, position
@@ -117,12 +119,53 @@ func (r *matchRepository) GetByTournament(ctx context.Context, tournamentID uint
 	for rows.Next() {
 		m := &domain.Match{}
 		err := rows.Scan(
-			&m.ID, &m.TournamentID, &m.BracketType, &m.Round, &m.Position,
+			&m.ID, &m.TournamentID, &m.StageID, &m.GroupID, &m.BracketType, &m.Round, &m.Position,
 			&m.Participant1ID, &m.Participant2ID, &m.Participant1Name, &m.Participant2Name,
 			&m.Participant1IconURL, &m.Participant2IconURL,
 			&m.Seed1, &m.Seed2, &m.WinnerID, &m.Status,
 			&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
-			&m.ForfeitWinnerID, &m.CreatedAt, &m.UpdatedAt,
+			&m.ForfeitWinnerID, &m.VenueOverride, &m.CreatedAt, &m.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		matches = append(matches, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return matches, nil
+}
+
+func (r *matchRepository) GetByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) ([]*domain.Match, error) {
+	query := `
+		SELECT id, tournament_id, stage_id, group_id, bracket_type, round, position,
+		       participant1_id, participant2_id, participant1_name, participant2_name,
+		       participant1_icon_url, participant2_icon_url,
+		       seed1, seed2, winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
+		       forfeit_winner_id, venue_override, created_at, updated_at
+		FROM matches
+		WHERE tournament_id = $1 AND stage_id = $2 AND group_id = $3
+		ORDER BY bracket_type, round, position
+	`
+	rows, err := r.db.QueryContext(ctx, query, tournamentID, stageID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var matches []*domain.Match
+	for rows.Next() {
+		m := &domain.Match{}
+		err := rows.Scan(
+			&m.ID, &m.TournamentID, &m.StageID, &m.GroupID, &m.BracketType, &m.Round, &m.Position,
+			&m.Participant1ID, &m.Participant2ID, &m.Participant1Name, &m.Participant2Name,
+			&m.Participant1IconURL, &m.Participant2IconURL,
+			&m.Seed1, &m.Seed2, &m.WinnerID, &m.Status,
+			&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
+			&m.ForfeitWinnerID, &m.VenueOverride, &m.CreatedAt, &m.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -214,11 +257,11 @@ func (r *matchRepository) UpdateNextMatchLinks(ctx context.Context, matches []*d
 
 func (r *matchRepository) GetPendingByParticipant(ctx context.Context, tournamentID, participantID uint64) ([]*domain.Match, error) {
 	query := `
-		SELECT id, tournament_id, bracket_type, round, position,
+		SELECT id, tournament_id, stage_id, group_id, bracket_type, round, position,
 		       participant1_id, participant2_id, participant1_name, participant2_name,
 		       participant1_icon_url, participant2_icon_url,
 		       seed1, seed2, winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
-		       forfeit_winner_id, created_at, updated_at
+		       forfeit_winner_id, venue_override, created_at, updated_at
 		FROM matches
 		WHERE tournament_id = $1
 		  AND status IN ('pending', 'ready', 'in_progress')
@@ -235,12 +278,12 @@ func (r *matchRepository) GetPendingByParticipant(ctx context.Context, tournamen
 	for rows.Next() {
 		m := &domain.Match{}
 		err := rows.Scan(
-			&m.ID, &m.TournamentID, &m.BracketType, &m.Round, &m.Position,
+			&m.ID, &m.TournamentID, &m.StageID, &m.GroupID, &m.BracketType, &m.Round, &m.Position,
 			&m.Participant1ID, &m.Participant2ID, &m.Participant1Name, &m.Participant2Name,
 			&m.Participant1IconURL, &m.Participant2IconURL,
 			&m.Seed1, &m.Seed2, &m.WinnerID, &m.Status,
 			&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
-			&m.ForfeitWinnerID, &m.CreatedAt, &m.UpdatedAt,
+			&m.ForfeitWinnerID, &m.VenueOverride, &m.CreatedAt, &m.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -308,6 +351,24 @@ func (r *matchRepository) ClearParticipant(ctx context.Context, matchID uint64, 
 	}
 
 	res, err := r.db.ExecContext(ctx, query, matchID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrMatchNotFound
+	}
+
+	return nil
+}
+
+func (r *matchRepository) UpdateVenueOverride(ctx context.Context, matchID uint64, venueOverride *domain.MatchVenueType) error {
+	query := `UPDATE matches SET venue_override = $1 WHERE id = $2`
+	res, err := r.db.ExecContext(ctx, query, venueOverride, matchID)
 	if err != nil {
 		return err
 	}

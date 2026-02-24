@@ -26,7 +26,7 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 	})
 
 	// Tournament handlers
-	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo, participantRepo, bracketClient, communityClient)
+	tournamentHandler := handlers.NewTournamentHandler(tournamentRepo, participantRepo, stageRepo, bracketClient, communityClient)
 	participantHandler := handlers.NewParticipantHandler(participantRepo, tournamentRepo, bracketClient, communityClient)
 	stageHandler := handlers.NewStageHandler(tournamentRepo, participantRepo, stageRepo, bracketClient)
 
@@ -76,6 +76,11 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 			r.Get("/{slug}/stages/{stageId}/groups", stageHandler.GetGroups)
 			r.Get("/{slug}/stages/{stageId}/seeds", stageHandler.GetStageSeeds)
 			r.Put("/{slug}/stages/{stageId}/seeds", stageHandler.UpdateStageSeeds)
+
+			// Stage participant pool routes (for assigning participants to starting stages)
+			r.Get("/{slug}/stages/pool", stageHandler.GetStagePool)
+			r.Put("/{slug}/stages/pool", stageHandler.UpdateStagePool)
+			r.Delete("/{slug}/stages/pool", stageHandler.ClearStagePool)
 		})
 	})
 

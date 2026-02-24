@@ -13,6 +13,26 @@ type BracketClient interface {
 	ProcessWithdrawal(ctx context.Context, tournamentID, participantID uint64) error
 	IsBracketComplete(ctx context.Context, tournamentID uint64) (bool, error)
 	DeleteBracket(ctx context.Context, tournamentID uint64) error
+	CreateGroupBracket(ctx context.Context, req CreateGroupBracketRequest) error
+}
+
+// CreateGroupBracketRequest contains the parameters to create a bracket for a group
+type CreateGroupBracketRequest struct {
+	TournamentID uint64        `json:"tournament_id"`
+	StageID      uint64        `json:"stage_id"`
+	GroupID      uint64        `json:"group_id"`
+	Format       string        `json:"format"`
+	Participants []Participant `json:"participants"`
+	SwissRounds  *int          `json:"swiss_rounds,omitempty"`
+	SkipFinals   bool          `json:"skip_finals"`
+}
+
+// Participant represents a participant in a bracket request
+type Participant struct {
+	ID      uint64 `json:"id"`
+	Name    string `json:"name"`
+	IconURL string `json:"icon_url,omitempty"`
+	Seed    int    `json:"seed"`
 }
 
 type bracketClient struct {
@@ -117,6 +137,34 @@ func (c *bracketClient) DeleteBracket(ctx context.Context, tournamentID uint64) 
 
 	// 204 No Content is success, 404 is also acceptable (bracket may not exist)
 	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("bracket service returned status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// CreateGroupBracket creates a bracket for a specific group within a stage.
+// This is called when starting a multi-stage tournament to generate matches for each group.
+func (c *bracketClient) CreateGroupBracket(ctx context.Context, req CreateGroupBracketRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/brackets/groups", c.baseURL)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to call bracket service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
 		return fmt.Errorf("bracket service returned status %d", resp.StatusCode)
 	}
 

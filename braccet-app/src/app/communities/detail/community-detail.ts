@@ -10,10 +10,11 @@ import { Community, CommunityMember, AddMemberRequest, MemberRole } from '../../
 import { Tournament } from '../../models/tournament.model';
 import { EloSystem, MemberEloRating, CreateEloSystemRequest } from '../../models/elo.model';
 import { EditMemberModal } from '../../components/edit-member-modal/edit-member-modal';
+import { EloHistoryModal } from '../../components/elo-history-modal/elo-history-modal';
 
 @Component({
   selector: 'app-community-detail',
-  imports: [DatePipe, FormsModule, RouterLink, EditMemberModal],
+  imports: [DatePipe, FormsModule, RouterLink, EditMemberModal, EloHistoryModal],
   templateUrl: './community-detail.html',
   styleUrl: './community-detail.css'
 })
@@ -68,6 +69,9 @@ export class CommunityDetail implements OnInit {
 
   // Edit member modal
   editingMember = signal<CommunityMember | null>(null);
+
+  // ELO history modal
+  selectedLeaderboardMember = signal<MemberEloRating | null>(null);
 
   // Current user info
   currentUser = computed(() => this.authService.user());
@@ -375,6 +379,24 @@ export class CommunityDetail implements OnInit {
     this.members.update(members =>
       members.map(m => m.id === updatedMember.id ? updatedMember : m)
     );
+  }
+
+  // ELO History Modal
+  openEloHistoryModal(rating: MemberEloRating): void {
+    this.selectedLeaderboardMember.set(rating);
+  }
+
+  closeEloHistoryModal(): void {
+    this.selectedLeaderboardMember.set(null);
+  }
+
+  onEloHistoryReverted(): void {
+    // Reload the leaderboard to reflect changes
+    const system = this.selectedEloSystem();
+    if (system) {
+      this.loadLeaderboard(system.id);
+    }
+    this.closeEloHistoryModal();
   }
 
   onTournamentClick(slug: string): void {

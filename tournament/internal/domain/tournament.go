@@ -23,6 +23,17 @@ const (
 	StatusCancelled    TournamentStatus = "cancelled"
 )
 
+// TournamentClass represents the classification level for power ranking weighting
+type TournamentClass string
+
+const (
+	TournamentClassMajor       TournamentClass = "major"        // Premier events (e.g., World Championship)
+	TournamentClassWorldLAN    TournamentClass = "world_lan"    // World-level LAN events
+	TournamentClassContinental TournamentClass = "continental"  // Regional majors (e.g., European Championship)
+	TournamentClassRegional    TournamentClass = "regional"     // Local/regional events
+	TournamentClassOnline      TournamentClass = "online"       // Online tournaments
+)
+
 type Tournament struct {
 	ID               uint64
 	Slug             string
@@ -39,6 +50,8 @@ type Tournament struct {
 	RegistrationOpen bool
 	Settings         json.RawMessage
 	StartsAt         *time.Time
+	TournamentClass  *TournamentClass // Optional - classification for power ranking weighting
+	PrizePoolUSD     *float64         // Optional - prize pool in USD for power ranking calculations
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }

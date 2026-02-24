@@ -50,6 +50,18 @@ func (r *mockMatchRepository) GetByTournament(ctx context.Context, tournamentID 
 	return matches, nil
 }
 
+func (r *mockMatchRepository) GetByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) ([]*domain.Match, error) {
+	var matches []*domain.Match
+	for _, m := range r.matches {
+		if m.TournamentID == tournamentID &&
+			m.StageID != nil && *m.StageID == stageID &&
+			m.GroupID != nil && *m.GroupID == groupID {
+			matches = append(matches, m)
+		}
+	}
+	return matches, nil
+}
+
 func (r *mockMatchRepository) UpdateResult(ctx context.Context, matchID uint64, winnerID uint64) error {
 	m, ok := r.matches[matchID]
 	if !ok {
@@ -153,6 +165,15 @@ func (r *mockMatchRepository) ClearParticipant(ctx context.Context, matchID uint
 		m.Participant2IconURL = nil
 		m.Seed2 = nil
 	}
+	return nil
+}
+
+func (r *mockMatchRepository) UpdateVenueOverride(ctx context.Context, matchID uint64, venueOverride *domain.MatchVenueType) error {
+	m, ok := r.matches[matchID]
+	if !ok {
+		return repository.ErrMatchNotFound
+	}
+	m.VenueOverride = venueOverride
 	return nil
 }
 
@@ -484,4 +505,161 @@ func TestReportResult_InProgressMatch(t *testing.T) {
 	if match.Status != domain.MatchCompleted {
 		t.Errorf("expected completed, got %s", match.Status)
 	}
+}
+
+// TestDoubleElimStandings_NoPlacementUntilEliminated tests that participants
+// who lose in winners bracket but are still competing in losers bracket
+// do not receive a placement until they are actually eliminated.
+func TestDoubleElimStandings_NoPlacementUntilEliminated(t *testing.T) {
+	repo := newMockRepo()
+	setRepo := newMockSetRepo()
+
+	// Create a simple 4-player double elimination bracket
+	// Winners bracket: W-R1 (matches 1,2), W-Final (match 3)
+	// Losers bracket: L-R1 (match 4), L-Final (match 5)
+	// Grand Final: match 6
+	p1, p2, p3, p4 := uint64(1), uint64(2), uint64(3), uint64(4)
+	n1, n2, n3, n4 := "Player1", "Player2", "Player3", "Player4"
+
+	matches := []*domain.Match{
+		// Winners R1 - Match 1: P1 vs P4
+		{
+			TournamentID:     1,
+			BracketType:      domain.BracketWinners,
+			Round:            1,
+			Position:         1,
+			Participant1ID:   &p1,
+			Participant2ID:   &p4,
+			Participant1Name: &n1,
+			Participant2Name: &n4,
+			Status:           domain.MatchReady,
+			NextMatchID:      ptrUint64(3),
+			LoserMatchID:     ptrUint64(4),
+		},
+		// Winners R1 - Match 2: P2 vs P3
+		{
+			TournamentID:     1,
+			BracketType:      domain.BracketWinners,
+			Round:            1,
+			Position:         2,
+			Participant1ID:   &p2,
+			Participant2ID:   &p3,
+			Participant1Name: &n2,
+			Participant2Name: &n3,
+			Status:           domain.MatchReady,
+			NextMatchID:      ptrUint64(3),
+			LoserMatchID:     ptrUint64(4),
+		},
+		// Winners Final - Match 3
+		{
+			TournamentID: 1,
+			BracketType:  domain.BracketWinners,
+			Round:        2,
+			Position:     1,
+			Status:       domain.MatchPending,
+			NextMatchID:  ptrUint64(6),
+			LoserMatchID: ptrUint64(5),
+		},
+		// Losers R1 - Match 4 (losers from W-R1 face each other)
+		{
+			TournamentID: 1,
+			BracketType:  domain.BracketLosers,
+			Round:        1,
+			Position:     1,
+			Status:       domain.MatchPending,
+			NextMatchID:  ptrUint64(5),
+		},
+		// Losers Final - Match 5
+		{
+			TournamentID: 1,
+			BracketType:  domain.BracketLosers,
+			Round:        2,
+			Position:     1,
+			Status:       domain.MatchPending,
+			NextMatchID:  ptrUint64(6),
+		},
+		// Grand Final - Match 6
+		{
+			TournamentID: 1,
+			BracketType:  domain.BracketGrandFinal,
+			Round:        1,
+			Position:     1,
+			Status:       domain.MatchPending,
+		},
+	}
+
+	repo.CreateBatch(context.Background(), matches)
+
+	svc := &matchService{
+		repo:    repo,
+		setRepo: setRepo,
+	}
+	ctx := context.Background()
+
+	// Complete W-R1 Match 1: P1 beats P4 (P4 drops to losers)
+	setRepo.CreateBatch(ctx, 1, []domain.SetScore{{SetNumber: 1, Participant1Score: 2, Participant2Score: 0}})
+	repo.matches[1].WinnerID = &p1
+	repo.matches[1].Status = domain.MatchCompleted
+
+	// Get standings BEFORE P4 has been eliminated in losers bracket
+	standings, err := svc.GetEliminationStandings(ctx, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Find P4's standing
+	var p4Standing *domain.EliminationStanding
+	for _, s := range standings {
+		if s.ParticipantID == p4 {
+			p4Standing = s
+			break
+		}
+	}
+
+	if p4Standing == nil {
+		t.Fatal("P4 not found in standings")
+	}
+
+	// KEY FIX VERIFICATION: P4 should NOT have a placement yet
+	// They lost in winners bracket but are still alive in losers bracket
+	if p4Standing.Placement != "" {
+		t.Errorf("P4 should have no placement (still in losers bracket), got %q", p4Standing.Placement)
+	}
+
+	// Now simulate P4 losing in losers bracket (eliminated)
+	// Set up L-R1 match with P4 and P3 (assuming P3 also lost)
+	repo.matches[4].Participant1ID = &p4
+	repo.matches[4].Participant2ID = &p3
+	repo.matches[4].Participant1Name = &n4
+	repo.matches[4].Participant2Name = &n3
+	repo.matches[4].Status = domain.MatchCompleted
+	repo.matches[4].WinnerID = &p3 // P3 wins, P4 is eliminated
+
+	// Get standings after P4 is eliminated
+	standings2, err := svc.GetEliminationStandings(ctx, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Find P4's standing again
+	var p4Standing2 *domain.EliminationStanding
+	for _, s := range standings2 {
+		if s.ParticipantID == p4 {
+			p4Standing2 = s
+			break
+		}
+	}
+
+	if p4Standing2 == nil {
+		t.Fatal("P4 not found in standings after elimination")
+	}
+
+	// Now P4 should have a placement (they're eliminated)
+	if p4Standing2.Placement == "" {
+		t.Error("P4 should have a placement after being eliminated in losers bracket")
+	}
+}
+
+func ptrUint64(v uint64) *uint64 {
+	return &v
 }

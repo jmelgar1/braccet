@@ -269,6 +269,17 @@ func (h *ParticipantHandler) Add(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Auto-link to community member if this is a community tournament and no member ID provided
+	if tournament.CommunityID != nil && req.CommunityMemberID == nil {
+		member, err := h.communityClient.FindOrCreateGhostMember(r.Context(), *tournament.CommunityID, req.DisplayName)
+		if err != nil {
+			log.Printf("Warning: failed to find/create community member for %q: %v", req.DisplayName, err)
+			// Non-fatal: continue without linking
+		} else {
+			req.CommunityMemberID = &member.ID
+		}
+	}
+
 	participant := &domain.Participant{
 		TournamentID:      tournament.ID,
 		UserID:            req.UserID,

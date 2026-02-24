@@ -14,36 +14,38 @@ type GroupBracketParams struct {
 	Format       string // single_elimination, double_elimination, swiss
 	Participants []domain.Participant
 	SwissRounds  *int // Optional override for Swiss format
+	SkipFinals   bool // When true, skip final match(es) and determine standings by bracket position
 }
 
 // GenerateGroupBracket creates a bracket for a single group
 // It uses the existing engines (SingleElimination, DoubleElimination, Swiss) but
-// tags all matches with the stage and group IDs
+// tags all matches with the stage and group IDs.
+// If SkipFinals is true, the final match(es) are not generated.
 func GenerateGroupBracket(params GroupBracketParams) ([]*domain.Match, error) {
 	var matches []*domain.Match
 	var err error
 
 	switch params.Format {
 	case "single_elimination":
-		matches, err = SingleElimination(params.TournamentID, params.Participants)
+		matches, err = SingleEliminationWithOptions(params.TournamentID, params.Participants, params.SkipFinals)
 	case "double_elimination":
-		matches, err = DoubleElimination(params.TournamentID, params.Participants)
+		matches, err = DoubleEliminationWithOptions(params.TournamentID, params.Participants, params.SkipFinals)
 	case "swiss":
 		// For Swiss, we generate round 1 matches
-		// First create standings from participants
+		// Swiss doesn't have a "final" to skip - tiebreakers are handled separately
 		standings := make([]*domain.SwissStanding, len(params.Participants))
 		for i, p := range params.Participants {
 			standings[i] = &domain.SwissStanding{
-				TournamentID:  params.TournamentID,
-				ParticipantID: p.ID,
+				TournamentID:    params.TournamentID,
+				ParticipantID:   p.ID,
 				ParticipantName: p.Name,
-				Seed:          p.Seed,
+				Seed:            p.Seed,
 			}
 		}
 		pairings := GenerateRound1Pairings(standings)
 		matches = PairingsToMatches(params.TournamentID, 1, pairings)
 	default:
-		matches, err = SingleElimination(params.TournamentID, params.Participants)
+		matches, err = SingleEliminationWithOptions(params.TournamentID, params.Participants, params.SkipFinals)
 	}
 
 	if err != nil {
@@ -97,11 +99,24 @@ func SerpentineSeeding(rankedParticipants []uint64, numGroups int) map[int][]uin
 }
 
 // CalculateGroupStandings computes standings for a group based on completed matches
-// and the specified ranking criteria (in priority order)
+// and the specified ranking criteria (in priority order).
+// If format is single/double elimination and criteria is empty, uses bracket placement.
 func CalculateGroupStandings(
 	standings []*domain.GroupStanding,
 	matches []*domain.Match,
 	criteria []domain.RankingCriterion,
+) []*domain.GroupStanding {
+	return CalculateGroupStandingsWithFormat(standings, matches, criteria, "")
+}
+
+// CalculateGroupStandingsWithFormat computes standings with format-aware ranking.
+// For elimination formats with empty criteria, uses bracket placement (wins/losses).
+// For Swiss or when criteria is provided, uses the criteria-based ranking.
+func CalculateGroupStandingsWithFormat(
+	standings []*domain.GroupStanding,
+	matches []*domain.Match,
+	criteria []domain.RankingCriterion,
+	format string,
 ) []*domain.GroupStanding {
 	// Build a map for quick lookup
 	standingMap := make(map[uint64]*domain.GroupStanding)
@@ -197,8 +212,15 @@ func CalculateGroupStandings(
 		}
 	}
 
-	// Sort standings by criteria
-	sortStandingsByCriteria(standings, criteria)
+	// Sort standings by criteria (or bracket placement for elimination formats)
+	useBracketPlacement := len(criteria) == 0 &&
+		(format == "single_elimination" || format == "double_elimination")
+
+	if useBracketPlacement {
+		SortStandingsByBracketPlacement(standings)
+	} else {
+		sortStandingsByCriteria(standings, criteria)
+	}
 
 	// Assign ranks
 	for i, s := range standings {
@@ -211,7 +233,9 @@ func CalculateGroupStandings(
 
 // sortStandingsByCriteria sorts standings using the provided criteria in priority order
 func sortStandingsByCriteria(standings []*domain.GroupStanding, criteria []domain.RankingCriterion) {
-	// If no criteria provided, use default order
+	// If no criteria provided, use default order for Swiss format
+	// For elimination formats, empty criteria means use bracket placement
+	// (higher wins + lower losses = better bracket position)
 	if len(criteria) == 0 {
 		criteria = []domain.RankingCriterion{
 			domain.CriterionMatchWins,
@@ -231,6 +255,36 @@ func sortStandingsByCriteria(standings []*domain.GroupStanding, criteria []domai
 		}
 
 		// Final tiebreaker: original seed (lower is better)
+		return a.Seed < b.Seed
+	})
+}
+
+// SortStandingsByBracketPlacement sorts standings based on elimination bracket placement.
+// This is used when ranking criteria is empty for single/double elimination formats.
+// Rankings are determined by: most wins, then fewest losses, then seed as tiebreaker.
+// This approximates bracket position since the winner has most wins and fewest losses.
+func SortStandingsByBracketPlacement(standings []*domain.GroupStanding) {
+	sort.SliceStable(standings, func(i, j int) bool {
+		a, b := standings[i], standings[j]
+
+		// Primary: most match wins (higher = further in bracket)
+		if a.MatchWins != b.MatchWins {
+			return a.MatchWins > b.MatchWins
+		}
+
+		// Secondary: fewest match losses (lower = better; e.g., 2-0 > 2-1)
+		if a.MatchLosses != b.MatchLosses {
+			return a.MatchLosses < b.MatchLosses
+		}
+
+		// Tertiary: set differential as tiebreaker
+		aDiff := a.SetWins - a.SetLosses
+		bDiff := b.SetWins - b.SetLosses
+		if aDiff != bDiff {
+			return aDiff > bDiff
+		}
+
+		// Final: original seed (lower is better)
 		return a.Seed < b.Seed
 	})
 }

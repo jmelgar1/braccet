@@ -94,21 +94,22 @@ type EloSystemResponse struct {
 }
 
 type MemberEloRatingResponse struct {
-	ID               uint64  `json:"id"`
-	MemberID         uint64  `json:"member_id"`
-	MemberName       *string `json:"member_name,omitempty"`
-	MemberRegion     *string `json:"member_region,omitempty"`
-	MemberIconURL    *string `json:"member_icon_url,omitempty"`
-	EloSystemID      uint64  `json:"elo_system_id"`
-	Rating           int     `json:"rating"`
-	GamesPlayed      int     `json:"games_played"`
-	GamesWon         int     `json:"games_won"`
-	CurrentWinStreak int     `json:"current_win_streak"`
-	HighestRating    int     `json:"highest_rating"`
-	LowestRating     int     `json:"lowest_rating"`
-	LastGameAt       *string `json:"last_game_at,omitempty"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID               uint64   `json:"id"`
+	MemberID         uint64   `json:"member_id"`
+	MemberName       *string  `json:"member_name,omitempty"`
+	MemberRegion     *string  `json:"member_region,omitempty"`
+	MemberIconURL    *string  `json:"member_icon_url,omitempty"`
+	EloSystemID      uint64   `json:"elo_system_id"`
+	Rating           int      `json:"rating"`
+	GamesPlayed      int      `json:"games_played"`
+	GamesWon         int      `json:"games_won"`
+	CurrentWinStreak int      `json:"current_win_streak"`
+	HighestRating    int      `json:"highest_rating"`
+	LowestRating     int      `json:"lowest_rating"`
+	LastGameAt       *string  `json:"last_game_at,omitempty"`
+	RecentResults    []string `json:"recent_results,omitempty"`
+	CreatedAt        string   `json:"created_at"`
+	UpdatedAt        string   `json:"updated_at"`
 }
 
 type EloHistoryResponse struct {
@@ -196,6 +197,13 @@ func toMemberEloRatingResponse(r *domain.MemberEloRating) MemberEloRatingRespons
 	if r.LastGameAt != nil {
 		formatted := r.LastGameAt.Format(time.RFC3339)
 		resp.LastGameAt = &formatted
+	}
+	// Convert domain.MatchResult to string slice
+	if len(r.RecentResults) > 0 {
+		resp.RecentResults = make([]string, len(r.RecentResults))
+		for i, result := range r.RecentResults {
+			resp.RecentResults[i] = string(result)
+		}
 	}
 	return resp
 }
@@ -760,4 +768,87 @@ func (h *EloHandler) RevertTournamentElo(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// RevertMatchElo reverts ELO changes for a specific match
+// DELETE /internal/elo/match/{matchId}
+func (h *EloHandler) RevertMatchElo(w http.ResponseWriter, r *http.Request) {
+	matchIDStr := chi.URLParam(r, "matchId")
+	matchID, err := strconv.ParseUint(matchIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid match ID")
+		return
+	}
+
+	if err := h.eloService.RevertMatchElo(r.Context(), matchID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to revert match ELO: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RevertMemberElo reverts a member's ELO to a specific history entry (cascade revert)
+// POST /communities/{slug}/members/{memberId}/elo/{systemId}/revert-to/{historyId}
+func (h *EloHandler) RevertMemberElo(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	slug := chi.URLParam(r, "slug")
+	community, err := h.communityRepo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "Community not found")
+		return
+	}
+
+	// Check if user is owner or admin
+	if !h.isOwnerOrAdmin(r, community, userID) {
+		writeError(w, http.StatusForbidden, "Only owner or admin can revert ELO")
+		return
+	}
+
+	memberIDStr := chi.URLParam(r, "memberId")
+	memberID, err := strconv.ParseUint(memberIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid member ID")
+		return
+	}
+
+	systemIDStr := chi.URLParam(r, "systemId")
+	systemID, err := strconv.ParseUint(systemIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid system ID")
+		return
+	}
+
+	historyIDStr := chi.URLParam(r, "historyId")
+	historyID, err := strconv.ParseUint(historyIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid history ID")
+		return
+	}
+
+	if err := h.eloService.RevertMemberToHistoryEntry(r.Context(), memberID, systemID, historyID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to revert ELO: "+err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// isOwnerOrAdmin checks if the user is an owner or admin of the community
+func (h *EloHandler) isOwnerOrAdmin(r *http.Request, community *domain.Community, userID uint64) bool {
+	if community.OwnerID == userID {
+		return true
+	}
+
+	member, err := h.memberRepo.GetByCommunityAndUser(r.Context(), community.ID, userID)
+	if err != nil {
+		return false
+	}
+
+	return member.Role == domain.RoleAdmin
 }

@@ -19,6 +19,7 @@ type GroupRepository interface {
 	UpdateGroupStanding(ctx context.Context, standing *domain.GroupStanding) error
 	DeleteGroupStandingsByStage(ctx context.Context, stageID uint64) error
 	DeleteGroupStandingsByGroup(ctx context.Context, groupID uint64) error
+	DeleteGroupStandingsByTournament(ctx context.Context, tournamentID uint64) error
 
 	// Stage standings
 	CreateStageStandings(ctx context.Context, standings []*domain.StageStanding) error
@@ -26,6 +27,7 @@ type GroupRepository interface {
 	GetAdvancingParticipants(ctx context.Context, stageID uint64) ([]*domain.StageStanding, error)
 	UpdateStageStanding(ctx context.Context, standing *domain.StageStanding) error
 	DeleteStageStandingsByStage(ctx context.Context, stageID uint64) error
+	DeleteStageStandingsByTournament(ctx context.Context, tournamentID uint64) error
 
 	// Group-scoped match queries
 	GetMatchesByGroup(ctx context.Context, tournamentID, groupID uint64) ([]*domain.Match, error)
@@ -168,6 +170,12 @@ func (r *groupRepository) DeleteGroupStandingsByGroup(ctx context.Context, group
 	return err
 }
 
+func (r *groupRepository) DeleteGroupStandingsByTournament(ctx context.Context, tournamentID uint64) error {
+	query := `DELETE FROM group_standings WHERE tournament_id = $1`
+	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
+}
+
 // Stage standings
 
 func (r *groupRepository) CreateStageStandings(ctx context.Context, standings []*domain.StageStanding) error {
@@ -288,6 +296,12 @@ func (r *groupRepository) DeleteStageStandingsByStage(ctx context.Context, stage
 	return err
 }
 
+func (r *groupRepository) DeleteStageStandingsByTournament(ctx context.Context, tournamentID uint64) error {
+	query := `DELETE FROM stage_standings WHERE tournament_id = $1`
+	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
+}
+
 // Group-scoped match queries
 
 func (r *groupRepository) GetMatchesByGroup(ctx context.Context, tournamentID, groupID uint64) ([]*domain.Match, error) {
@@ -296,7 +310,7 @@ func (r *groupRepository) GetMatchesByGroup(ctx context.Context, tournamentID, g
 		       participant1_id, participant2_id, participant1_name, participant2_name,
 		       participant1_icon_url, participant2_icon_url,
 		       seed1, seed2, winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
-		       forfeit_winner_id, created_at, updated_at
+		       forfeit_winner_id, venue_override, created_at, updated_at
 		FROM matches
 		WHERE tournament_id = $1 AND group_id = $2
 		ORDER BY bracket_type, round, position
@@ -310,7 +324,7 @@ func (r *groupRepository) GetMatchesByStage(ctx context.Context, tournamentID, s
 		       participant1_id, participant2_id, participant1_name, participant2_name,
 		       participant1_icon_url, participant2_icon_url,
 		       seed1, seed2, winner_id, status, scheduled_at, completed_at, next_match_id, loser_match_id,
-		       forfeit_winner_id, created_at, updated_at
+		       forfeit_winner_id, venue_override, created_at, updated_at
 		FROM matches
 		WHERE tournament_id = $1 AND stage_id = $2
 		ORDER BY group_id, bracket_type, round, position
@@ -334,7 +348,7 @@ func (r *groupRepository) queryMatches(ctx context.Context, query string, args .
 			&m.Participant1IconURL, &m.Participant2IconURL,
 			&m.Seed1, &m.Seed2, &m.WinnerID, &m.Status,
 			&m.ScheduledAt, &m.CompletedAt, &m.NextMatchID, &m.LoserMatchID,
-			&m.ForfeitWinnerID, &m.CreatedAt, &m.UpdatedAt,
+			&m.ForfeitWinnerID, &m.VenueOverride, &m.CreatedAt, &m.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

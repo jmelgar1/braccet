@@ -59,6 +59,7 @@ export interface TournamentStage {
   participants_per_group?: number;
   advancing_per_group?: number;
   swiss_rounds?: number;
+  skip_finals?: boolean;
   is_active: boolean;
   is_complete: boolean;
   ranking_criteria?: RankingCriterion[];
@@ -80,6 +81,7 @@ export interface StageConfigRequest {
   participants_per_group?: number;
   advancing_per_group?: number;
   swiss_rounds?: number;
+  skip_finals?: boolean;
   ranking_criteria?: RankingCriterion[];
   placement_matches?: boolean;
   placement_depth?: number;
@@ -144,6 +146,7 @@ export interface UpdateStageRequest {
   participants_per_group?: number;
   advancing_per_group?: number;
   swiss_rounds?: number;
+  skip_finals?: boolean;
   ranking_criteria?: RankingCriterion[];
 }
 

@@ -35,6 +35,15 @@ type EloSystem struct {
 	UpdatedAt time.Time
 }
 
+// MatchResult represents a single match result: 'W' for win, 'L' for loss, 'D' for draw
+type MatchResult string
+
+const (
+	MatchResultWin  MatchResult = "W"
+	MatchResultLoss MatchResult = "L"
+	MatchResultDraw MatchResult = "D"
+)
+
 type MemberEloRating struct {
 	ID               uint64
 	MemberID         uint64
@@ -53,6 +62,9 @@ type MemberEloRating struct {
 	MemberDisplayName *string
 	MemberRegion      *string
 	MemberIconURL     *string
+
+	// Recent match results (last 5), most recent first
+	RecentResults []MatchResult
 }
 
 type EloChangeType string

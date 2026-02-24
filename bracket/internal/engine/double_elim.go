@@ -11,6 +11,12 @@ import (
 // Returns all matches: winners bracket, losers bracket, and grand final.
 // Participants are seeded by their Seed field (lower = better).
 func DoubleElimination(tournamentID uint64, participants []domain.Participant) ([]*domain.Match, error) {
+	return DoubleEliminationWithOptions(tournamentID, participants, false)
+}
+
+// DoubleEliminationWithOptions generates a double elimination bracket with configurable options.
+// If skipFinals is true, the grand final match is not created.
+func DoubleEliminationWithOptions(tournamentID uint64, participants []domain.Participant, skipFinals bool) ([]*domain.Match, error) {
 	if len(participants) < 2 {
 		return nil, fmt.Errorf("need at least 2 participants, got %d", len(participants))
 	}
@@ -46,15 +52,17 @@ func DoubleElimination(tournamentID uint64, participants []domain.Participant) (
 	losersMatches := generateLosersBracket(tournamentID, bracketSize, losersRounds, winnersR1ByePositions)
 	allMatches = append(allMatches, losersMatches...)
 
-	// Generate grand final
-	grandFinal := &domain.Match{
-		TournamentID: tournamentID,
-		BracketType:  domain.BracketGrandFinal,
-		Round:        1,
-		Position:     1,
-		Status:       domain.MatchPending,
+	// Generate grand final (unless skipFinals is true)
+	if !skipFinals {
+		grandFinal := &domain.Match{
+			TournamentID: tournamentID,
+			BracketType:  domain.BracketGrandFinal,
+			Round:        1,
+			Position:     1,
+			Status:       domain.MatchPending,
+		}
+		allMatches = append(allMatches, grandFinal)
 	}
-	allMatches = append(allMatches, grandFinal)
 
 	// Process byes in round 1 of winners bracket
 	for _, match := range winnersMatches {
@@ -256,6 +264,7 @@ func LosersMatchesInRound(bracketSize, round int) int {
 
 // LinkDoubleElimMatches sets NextMatchID and LoserMatchID for all matches.
 // Must be called after matches have been saved and have IDs assigned.
+// Handles the case where grand final is not present (skip_finals mode).
 func LinkDoubleElimMatches(matches []*domain.Match) {
 	// Group matches by bracket type and round
 	winners := filterByBracketType(matches, domain.BracketWinners)
@@ -275,7 +284,7 @@ func LinkDoubleElimMatches(matches []*domain.Match) {
 	// Link winners to losers (LoserMatchID)
 	linkWinnersToLosers(winners, losers)
 
-	// Link finals to grand final
+	// Link finals to grand final (only if grand final exists)
 	if len(grandFinals) > 0 {
 		grandFinal := grandFinals[0]
 
@@ -291,6 +300,7 @@ func LinkDoubleElimMatches(matches []*domain.Match) {
 			losersFinal.NextMatchID = &grandFinal.ID
 		}
 	}
+	// If no grand final (skip_finals mode), winners and losers finals have no NextMatchID
 }
 
 // linkWinnersNextMatch links winners bracket matches to their next match.

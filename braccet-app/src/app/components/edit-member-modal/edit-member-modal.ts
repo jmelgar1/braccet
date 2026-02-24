@@ -201,9 +201,66 @@ export class EditMemberModal {
     this.iconPreview.set(null);
   }
 
-  // Check if selected file is SVG (SVGs cannot be cropped)
+  // Check if selected file is SVG (SVGs cannot be cropped directly)
   isSvgFile(): boolean {
     return this.selectedFile()?.type === 'image/svg+xml';
+  }
+
+  // Convert SVG to PNG using canvas, then enable cropping
+  convertSvgToPng(): void {
+    const preview = this.iconPreview();
+    if (!preview || !this.isSvgFile()) return;
+
+    const img = new Image();
+    img.onload = () => {
+      // Create canvas at a reasonable size (512px for high quality cropping)
+      const size = 512;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        this.error.set('Failed to create canvas context');
+        return;
+      }
+
+      // Fill with transparent background
+      ctx.clearRect(0, 0, size, size);
+
+      // Calculate scaling to fit SVG in canvas while maintaining aspect ratio
+      const scale = Math.min(size / img.width, size / img.height);
+      const scaledWidth = img.width * scale;
+      const scaledHeight = img.height * scale;
+      const x = (size - scaledWidth) / 2;
+      const y = (size - scaledHeight) / 2;
+
+      ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          this.error.set('Failed to convert SVG to PNG');
+          return;
+        }
+
+        // Create new PNG file from canvas
+        const pngFile = new File([blob], 'converted-icon.png', { type: 'image/png' });
+        this.selectedFile.set(pngFile);
+
+        // Update preview with PNG data URL
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          this.iconPreview.set(e.target?.result as string);
+        };
+        reader.readAsDataURL(pngFile);
+      }, 'image/png');
+    };
+
+    img.onerror = () => {
+      this.error.set('Failed to load SVG for conversion');
+    };
+
+    img.src = preview;
   }
 
   // Cropper methods

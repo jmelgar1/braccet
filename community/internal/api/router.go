@@ -55,6 +55,7 @@ func NewRouter(
 			r.Get("/systems/{id}", eloHandler.GetSystemByID)
 			r.Post("/bulk-ratings", eloHandler.GetBulkMemberRatings)
 			r.Delete("/tournament/{tournamentId}", eloHandler.RevertTournamentElo)
+			r.Delete("/match/{matchId}", eloHandler.RevertMatchElo)
 		})
 	})
 
@@ -84,6 +85,7 @@ func NewRouter(
 			r.Post("/{memberId}/icon/upload-url", uploadHandler.GetMemberIconUploadURL)
 			r.Get("/{memberId}/elo", eloHandler.GetMemberRatings)
 			r.Get("/{memberId}/elo/{systemId}/history", eloHandler.GetMemberHistory)
+			r.Post("/{memberId}/elo/{systemId}/revert-to/{historyId}", eloHandler.RevertMemberElo)
 		})
 
 		// Leaderboard (legacy)

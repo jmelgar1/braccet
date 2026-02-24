@@ -184,7 +184,25 @@ func (r *memberEloRatingRepository) GetLeaderboard(ctx context.Context, systemID
 	query := `
 		SELECT mer.id, mer.member_id, mer.elo_system_id, mer.rating, mer.games_played, mer.games_won,
 			mer.current_win_streak, mer.highest_rating, mer.lowest_rating, mer.last_game_at,
-			mer.created_at, mer.updated_at, cm.display_name, cm.region, cm.icon_url
+			mer.created_at, mer.updated_at, cm.display_name, cm.region, cm.icon_url,
+			(
+				SELECT COALESCE(string_agg(
+					CASE
+						WHEN eh.is_winner = true THEN 'W'
+						WHEN eh.is_winner = false THEN 'L'
+						ELSE 'D'
+					END, ','
+				ORDER BY eh.created_at DESC), '')
+				FROM (
+					SELECT eh.is_winner, eh.created_at
+					FROM elo_history eh
+					WHERE eh.member_id = mer.member_id
+						AND eh.elo_system_id = mer.elo_system_id
+						AND eh.change_type = 'match'
+					ORDER BY eh.created_at DESC
+					LIMIT 5
+				) eh
+			) as recent_results
 		FROM member_elo_ratings mer
 		JOIN community_members cm ON cm.id = mer.member_id
 		WHERE mer.elo_system_id = $1
@@ -200,13 +218,22 @@ func (r *memberEloRatingRepository) GetLeaderboard(ctx context.Context, systemID
 	var ratings []*domain.MemberEloRating
 	for rows.Next() {
 		rating := &domain.MemberEloRating{}
+		var recentResultsStr string
 		err := rows.Scan(
 			&rating.ID, &rating.MemberID, &rating.EloSystemID, &rating.Rating, &rating.GamesPlayed, &rating.GamesWon,
 			&rating.CurrentWinStreak, &rating.HighestRating, &rating.LowestRating, &rating.LastGameAt,
 			&rating.CreatedAt, &rating.UpdatedAt, &rating.MemberDisplayName, &rating.MemberRegion, &rating.MemberIconURL,
+			&recentResultsStr,
 		)
 		if err != nil {
 			return nil, err
+		}
+		// Parse the recent results string into a slice
+		if recentResultsStr != "" {
+			parts := strings.Split(recentResultsStr, ",")
+			for _, p := range parts {
+				rating.RecentResults = append(rating.RecentResults, domain.MatchResult(p))
+			}
 		}
 		ratings = append(ratings, rating)
 	}

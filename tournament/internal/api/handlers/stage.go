@@ -45,6 +45,7 @@ type StageConfigRequest struct {
 	ParticipantsPerGroup *int     `json:"participants_per_group,omitempty"`
 	AdvancingPerGroup    *int     `json:"advancing_per_group,omitempty"`
 	SwissRounds          *int     `json:"swiss_rounds,omitempty"`
+	SkipFinals           *bool    `json:"skip_finals,omitempty"`
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
 	PlacementMatches     *bool    `json:"placement_matches,omitempty"`
 	PlacementDepth       *int     `json:"placement_depth,omitempty"`
@@ -71,6 +72,7 @@ type StageResponse struct {
 	ParticipantsPerGroup *int     `json:"participants_per_group,omitempty"`
 	AdvancingPerGroup    *int     `json:"advancing_per_group,omitempty"`
 	SwissRounds          *int     `json:"swiss_rounds,omitempty"`
+	SkipFinals           bool     `json:"skip_finals"`
 	IsActive             bool     `json:"is_active"`
 	IsComplete           bool     `json:"is_complete"`
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
@@ -91,6 +93,7 @@ type UpdateStageRequest struct {
 	ParticipantsPerGroup *int     `json:"participants_per_group,omitempty"`
 	AdvancingPerGroup    *int     `json:"advancing_per_group,omitempty"`
 	SwissRounds          *int     `json:"swiss_rounds,omitempty"`
+	SkipFinals           *bool    `json:"skip_finals,omitempty"`
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
 }
 
@@ -118,6 +121,26 @@ type UpdateStageSeedsRequest struct {
 	Seeds []SeedInput `json:"seeds"`
 }
 
+// Stage participant pool types (for assigning participants to starting stages)
+type StagePoolConfigInput struct {
+	StageID uint64 `json:"stage_id"`
+	Count   int    `json:"count"`
+}
+
+type UpdateStagePoolRequest struct {
+	Config []StagePoolConfigInput `json:"config"`
+}
+
+type StagePoolEntryResponse struct {
+	ParticipantID uint64 `json:"participant_id"`
+	StageID       uint64 `json:"stage_id"`
+	StageOrder    int    `json:"stage_order"`
+}
+
+type StagePoolResponse struct {
+	Entries []StagePoolEntryResponse `json:"entries"`
+}
+
 func toStageResponse(s *domain.TournamentStage, criteria []*domain.StageRankingCriteria) StageResponse {
 	resp := StageResponse{
 		ID:                   s.ID,
@@ -128,6 +151,7 @@ func toStageResponse(s *domain.TournamentStage, criteria []*domain.StageRankingC
 		ParticipantsPerGroup: s.ParticipantsPerGroup,
 		AdvancingPerGroup:    s.AdvancingPerGroup,
 		SwissRounds:          s.SwissRounds,
+		SkipFinals:           s.SkipFinals,
 		IsActive:             s.IsActive,
 		IsComplete:           s.IsComplete,
 		CreatedAt:            s.CreatedAt.Format(time.RFC3339),
@@ -244,6 +268,10 @@ func (h *StageHandler) CreateMultiStage(w http.ResponseWriter, r *http.Request) 
 
 	// Create group stages (order 1, 2, 3)
 	for i, stageReq := range req.GroupStages {
+		skipFinals := false
+		if stageReq.SkipFinals != nil {
+			skipFinals = *stageReq.SkipFinals
+		}
 		stage := &domain.TournamentStage{
 			TournamentID:         tournament.ID,
 			StageOrder:           i + 1,
@@ -252,6 +280,8 @@ func (h *StageHandler) CreateMultiStage(w http.ResponseWriter, r *http.Request) 
 			ParticipantsPerGroup: stageReq.ParticipantsPerGroup,
 			AdvancingPerGroup:    stageReq.AdvancingPerGroup,
 			SwissRounds:          stageReq.SwissRounds,
+			VenueType:            domain.VenueTypeOnline, // Default to online
+			SkipFinals:           skipFinals,
 			IsActive:             i == 0, // First stage is active by default
 			IsComplete:           false,
 		}
@@ -301,12 +331,18 @@ func (h *StageHandler) CreateMultiStage(w http.ResponseWriter, r *http.Request) 
 
 	// Create final stage (order 0)
 	if req.FinalStage != nil {
+		finalSkipFinals := false
+		if req.FinalStage.SkipFinals != nil {
+			finalSkipFinals = *req.FinalStage.SkipFinals
+		}
 		finalStage := &domain.TournamentStage{
 			TournamentID: tournament.ID,
 			StageOrder:   0, // Final stage uses order 0
 			StageType:    domain.StageTypeFinal,
 			Format:       domain.TournamentFormat(req.FinalStage.Format),
 			SwissRounds:  req.FinalStage.SwissRounds,
+			VenueType:    domain.VenueTypeOnline, // Default to online
+			SkipFinals:   finalSkipFinals,
 			IsActive:     false,
 			IsComplete:   false,
 		}
@@ -505,16 +541,46 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get participants
-	participants, err := h.participantRepo.GetByTournament(r.Context(), tournament.ID)
+	// Get participants for this stage
+	// First check if there's a stage pool configured
+	poolEntries, err := h.stageRepo.GetParticipantPoolByStage(r.Context(), activeStage.ID)
 	if err != nil {
-		log.Printf("Error fetching participants: %v", err)
-		writeError(w, http.StatusInternalServerError, "failed to fetch participants")
+		log.Printf("Error fetching participant pool: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch participant pool")
 		return
+	}
+
+	var participants []*domain.Participant
+	if len(poolEntries) == 0 {
+		// No pool configured - use all participants (backward compatibility)
+		participants, err = h.participantRepo.GetByTournament(r.Context(), tournament.ID)
+		if err != nil {
+			log.Printf("Error fetching participants: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to fetch participants")
+			return
+		}
+	} else {
+		// Pool configured - only use participants assigned to this stage
+		participantIDs := make([]uint64, len(poolEntries))
+		for i, e := range poolEntries {
+			participantIDs[i] = e.ParticipantID
+		}
+		participants, err = h.participantRepo.GetByIDs(r.Context(), participantIDs)
+		if err != nil {
+			log.Printf("Error fetching participants by IDs: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to fetch participants")
+			return
+		}
 	}
 
 	if len(participants) < 2 {
 		writeError(w, http.StatusBadRequest, "at least 2 participants required to start")
+		return
+	}
+
+	// Validate participant count for stage format
+	if err := validateParticipantCountForStage(activeStage, len(participants)); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -558,6 +624,61 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error creating assignments: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create assignments")
 		return
+	}
+
+	// Create brackets for each group
+	// Build a map of group assignments for easy lookup
+	groupAssignmentsMap := make(map[uint64][]*domain.GroupAssignment)
+	for _, a := range assignments {
+		groupAssignmentsMap[a.GroupID] = append(groupAssignmentsMap[a.GroupID], a)
+	}
+
+	// Create a map of participant ID to participant for lookup
+	participantMap := make(map[uint64]*domain.Participant)
+	for _, p := range participants {
+		participantMap[p.ID] = p
+	}
+
+	for _, group := range groups {
+		groupAssignments := groupAssignmentsMap[group.ID]
+		if len(groupAssignments) < 2 {
+			continue // Skip groups with fewer than 2 participants
+		}
+
+		// Build participant list for this group
+		groupParticipants := make([]client.Participant, 0, len(groupAssignments))
+		for _, a := range groupAssignments {
+			p := participantMap[a.ParticipantID]
+			if p != nil {
+				seed := 0
+				if a.SeedInGroup != nil {
+					seed = *a.SeedInGroup
+				}
+				groupParticipants = append(groupParticipants, client.Participant{
+					ID:   p.ID,
+					Name: p.DisplayName,
+					Seed: seed,
+					// IconURL is fetched from member data if needed
+				})
+			}
+		}
+
+		// Call bracket service to create the bracket
+		bracketReq := client.CreateGroupBracketRequest{
+			TournamentID: tournament.ID,
+			StageID:      activeStage.ID,
+			GroupID:      group.ID,
+			Format:       string(activeStage.Format),
+			Participants: groupParticipants,
+			SwissRounds:  activeStage.SwissRounds,
+			SkipFinals:   activeStage.SkipFinals,
+		}
+
+		if err := h.bracketClient.CreateGroupBracket(r.Context(), bracketReq); err != nil {
+			log.Printf("Error creating bracket for group %d: %v", group.ID, err)
+			writeError(w, http.StatusInternalServerError, "failed to create bracket for group "+group.GroupName)
+			return
+		}
 	}
 
 	// Update tournament status to in_progress if in registration
@@ -828,6 +949,10 @@ func (h *StageHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 
 	if req.SwissRounds != nil {
 		stage.SwissRounds = req.SwissRounds
+	}
+
+	if req.SkipFinals != nil {
+		stage.SkipFinals = *req.SkipFinals
 	}
 
 	// Update stage
@@ -1230,4 +1355,306 @@ func (h *StageHandler) UpdateStageSeeds(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+// Stage Participant Pool handlers
+
+// GetStagePool returns the current participant pool assignments for a tournament
+func (h *StageHandler) GetStagePool(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
+		return
+	}
+
+	tournament, err := h.tournamentRepo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrTournamentNotFound) {
+			writeError(w, http.StatusNotFound, "tournament not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournament")
+		return
+	}
+
+	if tournament.Format != domain.FormatMultiStage {
+		writeError(w, http.StatusBadRequest, "tournament is not a multi-stage tournament")
+		return
+	}
+
+	// Get pool entries
+	entries, err := h.stageRepo.GetParticipantPoolByTournament(r.Context(), tournament.ID)
+	if err != nil {
+		log.Printf("Error fetching participant pool: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch participant pool")
+		return
+	}
+
+	// Get stages for stage_order lookup
+	stages, err := h.stageRepo.GetStagesByTournament(r.Context(), tournament.ID)
+	if err != nil {
+		log.Printf("Error fetching stages: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch stages")
+		return
+	}
+
+	stageOrderMap := make(map[uint64]int)
+	for _, s := range stages {
+		stageOrderMap[s.ID] = s.StageOrder
+	}
+
+	poolResponse := StagePoolResponse{
+		Entries: make([]StagePoolEntryResponse, len(entries)),
+	}
+	for i, e := range entries {
+		poolResponse.Entries[i] = StagePoolEntryResponse{
+			ParticipantID: e.ParticipantID,
+			StageID:       e.StageID,
+			StageOrder:    stageOrderMap[e.StageID],
+		}
+	}
+
+	writeJSON(w, http.StatusOK, poolResponse)
+}
+
+// UpdateStagePool auto-seeds participants to stages based on tournament seeding
+func (h *StageHandler) UpdateStagePool(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
+		return
+	}
+
+	tournament, err := h.tournamentRepo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrTournamentNotFound) {
+			writeError(w, http.StatusNotFound, "tournament not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournament")
+		return
+	}
+
+	if tournament.OrganizerID != userID {
+		writeError(w, http.StatusForbidden, "only the organizer can update the stage pool")
+		return
+	}
+
+	if tournament.Status != domain.StatusRegistration {
+		writeError(w, http.StatusBadRequest, "tournament must be in registration status")
+		return
+	}
+
+	if tournament.Format != domain.FormatMultiStage {
+		writeError(w, http.StatusBadRequest, "tournament is not a multi-stage tournament")
+		return
+	}
+
+	var req UpdateStagePoolRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Get stages
+	stages, err := h.stageRepo.GetStagesByTournament(r.Context(), tournament.ID)
+	if err != nil {
+		log.Printf("Error fetching stages: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch stages")
+		return
+	}
+
+	stageMap := make(map[uint64]*domain.TournamentStage)
+	for _, s := range stages {
+		stageMap[s.ID] = s
+	}
+
+	// Validate all stage IDs belong to this tournament
+	for _, c := range req.Config {
+		if _, exists := stageMap[c.StageID]; !exists {
+			writeError(w, http.StatusBadRequest, "stage not found in tournament")
+			return
+		}
+		if c.Count < 0 {
+			writeError(w, http.StatusBadRequest, "count cannot be negative")
+			return
+		}
+	}
+
+	// Get participants ordered by seed
+	participants, err := h.participantRepo.GetByTournament(r.Context(), tournament.ID)
+	if err != nil {
+		log.Printf("Error fetching participants: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch participants")
+		return
+	}
+
+	// Validate total counts
+	totalConfigured := 0
+	for _, c := range req.Config {
+		totalConfigured += c.Count
+	}
+
+	if totalConfigured > len(participants) {
+		writeError(w, http.StatusBadRequest, "total count exceeds number of participants")
+		return
+	}
+
+	// Validate participant counts for each stage format
+	for _, c := range req.Config {
+		stage := stageMap[c.StageID]
+		if c.Count > 0 {
+			if err := validateParticipantCountForStage(stage, c.Count); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+	}
+
+	// Find the first stage (lowest stage_order > 0) for remaining participants
+	var firstStageID uint64
+	firstStageOrder := 999
+	for _, s := range stages {
+		if s.StageOrder > 0 && s.StageOrder < firstStageOrder {
+			firstStageOrder = s.StageOrder
+			firstStageID = s.ID
+		}
+	}
+
+	// Build pool entries
+	entries := make([]*domain.StageParticipantPool, 0, len(participants))
+	cursor := 0
+
+	// Process configured stages (take top N participants for each)
+	for _, c := range req.Config {
+		for i := 0; i < c.Count && cursor < len(participants); i++ {
+			entries = append(entries, &domain.StageParticipantPool{
+				TournamentID:  tournament.ID,
+				StageID:       c.StageID,
+				ParticipantID: participants[cursor].ID,
+			})
+			cursor++
+		}
+	}
+
+	// Remaining participants go to first stage
+	for cursor < len(participants) {
+		entries = append(entries, &domain.StageParticipantPool{
+			TournamentID:  tournament.ID,
+			StageID:       firstStageID,
+			ParticipantID: participants[cursor].ID,
+		})
+		cursor++
+	}
+
+	// Validate remaining participants count for first stage
+	remainingCount := len(participants) - totalConfigured
+	if remainingCount > 0 && firstStageID != 0 {
+		firstStage := stageMap[firstStageID]
+		if err := validateParticipantCountForStage(firstStage, remainingCount); err != nil {
+			writeError(w, http.StatusBadRequest, "remaining participants: "+err.Error())
+			return
+		}
+	}
+
+	// Save pool entries
+	if err := h.stageRepo.ReplaceParticipantPool(r.Context(), tournament.ID, entries); err != nil {
+		log.Printf("Error saving participant pool: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save participant pool")
+		return
+	}
+
+	// Build response
+	stageOrderMap := make(map[uint64]int)
+	for _, s := range stages {
+		stageOrderMap[s.ID] = s.StageOrder
+	}
+
+	poolResponse := StagePoolResponse{
+		Entries: make([]StagePoolEntryResponse, len(entries)),
+	}
+	for i, e := range entries {
+		poolResponse.Entries[i] = StagePoolEntryResponse{
+			ParticipantID: e.ParticipantID,
+			StageID:       e.StageID,
+			StageOrder:    stageOrderMap[e.StageID],
+		}
+	}
+
+	writeJSON(w, http.StatusOK, poolResponse)
+}
+
+// ClearStagePool removes all stage pool assignments
+func (h *StageHandler) ClearStagePool(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
+		return
+	}
+
+	tournament, err := h.tournamentRepo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrTournamentNotFound) {
+			writeError(w, http.StatusNotFound, "tournament not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournament")
+		return
+	}
+
+	if tournament.OrganizerID != userID {
+		writeError(w, http.StatusForbidden, "only the organizer can clear the stage pool")
+		return
+	}
+
+	if tournament.Status != domain.StatusRegistration {
+		writeError(w, http.StatusBadRequest, "tournament must be in registration status")
+		return
+	}
+
+	if tournament.Format != domain.FormatMultiStage {
+		writeError(w, http.StatusBadRequest, "tournament is not a multi-stage tournament")
+		return
+	}
+
+	if err := h.stageRepo.DeleteParticipantPoolByTournament(r.Context(), tournament.ID); err != nil {
+		log.Printf("Error clearing participant pool: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to clear participant pool")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateParticipantCountForStage validates that the participant count is valid for a stage format
+func validateParticipantCountForStage(stage *domain.TournamentStage, count int) error {
+	if count < 2 {
+		return errors.New("need at least 2 participants for stage")
+	}
+
+	if stage.StageType == domain.StageTypeGroup {
+		perGroup := 4
+		if stage.ParticipantsPerGroup != nil {
+			perGroup = *stage.ParticipantsPerGroup
+		}
+
+		// Need enough participants to fill at least one group
+		if count < perGroup {
+			return errors.New("need at least " + strconv.Itoa(perGroup) + " participants for group stage, got " + strconv.Itoa(count))
+		}
+	}
+
+	return nil
 }

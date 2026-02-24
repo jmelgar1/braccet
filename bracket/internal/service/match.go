@@ -665,6 +665,21 @@ func (s *matchService) processEloUpdate(ctx context.Context, match *domain.Match
 	)
 }
 
+// revertMatchElo reverts ELO changes for a reopened match.
+// This runs asynchronously and logs errors rather than failing the reopen.
+func (s *matchService) revertMatchElo(ctx context.Context, matchID uint64) {
+	if s.communityClient == nil {
+		return
+	}
+
+	if err := s.communityClient.RevertMatchElo(ctx, matchID); err != nil {
+		log.Printf("ELO: failed to revert match %d: %v", matchID, err)
+		return
+	}
+
+	log.Printf("ELO: match %d reverted", matchID)
+}
+
 // ReopenMatch reopens a completed match, clearing its result and cascading
 // the changes to all downstream matches that were affected.
 func (s *matchService) ReopenMatch(ctx context.Context, matchID uint64) ([]*domain.Match, error) {
@@ -790,6 +805,9 @@ func (s *matchService) reopenMatchCascade(ctx context.Context, match *domain.Mat
 	if err := s.repo.ReopenMatch(ctx, match.ID); err != nil {
 		return err
 	}
+
+	// Revert ELO for this match (async, best-effort like processEloUpdate)
+	go s.revertMatchElo(context.Background(), match.ID)
 
 	// Track this match as reopened (update local state for return)
 	match.WinnerID = nil
@@ -1179,8 +1197,16 @@ func calculatePlacement(ps *participantStats, isDoubleElim bool, totalWinnersRou
 		return "2nd"
 	}
 
-	// If participant hasn't been eliminated yet, no placement
-	if ps.losses == 0 && !ps.isChampion {
+	// If participant hasn't lost any matches yet, no placement
+	if ps.losses == 0 {
+		return ""
+	}
+
+	// In double elimination, losing in winners bracket just drops you to losers - not eliminated.
+	// Participant is only eliminated when they lose in losers bracket (or grand final).
+	// bracketType tracks the bracket where they LAST lost, so if it's still "winners",
+	// they haven't lost in losers yet and are still competing.
+	if isDoubleElim && ps.bracketType == domain.BracketWinners {
 		return ""
 	}
 
@@ -1194,25 +1220,17 @@ func calculatePlacement(ps *participantStats, isDoubleElim bool, totalWinnersRou
 		return placementFromRoundsEliminated(roundsFromFinal, participantCount)
 	}
 
-	// For double elimination, placement is more complex
-	// Losers bracket losers are ranked below winners bracket losers of same "depth"
+	// For double elimination, placement is based on where they were eliminated
+	// bracketType == losers means they lost their last match in losers bracket
 	if ps.bracketType == domain.BracketLosers {
-		// In losers bracket, even rounds are "drop-in" rounds, odd rounds are elimination
-		// Higher losers round = better placement
-		roundsFromFinal := totalLosersRounds - ps.losersRound
+		// Use finalRound (the round they lost in) not losersRound (the round they last won)
+		roundsFromFinal := totalLosersRounds - ps.finalRound
 		return placementFromLosersRound(roundsFromFinal, totalLosersRounds, participantCount)
 	}
 
-	// Eliminated from winners bracket (dropped to losers but lost there)
-	// Their final placement depends on how far they got in losers
-	if ps.losersRound > 0 {
-		roundsFromFinal := totalLosersRounds - ps.losersRound
-		return placementFromLosersRound(roundsFromFinal, totalLosersRounds, participantCount)
-	}
-
-	// Eliminated from winners bracket round 1 and then from losers
-	roundsFromFinal := totalWinnersRounds - ps.winnersRound
-	return placementFromRoundsEliminated(roundsFromFinal, participantCount)
+	// bracketType == grand_final and not champion/runner-up shouldn't happen,
+	// but fall through to a default placement just in case
+	return ""
 }
 
 // placementFromRoundsEliminated calculates placement for single elimination.

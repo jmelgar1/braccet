@@ -56,6 +56,12 @@ type EloService interface {
 
 	// Tournament reversal
 	RevertTournamentElo(ctx context.Context, tournamentID uint64) error
+
+	// Match reversal
+	RevertMatchElo(ctx context.Context, matchID uint64) error
+
+	// Member history reversal (manual cascade revert to a specific history entry)
+	RevertMemberToHistoryEntry(ctx context.Context, memberID, systemID, historyID uint64) error
 }
 
 type eloService struct {
@@ -405,6 +411,156 @@ func (s *eloService) RevertTournamentElo(ctx context.Context, tournamentID uint6
 
 	// Delete all history records for this tournament
 	if err := s.historyRepo.DeleteByTournament(ctx, tournamentID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RevertMatchElo reverses ELO changes for a specific match.
+// This is used when reopening a completed match to correct results.
+func (s *eloService) RevertMatchElo(ctx context.Context, matchID uint64) error {
+	// Get all history records for this match (should be 2: one for each participant)
+	history, err := s.historyRepo.GetByMatch(ctx, matchID)
+	if err != nil {
+		return err
+	}
+
+	// If no history, nothing to revert (match wasn't ELO-tracked)
+	if len(history) == 0 {
+		return nil
+	}
+
+	// Get the ELO system to know the floor rating
+	system, err := s.systemRepo.GetByID(ctx, history[0].EloSystemID)
+	if err != nil {
+		return err
+	}
+
+	// Process each history record and reverse the rating change
+	for _, h := range history {
+		// Only process match-type changes
+		if h.ChangeType != domain.EloChangeMatch {
+			continue
+		}
+
+		wasWinner := h.IsWinner != nil && *h.IsWinner
+
+		// Apply the reversion to member_elo_ratings
+		if err := s.ratingRepo.ApplyRatingReversion(ctx, h.MemberID, h.EloSystemID, h.RatingChange, wasWinner, system.FloorRating); err != nil {
+			// Log but continue - we want to revert both participants
+			continue
+		}
+
+		// Get the current rating after reversion
+		rating, err := s.ratingRepo.GetByMemberAndSystem(ctx, h.MemberID, system.ID)
+		var newRating *int
+		if err == nil {
+			// If games_played is 0, remove from leaderboard
+			if rating.GamesPlayed == 0 {
+				_ = s.ratingRepo.DeleteByMemberAndSystem(ctx, h.MemberID, system.ID)
+				newRating = nil
+			} else {
+				newRating = &rating.Rating
+			}
+		}
+
+		// Update community_members denormalized stats
+		_ = s.memberRepo.DecrementMatchStats(ctx, h.MemberID, wasWinner, newRating)
+	}
+
+	// Delete history records for this match
+	if err := s.historyRepo.DeleteByMatch(ctx, matchID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RevertMemberToHistoryEntry reverts a member's ELO to a specific history entry.
+// This cascade-reverts all entries after the target entry for that member only.
+func (s *eloService) RevertMemberToHistoryEntry(ctx context.Context, memberID, systemID, historyID uint64) error {
+	// Get the target history entry
+	target, err := s.historyRepo.GetByID(ctx, historyID)
+	if err != nil {
+		return err
+	}
+
+	// Validate the entry belongs to the specified member and system
+	if target.MemberID != memberID || target.EloSystemID != systemID {
+		return errors.New("history entry does not belong to the specified member/system")
+	}
+
+	// Get all history for this member+system (ordered by created_at DESC)
+	history, err := s.historyRepo.GetByMemberAndSystem(ctx, memberID, systemID, 1000)
+	if err != nil {
+		return err
+	}
+
+	// Get the ELO system for floor rating
+	system, err := s.systemRepo.GetByID(ctx, systemID)
+	if err != nil {
+		return err
+	}
+
+	// Find entries newer than the target (to be reverted)
+	// History is ordered DESC, so entries before the target index are newer
+	var entriesToRevert []*domain.EloHistory
+	for _, h := range history {
+		if h.ID == historyID {
+			break // Stop when we reach the target
+		}
+		entriesToRevert = append(entriesToRevert, h)
+	}
+
+	// If nothing to revert, we're done
+	if len(entriesToRevert) == 0 {
+		return nil
+	}
+
+	// Track stats for community_members update
+	gamesReverted := 0
+	winsReverted := 0
+
+	// Process each entry to revert (already in newest-first order)
+	for _, h := range entriesToRevert {
+		if h.ChangeType != domain.EloChangeMatch {
+			continue
+		}
+
+		wasWinner := h.IsWinner != nil && *h.IsWinner
+
+		// Apply the reversion to member_elo_ratings
+		if err := s.ratingRepo.ApplyRatingReversion(ctx, h.MemberID, h.EloSystemID, h.RatingChange, wasWinner, system.FloorRating); err != nil {
+			continue
+		}
+
+		gamesReverted++
+		if wasWinner {
+			winsReverted++
+		}
+	}
+
+	// Get the current rating after all reversions
+	rating, err := s.ratingRepo.GetByMemberAndSystem(ctx, memberID, systemID)
+	var newRating *int
+	if err == nil {
+		if rating.GamesPlayed == 0 {
+			_ = s.ratingRepo.DeleteByMemberAndSystem(ctx, memberID, systemID)
+			newRating = nil
+		} else {
+			newRating = &rating.Rating
+		}
+	}
+
+	// Update community_members denormalized stats
+	for i := 0; i < gamesReverted; i++ {
+		wasWin := i < winsReverted
+		_ = s.memberRepo.DecrementMatchStats(ctx, memberID, wasWin, newRating)
+	}
+
+	// Delete all history entries after the target
+	if err := s.historyRepo.DeleteAfter(ctx, memberID, systemID, target.CreatedAt); err != nil {
 		return err
 	}
 
