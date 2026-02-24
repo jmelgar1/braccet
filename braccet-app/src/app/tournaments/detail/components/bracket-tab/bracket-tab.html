@@ -8,6 +8,22 @@
       }
     </h3>
     <div class="flex gap-2">
+      @if (showAdvanceRoundButton()) {
+        <button
+          (click)="advanceSwissRound()"
+          [disabled]="!canAdvanceSwissRound() || advancingRound()"
+          class="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+          [class]="canAdvanceSwissRound() && !advancingRound()
+            ? 'bg-blue-500 text-white hover:bg-blue-600'
+            : 'bg-gray-200 text-gray-400 cursor-not-allowed'"
+        >
+          @if (advancingRound()) {
+            Advancing...
+          } @else {
+            Advance Round
+          }
+        </button>
+      }
       @if (showResetButton()) {
         <button
           (click)="showResetConfirmDialog()"
@@ -58,8 +74,17 @@
     <!-- Bracket content -->
     <div class="flex-1 overflow-hidden flex flex-col min-h-0">
       @if (isPreviewMode()) {
-        <!-- Preview mode: client-generated bracket -->
-        @if (preview()) {
+        <!-- Preview mode -->
+        @if (isSwiss()) {
+          <!-- Swiss format: no preview available -->
+          <div class="flex items-center justify-center h-full text-gray-500">
+            <div class="text-center">
+              <p class="text-lg font-medium">Swiss Tournament</p>
+              <p class="text-sm mt-1">Swiss pairings will be generated when the tournament starts.</p>
+              <p class="text-sm mt-1 text-gray-400">Matches are paired based on standings after each round.</p>
+            </div>
+          </div>
+        } @else if (preview()) {
           <div class="mb-4 px-3 py-2 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p class="text-sm text-yellow-800">
               This is a preview based on current seeding. The actual bracket will be generated when the tournament starts.
@@ -86,7 +111,26 @@
         }
       } @else {
         <!-- Actual bracket mode -->
-        @if (bracketState()) {
+        @if (isSwiss()) {
+          <!-- Swiss format -->
+          @if (swissBracketState()) {
+            <div class="flex-1 min-h-0">
+              <app-swiss-bracket
+                [bracketState]="swissBracketState()!"
+                [isPreview]="false"
+                [isOrganizer]="isOrganizer()"
+                (matchClicked)="onMatchClicked($event)"
+                (matchReopened)="onMatchReopened($event)"
+                (matchEditClicked)="onMatchEditClicked($event)"
+                (stageClicked)="onSwissStageClicked($event)"
+              />
+            </div>
+          } @else {
+            <div class="flex items-center justify-center h-full text-gray-500">
+              <p>No Swiss bracket available</p>
+            </div>
+          }
+        } @else if (bracketState()) {
           @if (isDoubleElimination()) {
             <app-double-elim-bracket
               [preview]="{
@@ -148,6 +192,7 @@
   <app-edit-stage-modal
     [tournamentId]="tournament().id"
     [stage]="selectedStage()!"
+    [hideNameField]="hideStageNameField()"
     (close)="closeStageModal()"
     (stageUpdated)="onStageUpdated($event)"
   />

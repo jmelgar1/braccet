@@ -4,8 +4,9 @@ import { User } from '../../../../services/auth.service';
 import { BracketTab } from '../bracket-tab/bracket-tab';
 import { ParticipantsTab } from '../participants-tab/participants-tab';
 import { SettingsTab } from '../settings-tab/settings-tab';
+import { StandingsTab } from '../standings-tab/standings-tab';
 
-type TabId = 'bracket' | 'participants' | 'settings';
+type TabId = 'bracket' | 'participants' | 'standings' | 'settings';
 
 interface Tab {
   id: TabId;
@@ -14,7 +15,7 @@ interface Tab {
 
 @Component({
   selector: 'app-side-panel',
-  imports: [BracketTab, ParticipantsTab, SettingsTab],
+  imports: [BracketTab, ParticipantsTab, SettingsTab, StandingsTab],
   templateUrl: './side-panel.html'
 })
 export class SidePanel {
@@ -41,10 +42,16 @@ export class SidePanel {
   activeTab = signal<TabId>('bracket');
 
   tabs = computed<Tab[]>(() => {
+    const t = this.tournament();
     const baseTabs: Tab[] = [
       { id: 'bracket', label: 'Bracket' },
       { id: 'participants', label: 'Participants' }
     ];
+
+    // Add standings tab for all formats when tournament is in progress or completed
+    if (t.status === 'in_progress' || t.status === 'completed') {
+      baseTabs.push({ id: 'standings', label: 'Standings' });
+    }
 
     // Add settings tab only for organizers
     if (this.isOrganizer()) {

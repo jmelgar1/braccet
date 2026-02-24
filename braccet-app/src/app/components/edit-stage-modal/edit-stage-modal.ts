@@ -1,6 +1,6 @@
 import { Component, input, output, signal, inject, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { BracketStage, UpdateStageRequest } from '../../models/bracket.model';
+import { BracketStage, UpdateStageRequest, BracketType } from '../../models/bracket.model';
 import { BracketService } from '../../services/bracket.service';
 
 @Component({
@@ -14,6 +14,7 @@ export class EditStageModal {
 
   tournamentId = input.required<number>();
   stage = input.required<BracketStage>();
+  hideNameField = input(false); // Hide stage name field (for Swiss brackets)
 
   close = output<void>();
   stageUpdated = output<BracketStage>();
@@ -42,9 +43,14 @@ export class EditStageModal {
     this.error.set('');
 
     const request: UpdateStageRequest = {
-      stage_name: this.stageName(),
-      best_of: this.bestOf()
+      best_of: this.bestOf(),
+      bracket_type: this.stage().bracket_type as BracketType
     };
+
+    // Only include stage_name if we're not hiding the field
+    if (!this.hideNameField()) {
+      request.stage_name = this.stageName();
+    }
 
     this.bracketService.updateStage(this.tournamentId(), this.stage().round, request)
       .subscribe({

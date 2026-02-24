@@ -7,9 +7,10 @@ export interface Tournament {
   name: string;
   description?: string;
   game?: string;
-  format: 'single_elimination' | 'double_elimination';
+  format: 'single_elimination' | 'double_elimination' | 'swiss';
   status: 'registration' | 'in_progress' | 'completed' | 'cancelled';
   max_participants?: number;
+  swiss_rounds?: number;
   participant_count?: number;
   registration_open: boolean;
   starts_at?: string;
@@ -22,8 +23,9 @@ export interface CreateTournamentRequest {
   name: string;
   description?: string;
   game?: string;
-  format: 'single_elimination' | 'double_elimination';
+  format: 'single_elimination' | 'double_elimination' | 'swiss';
   max_participants?: number;
+  swiss_rounds?: number;
   starts_at?: string;
   starts_at_tentative?: boolean;
   community_id?: number;

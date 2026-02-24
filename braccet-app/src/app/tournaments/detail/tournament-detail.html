@@ -64,7 +64,12 @@
           <div class="flex items-center gap-2">
             <span class="text-gray-500">Format:</span>
             <span class="font-medium text-gray-900">
-              {{ tournament()!.format === 'single_elimination' ? 'Single Elimination' : 'Double Elimination' }}
+              @switch (tournament()!.format) {
+                @case ('single_elimination') { Single Elimination }
+                @case ('double_elimination') { Double Elimination }
+                @case ('swiss') { Swiss }
+                @default { {{ tournament()!.format }} }
+              }
             </span>
           </div>
 

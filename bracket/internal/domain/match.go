@@ -8,6 +8,7 @@ const (
 	BracketWinners    BracketType = "winners"
 	BracketLosers     BracketType = "losers"
 	BracketGrandFinal BracketType = "grand_final"
+	BracketSwiss      BracketType = "swiss"
 )
 
 type MatchStatus string
@@ -67,4 +68,20 @@ type SetScore struct {
 // Winner is computed from sets (whoever wins the most sets)
 type MatchResult struct {
 	Sets []SetScore
+}
+
+// EliminationStanding represents a participant's final placement in an elimination bracket
+type EliminationStanding struct {
+	Rank            int
+	ParticipantID   uint64
+	ParticipantName string
+	IconURL         *string
+	Seed            int
+	Wins            int
+	Losses          int
+	GameWins        int
+	GameLosses      int
+	Placement       string // "Champion", "2nd", "3rd-4th", "5th-8th", etc.
+	FinalRound      int    // Last round played
+	BracketType     BracketType
 }

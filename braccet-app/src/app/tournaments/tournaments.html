@@ -67,7 +67,9 @@
                 <div class="flex items-center gap-1.5">
                   <span class="text-gray-500">Format:</span>
                   <span class="font-medium text-gray-900">
-                    {{ tournament.format === 'single_elimination' ? 'Single Elim' : 'Double Elim' }}
+                    {{ tournament.format === 'single_elimination' ? 'Single Elim' :
+                       tournament.format === 'double_elimination' ? 'Double Elim' :
+                       tournament.format === 'swiss' ? 'Swiss' : tournament.format }}
                   </span>
                 </div>
 

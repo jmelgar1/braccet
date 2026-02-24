@@ -11,7 +11,7 @@ export interface SetScore {
   participant2_score: number;
 }
 
-export type BracketType = 'winners' | 'losers' | 'grand_final';
+export type BracketType = 'winners' | 'losers' | 'grand_final' | 'swiss';
 
 export interface Match {
   id: number;
@@ -44,7 +44,7 @@ export interface BracketStage {
   best_of: number;
 }
 
-export type BracketFormat = 'single_elimination' | 'double_elimination';
+export type BracketFormat = 'single_elimination' | 'double_elimination' | 'swiss';
 
 export interface BracketState {
   tournament_id: number;
@@ -62,12 +62,14 @@ export interface BracketState {
 export interface UpdateStageRequest {
   stage_name?: string;
   best_of?: number;
+  bracket_type?: BracketType;
 }
 
 export interface CreateBracketRequest {
   tournament_id: number;
   format: string;
   participants: Participant[];
+  swiss_rounds?: number;
 }
 
 export interface ReportResultRequest {
@@ -78,4 +80,49 @@ export interface EditResultResponse {
   match: Match;
   cascade_matches?: Match[];
   winner_changed: boolean;
+}
+
+// Swiss-specific types
+export interface SwissStanding {
+  rank: number;
+  participant_id: number;
+  participant_name: string;
+  icon_url?: string;
+  wins: number;
+  losses: number;
+  game_wins: number;
+  game_losses: number;
+  opponent_wins: number;
+}
+
+export interface SwissBracketState {
+  tournament_id: number;
+  format: 'swiss';
+  total_rounds: number;
+  current_round: number;
+  is_complete: boolean;
+  standings: SwissStanding[];
+  matches: Match[];
+  stages: BracketStage[];
+}
+
+// Elimination standings types
+export interface EliminationStanding {
+  rank: number;
+  participant_id: number;
+  participant_name: string;
+  icon_url?: string;
+  seed: number;
+  wins: number;
+  losses: number;
+  game_wins: number;
+  game_losses: number;
+  placement: string;
+}
+
+export interface EliminationStandingsResponse {
+  tournament_id: number;
+  format: 'single_elimination' | 'double_elimination';
+  is_complete: boolean;
+  standings: EliminationStanding[];
 }

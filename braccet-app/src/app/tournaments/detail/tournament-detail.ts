@@ -8,6 +8,7 @@ import { AuthService } from '../../services/auth.service';
 import { CommunityService } from '../../services/community.service';
 import { EloService } from '../../services/elo.service';
 import { Tournament, Participant } from '../../models/tournament.model';
+import { CreateBracketRequest } from '../../models/bracket.model';
 import { Community } from '../../models/community.model';
 import { EloSystem } from '../../models/elo.model';
 import { Breadcrumb, BreadcrumbItem } from '../../components/breadcrumb/breadcrumb';
@@ -220,11 +221,18 @@ export class TournamentDetail implements OnInit {
       icon_url: participant.icon_url
     }));
 
-    this.bracketService.createBracket({
+    const bracketRequest: CreateBracketRequest = {
       tournament_id: t.id,
       format: t.format,
       participants: bracketParticipants
-    }).pipe(
+    };
+
+    // Pass swiss_rounds for Swiss format tournaments
+    if (t.format === 'swiss' && t.swiss_rounds) {
+      bracketRequest.swiss_rounds = t.swiss_rounds;
+    }
+
+    this.bracketService.createBracket(bracketRequest).pipe(
       switchMap(() => this.tournamentService.updateTournament(t.slug, { status: 'in_progress' }))
     ).subscribe({
       next: (updatedTournament) => {

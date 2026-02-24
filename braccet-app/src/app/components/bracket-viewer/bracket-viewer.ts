@@ -330,6 +330,12 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
     return this.isOrganizer() && !this.isPreview() && this.stages().length > 0;
   }
 
+  // Get best_of for a round
+  getRoundBestOf(round: number): number {
+    const stage = this.stages().find(s => s.round === round);
+    return stage?.best_of ?? 1;
+  }
+
   getParticipant1Display(match: DisplayMatch): string {
     if ('participant1Name' in match && match.participant1Name) {
       return match.participant1Name;

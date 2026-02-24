@@ -42,6 +42,7 @@ type CreateTournamentRequest struct {
 	Game            *string `json:"game,omitempty"`
 	Format          string  `json:"format"`
 	MaxParticipants *uint   `json:"max_participants,omitempty"`
+	SwissRounds     *int    `json:"swiss_rounds,omitempty"`
 	StartsAt        *string `json:"starts_at,omitempty"`
 	CommunityID     *uint64 `json:"community_id,omitempty"`
 	EloSystemID     *uint64 `json:"elo_system_id,omitempty"`
@@ -54,6 +55,7 @@ type UpdateTournamentRequest struct {
 	Format           *string `json:"format,omitempty"`
 	Status           *string `json:"status,omitempty"`
 	MaxParticipants  *uint   `json:"max_participants,omitempty"`
+	SwissRounds      *int    `json:"swiss_rounds,omitempty"`
 	RegistrationOpen *bool   `json:"registration_open,omitempty"`
 	StartsAt         *string `json:"starts_at,omitempty"`
 	CommunityID      *uint64 `json:"community_id,omitempty"`
@@ -72,6 +74,7 @@ type TournamentResponse struct {
 	Format           string  `json:"format"`
 	Status           string  `json:"status"`
 	MaxParticipants  *uint   `json:"max_participants,omitempty"`
+	SwissRounds      *int    `json:"swiss_rounds,omitempty"`
 	ParticipantCount *int    `json:"participant_count,omitempty"`
 	RegistrationOpen bool    `json:"registration_open"`
 	StartsAt         *string `json:"starts_at,omitempty"`
@@ -118,6 +121,7 @@ func toTournamentResponse(t *domain.Tournament) TournamentResponse {
 		Format:           string(t.Format),
 		Status:           string(t.Status),
 		MaxParticipants:  t.MaxParticipants,
+		SwissRounds:      t.SwissRounds,
 		RegistrationOpen: t.RegistrationOpen,
 		CreatedAt:        t.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:        t.UpdatedAt.Format(time.RFC3339),
@@ -208,8 +212,8 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	format := domain.TournamentFormat(req.Format)
-	if format != domain.FormatSingleElimination && format != domain.FormatDoubleElimination {
-		writeError(w, http.StatusBadRequest, "format must be 'single_elimination' or 'double_elimination'")
+	if format != domain.FormatSingleElimination && format != domain.FormatDoubleElimination && format != domain.FormatSwiss {
+		writeError(w, http.StatusBadRequest, "format must be 'single_elimination', 'double_elimination', or 'swiss'")
 		return
 	}
 
@@ -224,6 +228,7 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Format:           format,
 		Status:           domain.StatusRegistration,
 		MaxParticipants:  req.MaxParticipants,
+		SwissRounds:      req.SwissRounds,
 		RegistrationOpen: true,
 		Settings:         json.RawMessage(`{}`),
 	}
@@ -344,8 +349,8 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Format != nil {
 		format := domain.TournamentFormat(*req.Format)
-		if format != domain.FormatSingleElimination && format != domain.FormatDoubleElimination {
-			writeError(w, http.StatusBadRequest, "format must be 'single_elimination' or 'double_elimination'")
+		if format != domain.FormatSingleElimination && format != domain.FormatDoubleElimination && format != domain.FormatSwiss {
+			writeError(w, http.StatusBadRequest, "format must be 'single_elimination', 'double_elimination', or 'swiss'")
 			return
 		}
 		tournament.Format = format
@@ -405,6 +410,9 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MaxParticipants != nil {
 		tournament.MaxParticipants = req.MaxParticipants
+	}
+	if req.SwissRounds != nil {
+		tournament.SwissRounds = req.SwissRounds
 	}
 	if req.RegistrationOpen != nil {
 		// Only allow opening registration if tournament is in registration status

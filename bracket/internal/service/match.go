@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"github.com/braccet/bracket/internal/client"
@@ -25,6 +26,7 @@ type MatchService interface {
 	StartMatch(ctx context.Context, matchID uint64) error
 	GetBracketState(ctx context.Context, tournamentID uint64) (*BracketState, error)
 	ReopenMatch(ctx context.Context, matchID uint64) ([]*domain.Match, error)
+	GetEliminationStandings(ctx context.Context, tournamentID uint64) ([]*domain.EliminationStanding, error)
 }
 
 type EditResultResponse struct {
@@ -45,6 +47,7 @@ type BracketState struct {
 type matchService struct {
 	repo              repository.MatchRepository
 	setRepo           repository.SetRepository
+	swissRepo         repository.SwissRepository
 	tournamentClient  client.TournamentClient
 	communityClient   client.CommunityClient
 }
@@ -58,6 +61,23 @@ func NewMatchService(
 	return &matchService{
 		repo:             repo,
 		setRepo:          setRepo,
+		tournamentClient: tournamentClient,
+		communityClient:  communityClient,
+	}
+}
+
+// NewMatchServiceWithSwiss creates a match service with Swiss support
+func NewMatchServiceWithSwiss(
+	repo repository.MatchRepository,
+	setRepo repository.SetRepository,
+	swissRepo repository.SwissRepository,
+	tournamentClient client.TournamentClient,
+	communityClient client.CommunityClient,
+) MatchService {
+	return &matchService{
+		repo:             repo,
+		setRepo:          setRepo,
+		swissRepo:        swissRepo,
 		tournamentClient: tournamentClient,
 		communityClient:  communityClient,
 	}
@@ -114,6 +134,13 @@ func (s *matchService) ReportResult(ctx context.Context, matchID uint64, result 
 			if err := s.advanceLoser(ctx, match, loserID); err != nil {
 				return err
 			}
+		}
+	}
+
+	// For Swiss: update standings and check for round advancement
+	if match.BracketType == domain.BracketSwiss && s.swissRepo != nil {
+		if err := s.handleSwissMatchComplete(ctx, match, result.Sets, winnerID); err != nil {
+			return err
 		}
 	}
 
@@ -762,3 +789,510 @@ func (s *matchService) updateMatchStatusAfterClear(ctx context.Context, matchID 
 	// Both participants are set, status should be ready
 	return s.repo.UpdateStatus(ctx, matchID, domain.MatchReady)
 }
+
+// handleSwissMatchComplete updates Swiss standings and checks for round advancement.
+func (s *matchService) handleSwissMatchComplete(ctx context.Context, match *domain.Match, sets []domain.SetScore, winnerID uint64) error {
+	// Determine loser
+	loserID := s.getLoserID(match, winnerID)
+
+	// Calculate game wins/losses from sets
+	var winnerGameWins, loserGameWins int
+	for _, set := range sets {
+		if match.Participant1ID != nil && *match.Participant1ID == winnerID {
+			winnerGameWins += set.Participant1Score
+			loserGameWins += set.Participant2Score
+		} else {
+			winnerGameWins += set.Participant2Score
+			loserGameWins += set.Participant1Score
+		}
+	}
+
+	// Update winner's standing
+	winnerStanding, err := s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, winnerID)
+	if err != nil {
+		return err
+	}
+	winnerStanding.Wins++
+	winnerStanding.GameWins += winnerGameWins
+	winnerStanding.GameLosses += loserGameWins
+	if err := s.swissRepo.UpdateStanding(ctx, winnerStanding); err != nil {
+		return err
+	}
+
+	// Update loser's standing (if not a BYE match)
+	if loserID != 0 {
+		loserStanding, err := s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, loserID)
+		if err != nil {
+			return err
+		}
+		loserStanding.Losses++
+		loserStanding.GameWins += loserGameWins
+		loserStanding.GameLosses += winnerGameWins
+		if err := s.swissRepo.UpdateStanding(ctx, loserStanding); err != nil {
+			return err
+		}
+	}
+
+	// Round advancement is manual - organizer clicks "Advance Round" button
+	// which calls SwissService.AdvanceRound()
+
+	return nil
+}
+
+// attachSetsToMatches loads sets for all matches and attaches them.
+// This is used for calculating game differential in standings.
+func (s *matchService) attachSetsToMatches(ctx context.Context, matches []*domain.Match) error {
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Collect match IDs
+	matchIDs := make([]uint64, len(matches))
+	for i, m := range matches {
+		matchIDs[i] = m.ID
+	}
+
+	// Load all sets in one query
+	setsMap, err := s.setRepo.GetByMatchIDs(ctx, matchIDs)
+	if err != nil {
+		return err
+	}
+
+	// Attach sets to matches
+	for _, m := range matches {
+		if sets, ok := setsMap[m.ID]; ok {
+			m.Sets = sets
+		}
+	}
+
+	return nil
+}
+
+// participantStats tracks a participant's results during elimination standings calculation
+type participantStats struct {
+	id          uint64
+	name        string
+	iconURL     *string
+	seed        int
+	wins        int
+	losses      int
+	gameWins    int
+	gameLosses  int
+	finalRound  int
+	bracketType domain.BracketType
+	isChampion  bool
+	isRunnerUp  bool
+	// For double elim: track highest round reached in each bracket
+	winnersRound int
+	losersRound  int
+}
+
+// GetEliminationStandings calculates standings for single/double elimination brackets.
+// Rankings are based on: how far each participant advanced in the bracket.
+func (s *matchService) GetEliminationStandings(ctx context.Context, tournamentID uint64) ([]*domain.EliminationStanding, error) {
+	matches, err := s.repo.GetByTournament(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(matches) == 0 {
+		return []*domain.EliminationStanding{}, nil
+	}
+
+	// Load sets for all matches to calculate game differential
+	if err := s.attachSetsToMatches(ctx, matches); err != nil {
+		return nil, err
+	}
+
+	// Determine if this is double elimination
+	isDoubleElim := false
+	for _, m := range matches {
+		if m.BracketType == domain.BracketLosers || m.BracketType == domain.BracketGrandFinal {
+			isDoubleElim = true
+			break
+		}
+	}
+
+	stats := make(map[uint64]*participantStats)
+
+	// Helper to get or create participant stats
+	getStats := func(id uint64, name *string, iconURL *string, seed *int) *participantStats {
+		if id == 0 {
+			return nil
+		}
+		if _, ok := stats[id]; !ok {
+			n := ""
+			if name != nil {
+				n = *name
+			}
+			seedVal := 0
+			if seed != nil {
+				seedVal = *seed
+			}
+			stats[id] = &participantStats{
+				id:          id,
+				name:        n,
+				iconURL:     iconURL,
+				seed:        seedVal,
+				bracketType: domain.BracketWinners,
+			}
+		}
+		return stats[id]
+	}
+
+	// Process all matches
+	for _, m := range matches {
+		// Skip BYE matches (no opponent)
+		if m.Participant1ID == nil || m.Participant2ID == nil {
+			// But still track the real participant
+			if m.Participant1ID != nil {
+				getStats(*m.Participant1ID, m.Participant1Name, m.Participant1IconURL, m.Seed1)
+			}
+			if m.Participant2ID != nil {
+				getStats(*m.Participant2ID, m.Participant2Name, m.Participant2IconURL, m.Seed2)
+			}
+			continue
+		}
+
+		p1Stats := getStats(*m.Participant1ID, m.Participant1Name, m.Participant1IconURL, m.Seed1)
+		p2Stats := getStats(*m.Participant2ID, m.Participant2Name, m.Participant2IconURL, m.Seed2)
+
+		// Track game wins/losses from sets
+		for _, set := range m.Sets {
+			if p1Stats != nil {
+				p1Stats.gameWins += set.Participant1Score
+				p1Stats.gameLosses += set.Participant2Score
+			}
+			if p2Stats != nil {
+				p2Stats.gameWins += set.Participant2Score
+				p2Stats.gameLosses += set.Participant1Score
+			}
+		}
+
+		// Only process completed matches for W/L stats
+		if m.Status != domain.MatchCompleted {
+			continue
+		}
+
+		// Update win/loss records
+		if m.WinnerID != nil {
+			winnerStats := stats[*m.WinnerID]
+			if winnerStats != nil {
+				winnerStats.wins++
+			}
+
+			// Determine loser
+			var loserID uint64
+			if *m.WinnerID == *m.Participant1ID {
+				loserID = *m.Participant2ID
+			} else {
+				loserID = *m.Participant1ID
+			}
+			loserStats := stats[loserID]
+			if loserStats != nil {
+				loserStats.losses++
+				// Track where they were eliminated
+				loserStats.finalRound = m.Round
+				loserStats.bracketType = m.BracketType
+			}
+
+			// Track bracket progression
+			if winnerStats != nil {
+				switch m.BracketType {
+				case domain.BracketWinners:
+					if m.Round > winnerStats.winnersRound {
+						winnerStats.winnersRound = m.Round
+					}
+				case domain.BracketLosers:
+					if m.Round > winnerStats.losersRound {
+						winnerStats.losersRound = m.Round
+					}
+				case domain.BracketGrandFinal:
+					winnerStats.isChampion = true
+				}
+			}
+		}
+	}
+
+	// Find champion and runner-up
+	var grandFinalMatch *domain.Match
+	for _, m := range matches {
+		if m.BracketType == domain.BracketGrandFinal {
+			grandFinalMatch = m
+			break
+		}
+	}
+
+	// For single elim, find the final match
+	if grandFinalMatch == nil {
+		maxRound := 0
+		for _, m := range matches {
+			if m.BracketType == domain.BracketWinners && m.Round > maxRound {
+				maxRound = m.Round
+			}
+		}
+		for _, m := range matches {
+			if m.BracketType == domain.BracketWinners && m.Round == maxRound {
+				grandFinalMatch = m
+				break
+			}
+		}
+	}
+
+	if grandFinalMatch != nil && grandFinalMatch.WinnerID != nil {
+		if championStats := stats[*grandFinalMatch.WinnerID]; championStats != nil {
+			championStats.isChampion = true
+		}
+		// Runner-up is the loser of grand final
+		var runnerUpID uint64
+		if *grandFinalMatch.WinnerID == *grandFinalMatch.Participant1ID {
+			runnerUpID = *grandFinalMatch.Participant2ID
+		} else {
+			runnerUpID = *grandFinalMatch.Participant1ID
+		}
+		if runnerUpStats := stats[runnerUpID]; runnerUpStats != nil {
+			runnerUpStats.isRunnerUp = true
+		}
+	}
+
+	// Calculate total rounds for placement calculations
+	totalWinnersRounds := 0
+	totalLosersRounds := 0
+	for _, m := range matches {
+		if m.BracketType == domain.BracketWinners && m.Round > totalWinnersRounds {
+			totalWinnersRounds = m.Round
+		}
+		if m.BracketType == domain.BracketLosers && m.Round > totalLosersRounds {
+			totalLosersRounds = m.Round
+		}
+	}
+
+	// Get actual participant count (excluding BYEs)
+	participantCount := len(stats)
+
+	// Convert to standings with placements
+	standings := make([]*domain.EliminationStanding, 0, len(stats))
+	for _, ps := range stats {
+		standing := &domain.EliminationStanding{
+			ParticipantID:   ps.id,
+			ParticipantName: ps.name,
+			IconURL:         ps.iconURL,
+			Seed:            ps.seed,
+			Wins:            ps.wins,
+			Losses:          ps.losses,
+			GameWins:        ps.gameWins,
+			GameLosses:      ps.gameLosses,
+			FinalRound:      ps.finalRound,
+			BracketType:     ps.bracketType,
+		}
+
+		// Calculate placement
+		standing.Placement = calculatePlacement(ps, isDoubleElim, totalWinnersRounds, totalLosersRounds, participantCount)
+
+		standings = append(standings, standing)
+	}
+
+	// Sort standings by placement
+	sortEliminationStandings(standings)
+
+	// Assign ranks
+	for i, s := range standings {
+		s.Rank = i + 1
+	}
+
+	return standings, nil
+}
+
+// calculatePlacement returns a human-readable placement string
+func calculatePlacement(ps *participantStats, isDoubleElim bool, totalWinnersRounds, totalLosersRounds, participantCount int) string {
+	if ps.isChampion {
+		return "Champion"
+	}
+	if ps.isRunnerUp {
+		return "2nd"
+	}
+
+	// If participant hasn't been eliminated yet, no placement
+	if ps.losses == 0 && !ps.isChampion {
+		return ""
+	}
+
+	// For single elimination, placement is based on round eliminated
+	if !isDoubleElim {
+		// If finalRound is 0, they lost in round 1
+		if ps.finalRound == 0 {
+			ps.finalRound = 1
+		}
+		roundsFromFinal := totalWinnersRounds - ps.finalRound
+		return placementFromRoundsEliminated(roundsFromFinal, participantCount)
+	}
+
+	// For double elimination, placement is more complex
+	// Losers bracket losers are ranked below winners bracket losers of same "depth"
+	if ps.bracketType == domain.BracketLosers {
+		// In losers bracket, even rounds are "drop-in" rounds, odd rounds are elimination
+		// Higher losers round = better placement
+		roundsFromFinal := totalLosersRounds - ps.losersRound
+		return placementFromLosersRound(roundsFromFinal, totalLosersRounds, participantCount)
+	}
+
+	// Eliminated from winners bracket (dropped to losers but lost there)
+	// Their final placement depends on how far they got in losers
+	if ps.losersRound > 0 {
+		roundsFromFinal := totalLosersRounds - ps.losersRound
+		return placementFromLosersRound(roundsFromFinal, totalLosersRounds, participantCount)
+	}
+
+	// Eliminated from winners bracket round 1 and then from losers
+	roundsFromFinal := totalWinnersRounds - ps.winnersRound
+	return placementFromRoundsEliminated(roundsFromFinal, participantCount)
+}
+
+// placementFromRoundsEliminated calculates placement for single elimination.
+// roundsFromFinal: 0 = lost in final (2nd), 1 = lost in semis (3rd-4th), etc.
+// participantCount: actual number of participants to cap the placement range.
+func placementFromRoundsEliminated(roundsFromFinal, participantCount int) string {
+	// Calculate the standard placement range based on round
+	var low, high int
+	switch roundsFromFinal {
+	case 0:
+		return "2nd" // Lost in final
+	case 1:
+		low, high = 3, 4 // Lost in semifinals
+	case 2:
+		low, high = 5, 8 // Lost in quarterfinals
+	case 3:
+		low, high = 9, 16
+	case 4:
+		low, high = 17, 32
+	default:
+		low = 1 << roundsFromFinal
+		high = 1 << (roundsFromFinal + 1)
+		low++
+	}
+
+	// Cap the high end at the actual participant count
+	if high > participantCount {
+		high = participantCount
+	}
+
+	// If low and high are the same, just show one number
+	if low == high {
+		return ordinal(low)
+	}
+
+	return formatPlacementRange(low, high)
+}
+
+// placementFromLosersRound calculates placement for double elimination losers bracket.
+func placementFromLosersRound(roundsFromFinal, totalLosersRounds, participantCount int) string {
+	// In double elim losers bracket:
+	// - Loser of losers final = 3rd
+	// - Each earlier round has increasing placement
+	var low, high int
+	switch roundsFromFinal {
+	case 0:
+		return "3rd" // Lost losers final
+	case 1:
+		return "4th" // Lost losers semifinal
+	case 2:
+		low, high = 5, 6
+	case 3:
+		low, high = 7, 8
+	default:
+		low = 1 << (roundsFromFinal - 1)
+		high = 1 << roundsFromFinal
+		low += 3
+		high += 2
+	}
+
+	// Cap the high end at the actual participant count
+	if high > participantCount {
+		high = participantCount
+	}
+
+	// If low and high are the same, just show one number
+	if low == high {
+		return ordinal(low)
+	}
+
+	return formatPlacementRange(low, high)
+}
+
+func formatPlacementRange(low, high int) string {
+	return ordinal(low) + "-" + ordinal(high)
+}
+
+func ordinal(n int) string {
+	suffix := "th"
+	switch n % 10 {
+	case 1:
+		if n%100 != 11 {
+			suffix = "st"
+		}
+	case 2:
+		if n%100 != 12 {
+			suffix = "nd"
+		}
+	case 3:
+		if n%100 != 13 {
+			suffix = "rd"
+		}
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
+}
+
+// parsePlacementOrder extracts the numeric order from a placement string.
+// Empty placement (still competing) -> 0 (shown first)
+// "Champion" -> 1, "2nd" -> 2, "3rd-4th" -> 3, "9th-12th" -> 9, etc.
+func parsePlacementOrder(placement string) int {
+	if placement == "" {
+		return 0 // Still competing, shown first
+	}
+	if placement == "Champion" {
+		return 1
+	}
+
+	// Extract the first number from the placement string
+	num := 0
+	for _, c := range placement {
+		if c >= '0' && c <= '9' {
+			num = num*10 + int(c-'0')
+		} else if num > 0 {
+			break // Stop at first non-digit after we've found digits
+		}
+	}
+
+	if num == 0 {
+		return 9999 // Unknown placement goes last
+	}
+	return num
+}
+
+// sortEliminationStandings sorts by placement (champion first, then by seed as tiebreaker)
+func sortEliminationStandings(standings []*domain.EliminationStanding) {
+	// Sort using bubble sort (simple, works for small lists)
+	for i := 0; i < len(standings)-1; i++ {
+		for j := i + 1; j < len(standings); j++ {
+			orderI := parsePlacementOrder(standings[i].Placement)
+			orderJ := parsePlacementOrder(standings[j].Placement)
+
+			shouldSwap := false
+			if orderI > orderJ {
+				shouldSwap = true
+			} else if orderI == orderJ {
+				// Same placement tier - sort by wins desc, then seed asc
+				if standings[i].Wins < standings[j].Wins {
+					shouldSwap = true
+				} else if standings[i].Wins == standings[j].Wins && standings[i].Seed > standings[j].Seed {
+					shouldSwap = true
+				}
+			}
+
+			if shouldSwap {
+				standings[i], standings[j] = standings[j], standings[i]
+			}
+		}
+	}
+}
+

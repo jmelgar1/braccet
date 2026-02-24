@@ -15,6 +15,7 @@ func NewRouter(
 	repo repository.MatchRepository,
 	setRepo repository.SetRepository,
 	stageRepo repository.StageRepository,
+	swissRepo repository.SwissRepository,
 	tournamentClient client.TournamentClient,
 	communityClient client.CommunityClient,
 ) chi.Router {
@@ -26,13 +27,14 @@ func NewRouter(
 	r.Use(middleware.SetHeader("Content-Type", "application/json"))
 
 	// Create services
-	bracketSvc := service.NewBracketServiceWithCommunity(repo, stageRepo, communityClient)
-	matchSvc := service.NewMatchService(repo, setRepo, tournamentClient, communityClient)
+	bracketSvc := service.NewBracketServiceWithSwiss(repo, stageRepo, swissRepo, communityClient)
+	matchSvc := service.NewMatchServiceWithSwiss(repo, setRepo, swissRepo, tournamentClient, communityClient)
+	swissSvc := service.NewSwissService(swissRepo, repo, stageRepo)
 	forfeitSvc := service.NewForfeitService(repo)
 	stageSvc := service.NewStageService(stageRepo)
 
 	// Create handlers
-	bracketHandler := handlers.NewBracketHandler(bracketSvc, matchSvc, repo, setRepo, stageRepo)
+	bracketHandler := handlers.NewBracketHandlerWithSwiss(bracketSvc, matchSvc, swissSvc, repo, setRepo, stageRepo)
 	matchHandler := handlers.NewMatchHandler(matchSvc, repo, setRepo)
 	forfeitHandler := handlers.NewForfeitHandler(forfeitSvc)
 	stageHandler := handlers.NewStageHandler(stageSvc)
@@ -46,6 +48,13 @@ func NewRouter(
 	r.Get("/brackets/{tournamentId}", bracketHandler.GetState)
 	r.Get("/brackets/{tournamentId}/matches", bracketHandler.ListMatches)
 	r.Delete("/brackets/{tournamentId}", bracketHandler.Delete) // Delete bracket and revert ELO (for tournament reset)
+
+	// Standings routes (works for both Swiss and elimination formats)
+	r.Get("/brackets/{tournamentId}/standings", bracketHandler.GetSwissStandings)
+	r.Get("/brackets/{tournamentId}/elimination-standings", bracketHandler.GetEliminationStandings)
+
+	// Swiss-specific routes
+	r.Post("/brackets/{tournamentId}/advance-round", bracketHandler.AdvanceSwissRound)
 
 	// Match routes (nested under /brackets)
 	r.Get("/brackets/matches/{id}", matchHandler.Get)

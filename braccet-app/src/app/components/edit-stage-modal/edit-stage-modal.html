@@ -1,7 +1,7 @@
 <div class="modal-backdrop" (click)="onBackdropClick($event)">
   <div class="modal-content">
     <div class="modal-header">
-      <h3>Edit Stage</h3>
+      <h3>{{ hideNameField() ? 'Edit Round Settings' : 'Edit Stage' }}</h3>
       <button class="close-btn" (click)="close.emit()">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
@@ -14,19 +14,21 @@
         <div class="error-message">{{ error() }}</div>
       }
 
-      <!-- Stage Name -->
-      <div class="form-group">
-        <label for="stageName">Stage Name</label>
-        <input
-          type="text"
-          id="stageName"
-          class="text-input"
-          [ngModel]="stageName()"
-          (ngModelChange)="stageName.set($event)"
-          [disabled]="saving()"
-          placeholder="e.g., Quarterfinals, Pool Play"
-        />
-      </div>
+      <!-- Stage Name (hidden for Swiss brackets) -->
+      @if (!hideNameField()) {
+        <div class="form-group">
+          <label for="stageName">Stage Name</label>
+          <input
+            type="text"
+            id="stageName"
+            class="text-input"
+            [ngModel]="stageName()"
+            (ngModelChange)="stageName.set($event)"
+            [disabled]="saving()"
+            placeholder="e.g., Quarterfinals, Pool Play"
+          />
+        </div>
+      }
 
       <!-- Best Of -->
       <div class="form-group">

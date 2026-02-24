@@ -46,6 +46,12 @@
           (participantUpdated)="onParticipantUpdated($event)"
         />
       }
+      @case ('standings') {
+        <app-standings-tab
+          [tournament]="tournament()"
+          [refreshKey]="bracketRefreshKey()"
+        />
+      }
       @case ('settings') {
         <app-settings-tab
           [tournament]="tournament()"

@@ -17,6 +17,7 @@ import (
 type BracketHandler struct {
 	bracketSvc service.BracketService
 	matchSvc   service.MatchService
+	swissSvc   service.SwissService
 	repo       repository.MatchRepository
 	setRepo    repository.SetRepository
 	stageRepo  repository.StageRepository
@@ -32,10 +33,23 @@ func NewBracketHandler(bracketSvc service.BracketService, matchSvc service.Match
 	}
 }
 
+// NewBracketHandlerWithSwiss creates a bracket handler with Swiss support
+func NewBracketHandlerWithSwiss(bracketSvc service.BracketService, matchSvc service.MatchService, swissSvc service.SwissService, repo repository.MatchRepository, setRepo repository.SetRepository, stageRepo repository.StageRepository) *BracketHandler {
+	return &BracketHandler{
+		bracketSvc: bracketSvc,
+		matchSvc:   matchSvc,
+		swissSvc:   swissSvc,
+		repo:       repo,
+		setRepo:    setRepo,
+		stageRepo:  stageRepo,
+	}
+}
+
 type GenerateBracketRequest struct {
 	TournamentID uint64               `json:"tournament_id"`
-	Format       string               `json:"format"` // "single_elimination" or "double_elimination"
+	Format       string               `json:"format"` // "single_elimination", "double_elimination", or "swiss"
 	Participants []domain.Participant `json:"participants"`
+	SwissRounds  *int                 `json:"swiss_rounds,omitempty"` // Optional override for Swiss round count
 }
 
 type BracketResponse struct {
@@ -332,8 +346,22 @@ func (h *BracketHandler) Generate(w http.ResponseWriter, r *http.Request) {
 		state, err = h.bracketSvc.GenerateSingleElimination(r.Context(), req.TournamentID, req.Participants)
 	case "double_elimination":
 		state, err = h.bracketSvc.GenerateDoubleElimination(r.Context(), req.TournamentID, req.Participants)
+	case "swiss":
+		if h.swissSvc == nil {
+			writeError(w, http.StatusInternalServerError, "swiss format not configured")
+			return
+		}
+		swissState, swissErr := h.swissSvc.InitializeSwiss(r.Context(), req.TournamentID, req.Participants, req.SwissRounds)
+		if swissErr != nil {
+			writeError(w, http.StatusInternalServerError, swissErr.Error())
+			return
+		}
+		resp := toSwissBracketResponse(swissState)
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(resp)
+		return
 	default:
-		writeError(w, http.StatusBadRequest, "unsupported format: must be 'single_elimination' or 'double_elimination'")
+		writeError(w, http.StatusBadRequest, "unsupported format: must be 'single_elimination', 'double_elimination', or 'swiss'")
 		return
 	}
 
@@ -551,4 +579,238 @@ func (h *BracketHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// Swiss-specific response types
+
+type SwissBracketResponse struct {
+	TournamentID uint64                  `json:"tournament_id"`
+	Format       string                  `json:"format"`
+	TotalRounds  int                     `json:"total_rounds"`
+	CurrentRound int                     `json:"current_round"`
+	IsComplete   bool                    `json:"is_complete"`
+	Standings    []SwissStandingResponse `json:"standings"`
+	Matches      []*MatchResponse        `json:"matches"`
+	Stages       []*StageResponse        `json:"stages"`
+}
+
+type SwissStandingResponse struct {
+	Rank            int     `json:"rank"`
+	ParticipantID   uint64  `json:"participant_id"`
+	ParticipantName string  `json:"participant_name"`
+	IconURL         *string `json:"icon_url,omitempty"`
+	Wins            int     `json:"wins"`
+	Losses          int     `json:"losses"`
+	GameWins        int     `json:"game_wins"`
+	GameLosses      int     `json:"game_losses"`
+	OpponentWins    int     `json:"opponent_wins"`
+}
+
+// EliminationStandingResponse represents standings for single/double elimination
+type EliminationStandingResponse struct {
+	Rank            int     `json:"rank"`
+	ParticipantID   uint64  `json:"participant_id"`
+	ParticipantName string  `json:"participant_name"`
+	IconURL         *string `json:"icon_url,omitempty"`
+	Seed            int     `json:"seed"`
+	Wins            int     `json:"wins"`
+	Losses          int     `json:"losses"`
+	GameWins        int     `json:"game_wins"`
+	GameLosses      int     `json:"game_losses"`
+	Placement       string  `json:"placement"`
+}
+
+// EliminationStandingsResponse is the API response for elimination standings
+type EliminationStandingsResponse struct {
+	TournamentID uint64                        `json:"tournament_id"`
+	Format       string                        `json:"format"`
+	IsComplete   bool                          `json:"is_complete"`
+	Standings    []EliminationStandingResponse `json:"standings"`
+}
+
+func toSwissBracketResponse(state *domain.SwissBracketState) *SwissBracketResponse {
+	resp := &SwissBracketResponse{
+		TournamentID: state.TournamentID,
+		Format:       "swiss",
+		Standings:    make([]SwissStandingResponse, 0),
+		Matches:      make([]*MatchResponse, 0),
+		Stages:       make([]*StageResponse, 0),
+	}
+
+	if state.Config != nil {
+		resp.TotalRounds = state.Config.TotalRounds
+		resp.CurrentRound = state.Config.CurrentRound
+		resp.IsComplete = state.Config.IsComplete
+	}
+
+	for i, s := range state.Standings {
+		resp.Standings = append(resp.Standings, SwissStandingResponse{
+			Rank:            i + 1,
+			ParticipantID:   s.ParticipantID,
+			ParticipantName: s.ParticipantName,
+			IconURL:         s.ParticipantIconURL,
+			Wins:            s.Wins,
+			Losses:          s.Losses,
+			GameWins:        s.GameWins,
+			GameLosses:      s.GameLosses,
+			OpponentWins:    s.OpponentWins,
+		})
+	}
+
+	for _, m := range state.Matches {
+		resp.Matches = append(resp.Matches, toMatchResponse(m))
+	}
+
+	for _, s := range state.Stages {
+		stageName := ""
+		if s.StageName != nil {
+			stageName = *s.StageName
+		}
+		resp.Stages = append(resp.Stages, &StageResponse{
+			TournamentID: s.TournamentID,
+			BracketType:  string(s.BracketType),
+			Round:        s.Round,
+			StageName:    stageName,
+			BestOf:       s.BestOf,
+		})
+	}
+
+	return resp
+}
+
+// GetSwissStandings returns the current Swiss standings for a tournament
+func (h *BracketHandler) GetSwissStandings(w http.ResponseWriter, r *http.Request) {
+	if h.swissSvc == nil {
+		writeError(w, http.StatusInternalServerError, "swiss format not configured")
+		return
+	}
+
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	state, err := h.swissSvc.GetState(r.Context(), tournamentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Load sets for all matches
+	if len(state.Matches) > 0 {
+		matchIDs := make([]uint64, len(state.Matches))
+		for i, m := range state.Matches {
+			matchIDs[i] = m.ID
+		}
+		setsMap, err := h.setRepo.GetByMatchIDs(r.Context(), matchIDs)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		// Attach sets to matches
+		for _, m := range state.Matches {
+			if sets, ok := setsMap[m.ID]; ok {
+				m.Sets = sets
+			}
+		}
+	}
+
+	resp := toSwissBracketResponse(state)
+	json.NewEncoder(w).Encode(resp)
+}
+
+// AdvanceSwissRound manually triggers the next round of a Swiss tournament
+func (h *BracketHandler) AdvanceSwissRound(w http.ResponseWriter, r *http.Request) {
+	if h.swissSvc == nil {
+		writeError(w, http.StatusInternalServerError, "swiss format not configured")
+		return
+	}
+
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	matches, err := h.swissSvc.AdvanceRound(r.Context(), tournamentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if matches == nil {
+		// Tournament is complete
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	// Return the new matches
+	matchResponses := make([]*MatchResponse, len(matches))
+	for i, m := range matches {
+		matchResponses[i] = toMatchResponse(m)
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"matches": matchResponses,
+	})
+}
+
+// GetEliminationStandings returns standings for single/double elimination brackets
+func (h *BracketHandler) GetEliminationStandings(w http.ResponseWriter, r *http.Request) {
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	standings, err := h.matchSvc.GetEliminationStandings(r.Context(), tournamentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Get bracket state to determine format and completion status
+	state, err := h.matchSvc.GetBracketState(r.Context(), tournamentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Determine format from matches
+	format := "single_elimination"
+	for _, m := range state.Matches {
+		if m.BracketType == domain.BracketLosers || m.BracketType == domain.BracketGrandFinal {
+			format = "double_elimination"
+			break
+		}
+	}
+
+	// Build response
+	standingResponses := make([]EliminationStandingResponse, len(standings))
+	for i, s := range standings {
+		standingResponses[i] = EliminationStandingResponse{
+			Rank:            s.Rank,
+			ParticipantID:   s.ParticipantID,
+			ParticipantName: s.ParticipantName,
+			IconURL:         s.IconURL,
+			Seed:            s.Seed,
+			Wins:            s.Wins,
+			Losses:          s.Losses,
+			GameWins:        s.GameWins,
+			GameLosses:      s.GameLosses,
+			Placement:       s.Placement,
+		}
+	}
+
+	resp := EliminationStandingsResponse{
+		TournamentID: tournamentID,
+		Format:       format,
+		IsComplete:   state.IsComplete,
+		Standings:    standingResponses,
+	}
+
+	json.NewEncoder(w).Encode(resp)
 }

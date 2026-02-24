@@ -10,6 +10,7 @@ type TournamentFormat string
 const (
 	FormatSingleElimination TournamentFormat = "single_elimination"
 	FormatDoubleElimination TournamentFormat = "double_elimination"
+	FormatSwiss             TournamentFormat = "swiss"
 )
 
 type TournamentStatus string
@@ -33,6 +34,7 @@ type Tournament struct {
 	Format           TournamentFormat
 	Status           TournamentStatus
 	MaxParticipants  *uint
+	SwissRounds      *int // Optional - number of rounds for Swiss format (defaults to ceil(log2(n)))
 	RegistrationOpen bool
 	Settings         json.RawMessage
 	StartsAt         *time.Time

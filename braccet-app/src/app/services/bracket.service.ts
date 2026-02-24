@@ -12,7 +12,9 @@ import {
   EditResultResponse,
   UpdateStageRequest,
   BracketFormat,
-  Participant as BracketParticipant
+  Participant as BracketParticipant,
+  SwissBracketState,
+  EliminationStandingsResponse
 } from '../models/bracket.model';
 import { Participant as TournamentParticipant } from '../models/tournament.model';
 import { BracketPreview } from './bracket-generator.service';
@@ -65,6 +67,33 @@ export class BracketService {
     return this.http.put<BracketStage>(
       `${this.apiUrl}/${tournamentId}/stages/${round}`,
       request
+    );
+  }
+
+  // Swiss-specific methods
+
+  /**
+   * Get Swiss bracket state including standings and matches.
+   */
+  getSwissBracket(tournamentId: number): Observable<SwissBracketState> {
+    return this.http.get<SwissBracketState>(`${this.apiUrl}/${tournamentId}/standings`);
+  }
+
+  /**
+   * Get elimination standings for single/double elimination brackets.
+   */
+  getEliminationStandings(tournamentId: number): Observable<EliminationStandingsResponse> {
+    return this.http.get<EliminationStandingsResponse>(`${this.apiUrl}/${tournamentId}/elimination-standings`);
+  }
+
+  /**
+   * Advance to the next round in a Swiss tournament.
+   * Returns the new matches for the next round, or null if tournament is complete.
+   */
+  advanceSwissRound(tournamentId: number): Observable<{ matches: Match[] } | null> {
+    return this.http.post<{ matches: Match[] } | null>(
+      `${this.apiUrl}/${tournamentId}/advance-round`,
+      {}
     );
   }
 

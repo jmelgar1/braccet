@@ -18,6 +18,7 @@ type BracketService interface {
 type bracketService struct {
 	repo            repository.MatchRepository
 	stageRepo       repository.StageRepository
+	swissRepo       repository.SwissRepository
 	communityClient client.CommunityClient
 }
 
@@ -28,6 +29,11 @@ func NewBracketService(repo repository.MatchRepository, stageRepo repository.Sta
 // NewBracketServiceWithCommunity creates a bracket service with community client for ELO operations
 func NewBracketServiceWithCommunity(repo repository.MatchRepository, stageRepo repository.StageRepository, communityClient client.CommunityClient) BracketService {
 	return &bracketService{repo: repo, stageRepo: stageRepo, communityClient: communityClient}
+}
+
+// NewBracketServiceWithSwiss creates a bracket service with Swiss support
+func NewBracketServiceWithSwiss(repo repository.MatchRepository, stageRepo repository.StageRepository, swissRepo repository.SwissRepository, communityClient client.CommunityClient) BracketService {
+	return &bracketService{repo: repo, stageRepo: stageRepo, swissRepo: swissRepo, communityClient: communityClient}
 }
 
 // GenerateSingleElimination creates a single elimination bracket and persists it.
@@ -461,6 +467,13 @@ func (s *bracketService) DeleteBracket(ctx context.Context, tournamentID uint64)
 	// Delete all bracket stages
 	if s.stageRepo != nil {
 		if err := s.stageRepo.DeleteByTournament(ctx, tournamentID); err != nil {
+			return err
+		}
+	}
+
+	// Delete Swiss data if Swiss repo is configured
+	if s.swissRepo != nil {
+		if err := s.swissRepo.DeleteByTournament(ctx, tournamentID); err != nil {
 			return err
 		}
 	}

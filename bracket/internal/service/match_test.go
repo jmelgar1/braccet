@@ -156,6 +156,15 @@ func (r *mockMatchRepository) ClearParticipant(ctx context.Context, matchID uint
 	return nil
 }
 
+func (r *mockMatchRepository) DeleteByTournament(ctx context.Context, tournamentID uint64) error {
+	for id, m := range r.matches {
+		if m.TournamentID == tournamentID {
+			delete(r.matches, id)
+		}
+	}
+	return nil
+}
+
 // mockSetRepository implements repository.SetRepository for testing
 type mockSetRepository struct {
 	sets map[uint64][]domain.Set

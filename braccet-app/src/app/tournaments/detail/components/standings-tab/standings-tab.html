@@ -1,0 +1,175 @@
+<div class="standings-container">
+  <!-- Header -->
+  <div class="standings-header">
+    <h3 class="standings-title">Standings</h3>
+    <div class="standings-info">
+      @if (isSwissFormat() && swissBracketState()) {
+        <span class="round-info">
+          Round {{ currentRound() }} of {{ totalRounds() }}
+        </span>
+      }
+      @if (isComplete()) {
+        <span class="complete-badge">Complete</span>
+      }
+    </div>
+  </div>
+
+  <!-- Error -->
+  @if (error()) {
+    <div class="error-message">
+      {{ error() }}
+    </div>
+  }
+
+  <!-- Loading -->
+  @if (loading()) {
+    <div class="loading-state">
+      <p>Loading standings...</p>
+    </div>
+  } @else if (isSwissFormat() && swissStandings().length > 0) {
+    <!-- Swiss Standings Table -->
+    <div class="table-container">
+      <table class="standings-table">
+        <thead>
+          <tr>
+            <th class="col-rank">#</th>
+            <th class="col-player">Player</th>
+            <th class="col-record">W-L</th>
+            <th class="col-games">Games</th>
+            <th class="col-diff">+/-</th>
+            <th class="col-buchholz" title="Buchholz (sum of opponents' wins)">Buch.</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (standing of swissStandings(); track standing.participant_id) {
+            <tr [class.current-user]="isCurrentUser(standing)" [class.top-3]="standing.rank <= 3">
+              <td class="col-rank">
+                <span class="rank-badge" [ngClass]="getRankClass(standing.rank)">
+                  {{ standing.rank }}
+                </span>
+              </td>
+              <td class="col-player">
+                <div class="player-info">
+                  @if (standing.icon_url) {
+                    <img [src]="standing.icon_url" alt="" class="player-icon" />
+                  } @else {
+                    <div class="player-icon-placeholder"></div>
+                  }
+                  <span class="player-name">{{ standing.participant_name }}</span>
+                </div>
+              </td>
+              <td class="col-record">
+                <span class="record">{{ getRecord(standing) }}</span>
+              </td>
+              <td class="col-games">
+                <span class="games">{{ standing.game_wins }}-{{ standing.game_losses }}</span>
+              </td>
+              <td class="col-diff">
+                <span class="diff" [class.positive]="standing.game_wins > standing.game_losses" [class.negative]="standing.game_wins < standing.game_losses">
+                  {{ getGameDiff(standing) }}
+                </span>
+              </td>
+              <td class="col-buchholz">
+                <span class="buchholz">{{ standing.opponent_wins }}</span>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Swiss Legend -->
+    <div class="legend">
+      <div class="legend-item">
+        <span class="legend-label">W-L:</span> Match wins - losses
+      </div>
+      <div class="legend-item">
+        <span class="legend-label">Games:</span> Game wins - losses
+      </div>
+      <div class="legend-item">
+        <span class="legend-label">+/-:</span> Game differential
+      </div>
+      <div class="legend-item">
+        <span class="legend-label">Buch.:</span> Buchholz tiebreaker (total opponent wins)
+      </div>
+    </div>
+  } @else if (isEliminationFormat() && elimStandings().length > 0) {
+    <!-- Elimination Standings Table -->
+    <div class="table-container">
+      <table class="standings-table">
+        <thead>
+          <tr>
+            <th class="col-rank">#</th>
+            <th class="col-player">Player</th>
+            <th class="col-placement">Placement</th>
+            <th class="col-record">W-L</th>
+            <th class="col-games">Games</th>
+            <th class="col-diff">+/-</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (standing of elimStandings(); track standing.participant_id) {
+            <tr [class.current-user]="isCurrentUser(standing)" [class.top-3]="standing.rank <= 3">
+              <td class="col-rank">
+                <span class="rank-badge" [ngClass]="getRankClass(standing.rank)">
+                  {{ standing.rank }}
+                </span>
+              </td>
+              <td class="col-player">
+                <div class="player-info">
+                  @if (standing.icon_url) {
+                    <img [src]="standing.icon_url" alt="" class="player-icon" />
+                  } @else {
+                    <div class="player-icon-placeholder"></div>
+                  }
+                  <span class="player-name">{{ standing.participant_name }}</span>
+                </div>
+              </td>
+              <td class="col-placement">
+                @if (standing.placement) {
+                  <span class="placement-badge" [ngClass]="getPlacementClass(standing.placement)">
+                    {{ standing.placement }}
+                  </span>
+                } @else {
+                  <span class="no-placement">-</span>
+                }
+              </td>
+              <td class="col-record">
+                <span class="record">{{ getRecord(standing) }}</span>
+              </td>
+              <td class="col-games">
+                <span class="games">{{ standing.game_wins }}-{{ standing.game_losses }}</span>
+              </td>
+              <td class="col-diff">
+                <span class="diff" [class.positive]="standing.game_wins > standing.game_losses" [class.negative]="standing.game_wins < standing.game_losses">
+                  {{ getGameDiff(standing) }}
+                </span>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Elimination Legend -->
+    <div class="legend">
+      <div class="legend-item">
+        <span class="legend-label">Placement:</span> Final tournament placement
+      </div>
+      <div class="legend-item">
+        <span class="legend-label">W-L:</span> Match wins - losses
+      </div>
+      <div class="legend-item">
+        <span class="legend-label">Games:</span> Game wins - losses
+      </div>
+      <div class="legend-item">
+        <span class="legend-label">+/-:</span> Game differential
+      </div>
+    </div>
+  } @else if (!loading()) {
+    <div class="no-standings">
+      <p>No standings available yet.</p>
+      <p class="text-sm text-gray-500">Standings will appear once the tournament starts.</p>
+    </div>
+  }
+</div>

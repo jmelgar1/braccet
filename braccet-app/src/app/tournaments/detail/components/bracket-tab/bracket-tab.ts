@@ -3,15 +3,16 @@ import { Tournament, Participant } from '../../../../models/tournament.model';
 import { BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
 import { TournamentService } from '../../../../services/tournament.service';
-import { BracketState, BracketStage, Match, BracketType } from '../../../../models/bracket.model';
+import { BracketState, BracketStage, Match, BracketType, SwissBracketState } from '../../../../models/bracket.model';
 import { BracketViewer } from '../../../../components/bracket-viewer/bracket-viewer';
 import { DoubleElimBracket } from '../../../../components/double-elim-bracket/double-elim-bracket';
+import { SwissBracket } from '../../../../components/swiss-bracket/swiss-bracket';
 import { MatchResultModal, MatchResultEvent } from '../../../../components/match-result-modal/match-result-modal';
 import { EditStageModal } from '../../../../components/edit-stage-modal/edit-stage-modal';
 
 @Component({
   selector: 'app-bracket-tab',
-  imports: [BracketViewer, DoubleElimBracket, MatchResultModal, EditStageModal],
+  imports: [BracketViewer, DoubleElimBracket, SwissBracket, MatchResultModal, EditStageModal],
   templateUrl: './bracket-tab.html'
 })
 export class BracketTab {
@@ -29,8 +30,10 @@ export class BracketTab {
   tournamentReset = output<Tournament>();
 
   bracketState = signal<BracketState | null>(null);
+  swissBracketState = signal<SwissBracketState | null>(null);
   loadingBracket = signal(false);
   bracketError = signal('');
+  advancingRound = signal(false);
 
   // Preview state (loaded from backend API)
   previewState = signal<BracketPreview | null>(null);
@@ -48,6 +51,7 @@ export class BracketTab {
   // Stage modal state
   selectedStage = signal<BracketStage | null>(null);
   showStageModal = signal(false);
+  hideStageNameField = signal(false); // True for Swiss brackets
 
   @ViewChild(MatchResultModal) matchModal?: MatchResultModal;
 
@@ -70,6 +74,15 @@ export class BracketTab {
   // Get bestOf for the selected match based on its round and bracket type
   selectedMatchBestOf = computed(() => {
     const match = this.selectedMatch();
+
+    // Use Swiss stages if it's a Swiss bracket
+    const swissState = this.swissBracketState();
+    if (swissState && swissState.stages?.length > 0) {
+      const swissStage = swissState.stages.find(s => s.round === match?.round);
+      return swissStage?.best_of ?? 1;
+    }
+
+    // Use regular bracket stages
     const stagesData = this.stages();
     if (!match || stagesData.length === 0) return 1;
 
@@ -95,6 +108,47 @@ export class BracketTab {
     return t.format === 'double_elimination';
   });
 
+  // Check if tournament uses Swiss format
+  isSwiss = computed(() => {
+    const t = this.tournament();
+    return t.format === 'swiss';
+  });
+
+  // Check if we're on the final round of Swiss
+  isFinalSwissRound = computed(() => {
+    const swissState = this.swissBracketState();
+    if (!swissState) return false;
+    return swissState.current_round >= swissState.total_rounds;
+  });
+
+  // Check if Swiss round can be advanced (not on final round)
+  canAdvanceSwissRound = computed(() => {
+    const swissState = this.swissBracketState();
+    if (!swissState || swissState.is_complete) return false;
+
+    // Can't advance if we're on the final round - use End Tournament instead
+    if (this.isFinalSwissRound()) return false;
+
+    // Check if all matches in current round are completed
+    const currentRound = swissState.current_round;
+    const currentRoundMatches = swissState.matches.filter(m => m.round === currentRound);
+
+    if (currentRoundMatches.length === 0) return false;
+
+    return currentRoundMatches.every(m => m.status === 'completed');
+  });
+
+  // Show advance round button for Swiss tournaments (not on final round)
+  showAdvanceRoundButton = computed(() => {
+    const t = this.tournament();
+    const swissState = this.swissBracketState();
+    return this.isOrganizer() &&
+           this.isSwiss() &&
+           t.status === 'in_progress' &&
+           !swissState?.is_complete &&
+           !this.isFinalSwissRound();
+  });
+
   // Preview loaded from backend API (same logic as actual bracket generation)
   preview = computed<BracketPreview | null>(() => {
     const t = this.tournament();
@@ -113,8 +167,21 @@ export class BracketTab {
   });
 
   canEndTournament = computed(() => {
+    // For regular brackets (single/double elimination)
     const bracket = this.bracketState();
-    return bracket?.is_complete ?? false;
+    if (bracket?.is_complete) return true;
+
+    // For Swiss brackets: can end on final round when all matches are complete
+    const swissState = this.swissBracketState();
+    if (swissState && this.isFinalSwissRound()) {
+      const currentRound = swissState.current_round;
+      const currentRoundMatches = swissState.matches.filter(m => m.round === currentRound);
+      if (currentRoundMatches.length > 0 && currentRoundMatches.every(m => m.status === 'completed')) {
+        return true;
+      }
+    }
+
+    return false;
   });
 
   showEndButton = computed(() => {
@@ -132,7 +199,11 @@ export class BracketTab {
     effect(() => {
       const t = this.tournament();
       if (t.status === 'in_progress' || t.status === 'completed') {
-        this.loadBracket(t.id);
+        if (t.format === 'swiss') {
+          this.loadSwissBracket(t.id);
+        } else {
+          this.loadBracket(t.id);
+        }
       }
     });
 
@@ -142,7 +213,11 @@ export class BracketTab {
       const t = this.tournament();
       // Only reload if key > 0 (not initial) and bracket is active
       if (key > 0 && (t.status === 'in_progress' || t.status === 'completed')) {
-        this.loadBracket(t.id);
+        if (t.format === 'swiss') {
+          this.loadSwissBracket(t.id);
+        } else {
+          this.loadBracket(t.id);
+        }
       }
     });
 
@@ -201,6 +276,41 @@ export class BracketTab {
     });
   }
 
+  private loadSwissBracket(tournamentId: number): void {
+    this.loadingBracket.set(true);
+    this.bracketError.set('');
+
+    this.bracketService.getSwissBracket(tournamentId).subscribe({
+      next: (state) => {
+        this.swissBracketState.set(state);
+        this.loadingBracket.set(false);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to load Swiss bracket');
+        this.loadingBracket.set(false);
+      }
+    });
+  }
+
+  advanceSwissRound(): void {
+    const t = this.tournament();
+    if (!this.canAdvanceSwissRound() || this.advancingRound()) return;
+
+    this.advancingRound.set(true);
+    this.bracketError.set('');
+
+    this.bracketService.advanceSwissRound(t.id).subscribe({
+      next: () => {
+        this.advancingRound.set(false);
+        this.loadSwissBracket(t.id);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to advance round');
+        this.advancingRound.set(false);
+      }
+    });
+  }
+
   onMatchClicked(match: Match): void {
     this.selectedMatch.set(match);
     this.isEditMode.set(false);
@@ -221,10 +331,15 @@ export class BracketTab {
 
   onResultSubmitted(event: MatchResultEvent): void {
     const request = { sets: event.sets };
+    const t = this.tournament();
 
     const handleSuccess = () => {
       this.closeModal();
-      this.loadBracket(this.tournament().id);
+      if (t.format === 'swiss') {
+        this.loadSwissBracket(t.id);
+      } else {
+        this.loadBracket(t.id);
+      }
     };
 
     const handleError = (err: { error?: { error?: string } }) => {
@@ -246,9 +361,14 @@ export class BracketTab {
   }
 
   onMatchReopened(match: Match): void {
+    const t = this.tournament();
     this.bracketService.reopenMatch(match.id).subscribe({
       next: () => {
-        this.loadBracket(this.tournament().id);
+        if (t.format === 'swiss') {
+          this.loadSwissBracket(t.id);
+        } else {
+          this.loadBracket(t.id);
+        }
       },
       error: (err) => {
         this.bracketError.set(err.error?.error || 'Failed to reopen match');
@@ -263,7 +383,27 @@ export class BracketTab {
     this.endingTournament.set(true);
     this.bracketError.set('');
 
-    this.tournamentService.updateTournament(t.slug, { status: 'completed' }).subscribe({
+    // For Swiss brackets on final round, first call advanceRound to mark is_complete
+    // then update the tournament status
+    if (this.isSwiss() && this.isFinalSwissRound()) {
+      this.bracketService.advanceSwissRound(t.id).subscribe({
+        next: () => {
+          // Now update tournament status to completed
+          this.updateTournamentStatus(t.slug);
+        },
+        error: (err) => {
+          this.bracketError.set(err.error?.error || 'Failed to complete Swiss bracket');
+          this.endingTournament.set(false);
+        }
+      });
+    } else {
+      // Regular brackets - just update tournament status
+      this.updateTournamentStatus(t.slug);
+    }
+  }
+
+  private updateTournamentStatus(slug: string): void {
+    this.tournamentService.updateTournament(slug, { status: 'completed' }).subscribe({
       next: (updatedTournament) => {
         this.endingTournament.set(false);
         this.tournamentEnded.emit(updatedTournament);
@@ -277,18 +417,34 @@ export class BracketTab {
 
   onStageClicked(event: { round: number; stage: BracketStage; bracketType?: BracketType }): void {
     this.selectedStage.set(event.stage);
+    this.hideStageNameField.set(false); // Show name field for regular brackets
+    this.showStageModal.set(true);
+  }
+
+  onSwissStageClicked(event: { round: number; stage: BracketStage }): void {
+    this.selectedStage.set(event.stage);
+    this.hideStageNameField.set(true); // Hide name field for Swiss brackets
     this.showStageModal.set(true);
   }
 
   onStageUpdated(stage: BracketStage): void {
     this.showStageModal.set(false);
     this.selectedStage.set(null);
-    this.loadBracket(this.tournament().id);
+    this.hideStageNameField.set(false);
+
+    // Reload the appropriate bracket type
+    const t = this.tournament();
+    if (t.format === 'swiss') {
+      this.loadSwissBracket(t.id);
+    } else {
+      this.loadBracket(t.id);
+    }
   }
 
   closeStageModal(): void {
     this.showStageModal.set(false);
     this.selectedStage.set(null);
+    this.hideStageNameField.set(false);
   }
 
   showResetConfirmDialog(): void {

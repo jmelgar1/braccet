@@ -38,12 +38,17 @@ export class TournamentNew implements OnInit {
   name = signal('');
   game = signal('');
   description = signal('');
-  format = signal<'single_elimination' | 'double_elimination'>('single_elimination');
+  format = signal<'single_elimination' | 'double_elimination' | 'swiss'>('single_elimination');
   maxParticipants = signal<number | null>(null);
   startsAt = signal('');
   startsAtTentative = signal(false);
   communityId = signal<number | null>(null);
   eloSystemId = signal<number | null>(null);
+
+  // Swiss format settings
+  swissRounds = signal<number>(3);
+  showSwissModal = signal(false);
+  previousFormat = signal<'single_elimination' | 'double_elimination' | 'swiss'>('single_elimination');
 
   constructor() {
     // Load ELO systems when community changes
@@ -119,6 +124,23 @@ export class TournamentNew implements OnInit {
     });
   }
 
+  onFormatChange(newFormat: 'single_elimination' | 'double_elimination' | 'swiss'): void {
+    if (newFormat === 'swiss') {
+      this.previousFormat.set(this.format());
+      this.showSwissModal.set(true);
+    }
+    this.format.set(newFormat);
+  }
+
+  confirmSwissFormat(): void {
+    this.showSwissModal.set(false);
+  }
+
+  cancelSwissFormat(): void {
+    this.showSwissModal.set(false);
+    this.format.set(this.previousFormat());
+  }
+
   onSubmit() {
     this.nameTouched.set(true);
 
@@ -142,6 +164,9 @@ export class TournamentNew implements OnInit {
     }
     if (this.maxParticipants()) {
       request.max_participants = this.maxParticipants()!;
+    }
+    if (this.format() === 'swiss' && this.swissRounds()) {
+      request.swiss_rounds = this.swissRounds();
     }
     if (this.startsAt()) {
       request.starts_at = new Date(this.startsAt()).toISOString();

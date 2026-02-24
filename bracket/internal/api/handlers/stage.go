@@ -20,8 +20,9 @@ func NewStageHandler(stageSvc service.StageService) *StageHandler {
 }
 
 type UpdateStageRequest struct {
-	StageName *string `json:"stage_name,omitempty"`
-	BestOf    *int    `json:"best_of,omitempty"`
+	StageName   *string `json:"stage_name,omitempty"`
+	BestOf      *int    `json:"best_of,omitempty"`
+	BracketType *string `json:"bracket_type,omitempty"` // Optional: "winners", "losers", "grand_final", "swiss"
 }
 
 func (h *StageHandler) GetStages(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +77,21 @@ func (h *StageHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 
 	// Default to winners bracket for single elimination
 	bracketType := domain.BracketWinners
+	if req.BracketType != nil {
+		switch *req.BracketType {
+		case "winners":
+			bracketType = domain.BracketWinners
+		case "losers":
+			bracketType = domain.BracketLosers
+		case "grand_final":
+			bracketType = domain.BracketGrandFinal
+		case "swiss":
+			bracketType = domain.BracketSwiss
+		default:
+			writeError(w, http.StatusBadRequest, "invalid bracket_type")
+			return
+		}
+	}
 
 	svcReq := service.UpdateStageRequest{
 		StageName: req.StageName,
