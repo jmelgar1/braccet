@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Tournament, CreateTournamentRequest, CreateMultiStageTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult, TournamentStage, StageGroup, UpdateStageRequest, StageSeedAssignment, UpdateStageSeedsRequest } from '../models/tournament.model';
+import { Tournament, CreateTournamentRequest, CreateMultiStageTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult, TournamentStage, StageGroup, UpdateStageRequest, StageSeedAssignment, UpdateStageSeedsRequest, StagePoolResponse, UpdateStagePoolRequest } from '../models/tournament.model';
 
 @Injectable({ providedIn: 'root' })
 export class TournamentService {
@@ -98,5 +98,15 @@ export class TournamentService {
 
   updateStageSeeds(slug: string, stageId: number, request: UpdateStageSeedsRequest): Observable<StageSeedAssignment[]> {
     return this.http.put<StageSeedAssignment[]>(`${this.baseUrl}/${slug}/stages/${stageId}/seeds`, request);
+  }
+
+  // Stage participant pool methods (for assigning participants to start in specific stages)
+
+  getStagePool(slug: string): Observable<StagePoolResponse> {
+    return this.http.get<StagePoolResponse>(`${this.baseUrl}/${slug}/stages/pool`);
+  }
+
+  updateStagePool(slug: string, request: UpdateStagePoolRequest): Observable<StagePoolResponse> {
+    return this.http.put<StagePoolResponse>(`${this.baseUrl}/${slug}/stages/pool`, request);
   }
 }

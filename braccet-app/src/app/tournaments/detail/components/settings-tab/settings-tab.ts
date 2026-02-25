@@ -1,8 +1,9 @@
-import { Component, input, output, inject, signal, effect, computed } from '@angular/core';
+import { Component, output, inject, signal, effect, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Tournament, UpdateTournamentRequest, TournamentStage, UpdateStageRequest, RankingCriterion, StageFormat } from '../../../../models/tournament.model';
 import { TournamentService } from '../../../../services/tournament.service';
+import { TournamentUIService } from '../../../../services/tournament-ui.service';
 
 @Component({
   selector: 'app-settings-tab',
@@ -11,10 +12,13 @@ import { TournamentService } from '../../../../services/tournament.service';
 })
 export class SettingsTab {
   private tournamentService = inject(TournamentService);
+  private tournamentUI = inject(TournamentUIService);
   private router = inject(Router);
 
-  tournament = input.required<Tournament>();
-  stages = input<TournamentStage[]>([]);
+  // Read from service
+  tournament = computed(() => this.tournamentUI.tournament()!);
+  stages = computed(() => this.tournamentUI.stages());
+
   tournamentUpdated = output<Tournament>();
   stageUpdated = output<TournamentStage>();
 
@@ -33,6 +37,8 @@ export class SettingsTab {
   stageParticipantsPerGroup = signal<number>(4);
   stageAdvancingPerGroup = signal<number>(2);
   stageSwissRounds = signal<number | null>(null);
+  stageWinsToAdvance = signal<number | null>(null);
+  stageLossesToEliminate = signal<number | null>(null);
   stageSkipFinals = signal(false);
   stageRankingCriteria = signal<RankingCriterion[]>([]);
   savingStage = signal(false);
@@ -181,6 +187,8 @@ export class SettingsTab {
     this.stageParticipantsPerGroup.set(stage.participants_per_group || 4);
     this.stageAdvancingPerGroup.set(stage.advancing_per_group || 2);
     this.stageSwissRounds.set(stage.swiss_rounds || null);
+    this.stageWinsToAdvance.set(stage.wins_to_advance ?? null);
+    this.stageLossesToEliminate.set(stage.losses_to_eliminate ?? null);
     this.stageSkipFinals.set(stage.skip_finals || false);
     this.stageRankingCriteria.set(stage.ranking_criteria || []);
     this.stageError.set('');
@@ -254,9 +262,17 @@ export class SettingsTab {
       request.advancing_per_group = this.stageAdvancingPerGroup();
     }
 
-    // Only include swiss_rounds for Swiss format
-    if (this.stageFormat() === 'swiss' && this.stageSwissRounds()) {
-      request.swiss_rounds = this.stageSwissRounds()!;
+    // Only include Swiss-specific fields for Swiss format
+    if (this.stageFormat() === 'swiss') {
+      if (this.stageSwissRounds()) {
+        request.swiss_rounds = this.stageSwissRounds()!;
+      }
+      if (this.stageWinsToAdvance() !== null) {
+        request.wins_to_advance = this.stageWinsToAdvance()!;
+      }
+      if (this.stageLossesToEliminate() !== null) {
+        request.losses_to_eliminate = this.stageLossesToEliminate()!;
+      }
     }
 
     this.tournamentService.updateStage(this.tournament().slug, stageId, request).subscribe({

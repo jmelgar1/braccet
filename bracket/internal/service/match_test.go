@@ -50,6 +50,17 @@ func (r *mockMatchRepository) GetByTournament(ctx context.Context, tournamentID 
 	return matches, nil
 }
 
+func (r *mockMatchRepository) GetByTournamentStage(ctx context.Context, tournamentID, stageID uint64) ([]*domain.Match, error) {
+	var matches []*domain.Match
+	for _, m := range r.matches {
+		if m.TournamentID == tournamentID &&
+			m.StageID != nil && *m.StageID == stageID {
+			matches = append(matches, m)
+		}
+	}
+	return matches, nil
+}
+
 func (r *mockMatchRepository) GetByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) ([]*domain.Match, error) {
 	var matches []*domain.Match
 	for _, m := range r.matches {

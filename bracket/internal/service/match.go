@@ -852,27 +852,64 @@ func (s *matchService) handleSwissMatchComplete(ctx context.Context, match *doma
 		}
 	}
 
+	// Get config to check for threshold mode
+	// For multi-stage tournaments, use group-specific config
+	var config *domain.SwissConfig
+	var err error
+	if match.StageID != nil && match.GroupID != nil {
+		config, err = s.swissRepo.GetConfigByGroup(ctx, match.TournamentID, *match.StageID, *match.GroupID)
+	} else {
+		config, err = s.swissRepo.GetConfig(ctx, match.TournamentID)
+	}
+	if err != nil {
+		return err
+	}
+
 	// Update winner's standing
-	winnerStanding, err := s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, winnerID)
+	// For multi-stage tournaments, use group-specific standings
+	var winnerStanding *domain.SwissStanding
+	if match.StageID != nil && match.GroupID != nil {
+		winnerStanding, err = s.swissRepo.GetStandingByParticipantInGroup(ctx, match.TournamentID, *match.StageID, *match.GroupID, winnerID)
+	} else {
+		winnerStanding, err = s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, winnerID)
+	}
 	if err != nil {
 		return err
 	}
 	winnerStanding.Wins++
+	winnerStanding.MatchWins++ // Real win (not a BYE) - counts toward advancement threshold
 	winnerStanding.GameWins += winnerGameWins
 	winnerStanding.GameLosses += loserGameWins
+
+	// Check if winner should advance (threshold mode)
+	if config.WinsToAdvance != nil && winnerStanding.MatchWins >= *config.WinsToAdvance {
+		winnerStanding.Status = domain.SwissStatusAdvanced
+	}
+
 	if err := s.swissRepo.UpdateStanding(ctx, winnerStanding); err != nil {
 		return err
 	}
 
 	// Update loser's standing (if not a BYE match)
 	if loserID != 0 {
-		loserStanding, err := s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, loserID)
+		var loserStanding *domain.SwissStanding
+		if match.StageID != nil && match.GroupID != nil {
+			loserStanding, err = s.swissRepo.GetStandingByParticipantInGroup(ctx, match.TournamentID, *match.StageID, *match.GroupID, loserID)
+		} else {
+			loserStanding, err = s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, loserID)
+		}
 		if err != nil {
 			return err
 		}
 		loserStanding.Losses++
 		loserStanding.GameWins += loserGameWins
 		loserStanding.GameLosses += winnerGameWins
+
+		// Check if loser should be eliminated (threshold mode)
+		if config.LossesToEliminate != nil && loserStanding.Losses >= *config.LossesToEliminate {
+			loserStanding.Status = domain.SwissStatusEliminated
+		}
+
 		if err := s.swissRepo.UpdateStanding(ctx, loserStanding); err != nil {
 			return err
 		}

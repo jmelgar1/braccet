@@ -21,19 +21,12 @@
     @switch (activeTab()) {
       @case ('bracket') {
         <app-bracket-tab
-          [tournament]="tournament()"
-          [participants]="participants()"
-          [refreshKey]="bracketRefreshKey()"
-          [isOrganizer]="isOrganizer()"
           (tournamentEnded)="onTournamentUpdated($event)"
           (tournamentReset)="onTournamentUpdated($event)"
         />
       }
       @case ('participants') {
         <app-participants-tab
-          [tournament]="tournament()"
-          [participants]="participants()"
-          [isOrganizer]="isOrganizer()"
           [currentUserParticipant]="currentUserParticipant()"
           [canSelfRegister]="canSelfRegister()"
           [communitySlug]="communitySlug()"
@@ -47,15 +40,10 @@
         />
       }
       @case ('standings') {
-        <app-standings-tab
-          [tournament]="tournament()"
-          [refreshKey]="bracketRefreshKey()"
-        />
+        <app-standings-tab />
       }
       @case ('settings') {
         <app-settings-tab
-          [tournament]="tournament()"
-          [stages]="stages()"
           (tournamentUpdated)="onTournamentUpdated($event)"
           (stageUpdated)="onStageUpdated($event)"
         />

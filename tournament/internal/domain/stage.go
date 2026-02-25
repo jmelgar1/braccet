@@ -42,6 +42,8 @@ type TournamentStage struct {
 	ParticipantsPerGroup *int // NULL for final stage
 	AdvancingPerGroup    *int // NULL for final stage
 	SwissRounds          *int // Optional override for Swiss format
+	WinsToAdvance        *int // For Swiss: wins needed to advance (excluding BYEs)
+	LossesToEliminate    *int // For Swiss: losses that eliminate a participant
 	VenueType            VenueType // Venue type for power ranking LAN tracking
 	SkipFinals           bool      // When true, skip final match(es) and determine standings by bracket position
 	IsActive             bool

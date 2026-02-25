@@ -1,29 +1,13 @@
 <div class="multi-stage-bracket">
-  <!-- Stage Progress Indicator -->
-  <div class="stage-progress">
-    @for (stage of sortedStages(); track stage.id) {
-      <button
-        class="stage-indicator"
-        [class.active]="stage.is_active"
-        [class.complete]="stage.is_complete"
-        [class.selected]="activeStage()?.id === stage.id"
-        (click)="selectStage(stage)"
-      >
-        <span class="stage-number">
-          @if (stage.stage_type === 'final') {
-            F
-          } @else {
-            {{ stage.stage_order }}
-          }
-        </span>
-        <span class="stage-label">{{ getStageLabel(stage) }}</span>
-        <span class="stage-format">{{ getStageFormatLabel(stage) }}</span>
-        @if (stage.is_complete) {
-          <span class="checkmark">&#10003;</span>
-        }
+  <!-- Complete Stage Button -->
+  @if (activeStage()?.stage_type === 'group' && groups().length > 0 && isOrganizer() && allGroupsComplete()) {
+    <div class="stage-complete-banner">
+      <span>All group matches complete!</span>
+      <button class="advance-stage-btn" (click)="onAdvanceStage()">
+        Complete Stage & Advance
       </button>
-    }
-  </div>
+    </div>
+  }
 
   <!-- Loading State -->
   @if (loading()) {
@@ -67,8 +51,26 @@
       <!-- Group Content -->
       @if (activeGroup()) {
         <div class="group-content">
+          <!-- Advance Swiss Round Button (for Swiss format groups) -->
+          @if (canAdvanceGroupSwissRound()) {
+            <div class="swiss-round-complete-banner">
+              <span>Round {{ currentGroupSwissBracket()?.current_round }} complete!</span>
+              <button
+                class="advance-round-btn"
+                (click)="advanceGroupSwissRound()"
+                [disabled]="advancingGroupRound()"
+              >
+                @if (advancingGroupRound()) {
+                  Generating...
+                } @else {
+                  Generate Round {{ (currentGroupSwissBracket()?.current_round ?? 0) + 1 }}
+                }
+              </button>
+            </div>
+          }
+
           <!-- Group Bracket -->
-          @if (currentGroupBracket()) {
+          @if (activeStage()?.format === 'swiss' ? currentGroupSwissBracket() : currentGroupBracket()) {
             <div class="bracket-container">
               @switch (activeStage()?.format) {
                 @case ('single_elimination') {
@@ -83,6 +85,7 @@
                     (matchClicked)="onMatchClicked($event)"
                     (matchEditClicked)="onMatchEditClicked($event)"
                     (matchReopened)="onMatchReopened($event)"
+                    (stageClicked)="onStageClicked($event)"
                   />
                 }
                 @case ('double_elimination') {
@@ -101,6 +104,7 @@
                     (matchClicked)="onMatchClicked($event)"
                     (matchEditClicked)="onMatchEditClicked($event)"
                     (matchReopened)="onMatchReopened($event)"
+                    (stageClicked)="onStageClicked($event)"
                   />
                 }
                 @case ('swiss') {
@@ -111,6 +115,7 @@
                     (matchClicked)="onMatchClicked($event)"
                     (matchEditClicked)="onMatchEditClicked($event)"
                     (matchReopened)="onMatchReopened($event)"
+                    (stageClicked)="onSwissStageClicked($event)"
                   />
                 }
               }
@@ -164,6 +169,7 @@
                 (matchClicked)="onMatchClicked($event)"
                 (matchEditClicked)="onMatchEditClicked($event)"
                 (matchReopened)="onMatchReopened($event)"
+                (stageClicked)="onStageClicked($event)"
               />
             }
             @case ('double_elimination') {
@@ -182,6 +188,7 @@
                 (matchClicked)="onMatchClicked($event)"
                 (matchEditClicked)="onMatchEditClicked($event)"
                 (matchReopened)="onMatchReopened($event)"
+                (stageClicked)="onStageClicked($event)"
               />
             }
             @case ('swiss') {
@@ -192,6 +199,7 @@
                 (matchClicked)="onMatchClicked($event)"
                 (matchEditClicked)="onMatchEditClicked($event)"
                 (matchReopened)="onMatchReopened($event)"
+                (stageClicked)="onSwissStageClicked($event)"
               />
             }
           }
@@ -203,13 +211,5 @@
       </div>
     }
 
-    <!-- Advance Stage Button -->
-    @if (canAdvanceStage()) {
-      <div class="stage-actions">
-        <button class="advance-stage-btn" (click)="onAdvanceStage()">
-          Advance to Next Stage
-        </button>
-      </div>
-    }
   }
 </div>

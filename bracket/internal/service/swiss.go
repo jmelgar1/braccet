@@ -9,9 +9,19 @@ import (
 	"github.com/braccet/bracket/internal/repository"
 )
 
+// SwissInitOptions contains optional configuration for Swiss initialization
+type SwissInitOptions struct {
+	RoundOverride     *int // Override the auto-calculated number of rounds
+	WinsToAdvance     *int // Threshold mode: wins needed to advance (excluding BYEs)
+	LossesToEliminate *int // Threshold mode: losses that eliminate a participant
+}
+
 type SwissService interface {
 	// InitializeSwiss creates standings, config, and round 1 matches
 	InitializeSwiss(ctx context.Context, tournamentID uint64, participants []domain.Participant, roundOverride *int) (*domain.SwissBracketState, error)
+
+	// InitializeSwissWithOptions creates standings, config, and round 1 matches with additional options
+	InitializeSwissWithOptions(ctx context.Context, tournamentID uint64, participants []domain.Participant, opts SwissInitOptions) (*domain.SwissBracketState, error)
 
 	// GetState returns full Swiss bracket state
 	GetState(ctx context.Context, tournamentID uint64) (*domain.SwissBracketState, error)
@@ -19,8 +29,17 @@ type SwissService interface {
 	// GetStandings returns current standings sorted by rank
 	GetStandings(ctx context.Context, tournamentID uint64) ([]*domain.SwissStanding, error)
 
+	// GetActiveStandings returns standings for participants still playing (status='active')
+	GetActiveStandings(ctx context.Context, tournamentID uint64) ([]*domain.SwissStanding, error)
+
+	// GetAdvancedStandings returns standings for participants who advanced (status='advanced')
+	GetAdvancedStandings(ctx context.Context, tournamentID uint64) ([]*domain.SwissStanding, error)
+
 	// AdvanceRound generates next round pairings (called after round completes)
 	AdvanceRound(ctx context.Context, tournamentID uint64) ([]*domain.Match, error)
+
+	// AdvanceGroupRound generates next round pairings for a specific group
+	AdvanceGroupRound(ctx context.Context, tournamentID, stageID, groupID uint64) ([]*domain.Match, error)
 
 	// CheckAndAdvanceRound checks if current round is complete and advances if so
 	// Returns the new matches if advanced, nil if not ready to advance
@@ -67,22 +86,47 @@ func NewSwissServiceWithTiebreakers(
 
 // InitializeSwiss creates a Swiss bracket with initial standings and round 1 matches.
 func (s *swissService) InitializeSwiss(ctx context.Context, tournamentID uint64, participants []domain.Participant, roundOverride *int) (*domain.SwissBracketState, error) {
+	return s.InitializeSwissWithOptions(ctx, tournamentID, participants, SwissInitOptions{
+		RoundOverride: roundOverride,
+	})
+}
+
+// InitializeSwissWithOptions creates a Swiss bracket with initial standings and round 1 matches.
+// Supports threshold mode where participants advance after X wins or are eliminated after X losses.
+func (s *swissService) InitializeSwissWithOptions(ctx context.Context, tournamentID uint64, participants []domain.Participant, opts SwissInitOptions) (*domain.SwissBracketState, error) {
 	if len(participants) < 2 {
 		return nil, fmt.Errorf("need at least 2 participants, got %d", len(participants))
 	}
 
-	// Calculate rounds
-	totalRounds := engine.CalculateSwissRounds(len(participants))
-	if roundOverride != nil && *roundOverride > 0 {
-		totalRounds = *roundOverride
+	// Clean up any existing data for this tournament (handles re-starts)
+	if err := s.swissRepo.DeleteByTournament(ctx, tournamentID); err != nil {
+		return nil, fmt.Errorf("failed to clean up existing swiss data: %w", err)
+	}
+	// Also clean up matches
+	if err := s.matchRepo.DeleteByTournament(ctx, tournamentID); err != nil {
+		return nil, fmt.Errorf("failed to clean up existing matches: %w", err)
+	}
+
+	// Calculate rounds - use 0 for threshold mode (dynamic rounds)
+	var totalRounds int
+	if opts.WinsToAdvance != nil || opts.LossesToEliminate != nil {
+		// Threshold mode: we don't know how many rounds in advance
+		totalRounds = 0
+	} else {
+		totalRounds = engine.CalculateSwissRounds(len(participants))
+		if opts.RoundOverride != nil && *opts.RoundOverride > 0 {
+			totalRounds = *opts.RoundOverride
+		}
 	}
 
 	// Create config
 	config := &domain.SwissConfig{
-		TournamentID: tournamentID,
-		TotalRounds:  totalRounds,
-		CurrentRound: 1,
-		IsComplete:   false,
+		TournamentID:      tournamentID,
+		TotalRounds:       totalRounds,
+		CurrentRound:      1,
+		IsComplete:        false,
+		WinsToAdvance:     opts.WinsToAdvance,
+		LossesToEliminate: opts.LossesToEliminate,
 	}
 	if err := s.swissRepo.CreateConfig(ctx, config); err != nil {
 		return nil, fmt.Errorf("failed to create swiss config: %w", err)
@@ -99,10 +143,12 @@ func (s *swissService) InitializeSwiss(ctx context.Context, tournamentID uint64,
 			Seed:               p.Seed,
 			Wins:               0,
 			Losses:             0,
+			MatchWins:          0, // Real wins (excluding BYEs)
 			GameWins:           0,
 			GameLosses:         0,
 			OpponentWins:       0,
 			HasBye:             false,
+			Status:             domain.SwissStatusActive,
 		}
 	}
 	if err := s.swissRepo.CreateStandings(ctx, standings); err != nil {
@@ -137,6 +183,7 @@ func (s *swissService) InitializeSwiss(ctx context.Context, tournamentID uint64,
 	}
 
 	// Update standings for BYE matches
+	// Note: BYEs increment Wins but NOT MatchWins (so they don't count toward advancement threshold)
 	for _, p := range pairings {
 		if p.IsBye {
 			standing, err := s.swissRepo.GetStandingByParticipant(ctx, tournamentID, p.Participant1ID)
@@ -145,14 +192,15 @@ func (s *swissService) InitializeSwiss(ctx context.Context, tournamentID uint64,
 			}
 			standing.Wins = 1
 			standing.HasBye = true
+			// Note: MatchWins stays at 0 - BYEs don't count toward advancement
 			if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
 				return nil, fmt.Errorf("failed to update BYE standing: %w", err)
 			}
 		}
 	}
 
-	// Create stage for round 1
-	if s.stageRepo != nil {
+	// Create stage for round 1 (only if not threshold mode with unknown rounds)
+	if s.stageRepo != nil && totalRounds > 0 {
 		if err := s.stageRepo.CreateDefaultStages(ctx, tournamentID, domain.BracketSwiss, totalRounds, false); err != nil {
 			return nil, fmt.Errorf("failed to create swiss stages: %w", err)
 		}
@@ -207,6 +255,16 @@ func (s *swissService) GetStandings(ctx context.Context, tournamentID uint64) ([
 	return s.swissRepo.GetStandings(ctx, tournamentID)
 }
 
+// GetActiveStandings returns standings for participants still playing (status='active').
+func (s *swissService) GetActiveStandings(ctx context.Context, tournamentID uint64) ([]*domain.SwissStanding, error) {
+	return s.swissRepo.GetActiveStandings(ctx, tournamentID)
+}
+
+// GetAdvancedStandings returns standings for participants who advanced (status='advanced').
+func (s *swissService) GetAdvancedStandings(ctx context.Context, tournamentID uint64) ([]*domain.SwissStanding, error) {
+	return s.swissRepo.GetAdvancedStandings(ctx, tournamentID)
+}
+
 // AdvanceRound generates the next round of matches.
 func (s *swissService) AdvanceRound(ctx context.Context, tournamentID uint64) ([]*domain.Match, error) {
 	config, err := s.swissRepo.GetConfig(ctx, tournamentID)
@@ -218,13 +276,63 @@ func (s *swissService) AdvanceRound(ctx context.Context, tournamentID uint64) ([
 		return nil, fmt.Errorf("tournament is already complete")
 	}
 
-	if config.CurrentRound >= config.TotalRounds {
-		// Mark as complete instead of generating new round
-		config.IsComplete = true
-		if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+	// For threshold mode, check if all participants are resolved
+	if config.IsThresholdMode() {
+		activeStandings, err := s.swissRepo.GetActiveStandings(ctx, tournamentID)
+		if err != nil {
 			return nil, err
 		}
-		return nil, nil
+
+		// Stage is complete when no active participants remain
+		if len(activeStandings) == 0 {
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+
+		// Handle single remaining participant - give them BYEs until they advance
+		// (BYEs don't count toward MatchWins, so they need real wins to advance)
+		if len(activeStandings) == 1 {
+			standing := activeStandings[0]
+			// If they can still advance via MatchWins, give them a BYE
+			// Otherwise they're stuck and should auto-advance
+			if config.WinsToAdvance != nil && standing.MatchWins >= *config.WinsToAdvance {
+				// They already met threshold, mark as advanced
+				standing.Status = domain.SwissStatusAdvanced
+				if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+					return nil, err
+				}
+				config.IsComplete = true
+				if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+					return nil, err
+				}
+				return nil, nil
+			}
+			// Give them a BYE (increments Wins but not MatchWins)
+			// They'll need to wait for more opponents or be auto-advanced
+			// For now, just auto-advance them since they can't get more match wins
+			standing.Status = domain.SwissStatusAdvanced
+			if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+				return nil, err
+			}
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+	} else {
+		// Fixed rounds mode
+		if config.CurrentRound >= config.TotalRounds {
+			// Mark as complete instead of generating new round
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
 	}
 
 	// Update opponent wins (Buchholz tiebreaker) before pairing
@@ -232,8 +340,13 @@ func (s *swissService) AdvanceRound(ctx context.Context, tournamentID uint64) ([
 		return nil, fmt.Errorf("failed to update opponent wins: %w", err)
 	}
 
-	// Get current standings
-	standings, err := s.swissRepo.GetStandings(ctx, tournamentID)
+	// Get standings - for threshold mode, only pair active participants
+	var standings []*domain.SwissStanding
+	if config.IsThresholdMode() {
+		standings, err = s.swissRepo.GetActiveStandings(ctx, tournamentID)
+	} else {
+		standings, err = s.swissRepo.GetStandings(ctx, tournamentID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -275,9 +388,144 @@ func (s *swissService) AdvanceRound(ctx context.Context, tournamentID uint64) ([
 	}
 
 	// Update standings for BYE matches
+	// Note: BYEs increment Wins but NOT MatchWins (so they don't count toward advancement threshold)
 	for _, p := range pairings {
 		if p.IsBye {
 			standing, err := s.swissRepo.GetStandingByParticipant(ctx, tournamentID, p.Participant1ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get standing for BYE participant: %w", err)
+			}
+			standing.Wins++
+			standing.HasBye = true
+			// Note: MatchWins NOT incremented - BYEs don't count toward advancement
+			if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+				return nil, fmt.Errorf("failed to update BYE standing: %w", err)
+			}
+		}
+	}
+
+	// Update config
+	config.CurrentRound = nextRound
+	if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+		return nil, err
+	}
+
+	return matches, nil
+}
+
+// AdvanceGroupRound generates the next round of matches for a specific group.
+func (s *swissService) AdvanceGroupRound(ctx context.Context, tournamentID, stageID, groupID uint64) ([]*domain.Match, error) {
+	config, err := s.swissRepo.GetConfigByGroup(ctx, tournamentID, stageID, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.IsComplete {
+		return nil, fmt.Errorf("group Swiss bracket is already complete")
+	}
+
+	// For threshold mode, check if all participants are resolved
+	if config.IsThresholdMode() {
+		activeStandings, err := s.swissRepo.GetActiveStandingsByGroup(ctx, tournamentID, stageID, groupID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Group is complete when no active participants remain
+		if len(activeStandings) == 0 {
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+
+		// Handle single remaining participant
+		if len(activeStandings) == 1 {
+			standing := activeStandings[0]
+			standing.Status = domain.SwissStatusAdvanced
+			if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+				return nil, err
+			}
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+	} else {
+		// Fixed rounds mode
+		if config.CurrentRound >= config.TotalRounds {
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+	}
+
+	// Update opponent wins before pairing
+	if err := s.swissRepo.UpdateOpponentWinsByGroup(ctx, tournamentID, stageID, groupID); err != nil {
+		return nil, fmt.Errorf("failed to update opponent wins: %w", err)
+	}
+
+	// Get standings for this group
+	var standings []*domain.SwissStanding
+	if config.IsThresholdMode() {
+		standings, err = s.swissRepo.GetActiveStandingsByGroup(ctx, tournamentID, stageID, groupID)
+	} else {
+		standings, err = s.swissRepo.GetStandingsByGroup(ctx, tournamentID, stageID, groupID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Get pairing history for this group
+	history, err := s.swissRepo.GetPairingHistoryByGroup(ctx, tournamentID, stageID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	playedPairs := engine.BuildPlayedPairsMap(history)
+
+	// Generate pairings for next round
+	nextRound := config.CurrentRound + 1
+	pairings, err := engine.GenerateSwissPairings(standings, playedPairs, nextRound)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate pairings: %w", err)
+	}
+
+	// Record pairing history with stage and group IDs
+	var historyRecords []*domain.SwissPairingHistory
+	for _, p := range pairings {
+		if !p.IsBye {
+			historyRecords = append(historyRecords, &domain.SwissPairingHistory{
+				TournamentID:   tournamentID,
+				StageID:        stageID,
+				GroupID:        groupID,
+				Participant1ID: p.Participant1ID,
+				Participant2ID: p.Participant2ID,
+				Round:          nextRound,
+			})
+		}
+	}
+	if err := s.swissRepo.CreatePairings(ctx, historyRecords); err != nil {
+		return nil, fmt.Errorf("failed to create pairing history: %w", err)
+	}
+
+	// Create matches with stage and group IDs
+	matches := engine.PairingsToMatches(tournamentID, nextRound, pairings)
+	for _, m := range matches {
+		m.StageID = &stageID
+		m.GroupID = &groupID
+	}
+	if err := s.matchRepo.CreateBatch(ctx, matches); err != nil {
+		return nil, fmt.Errorf("failed to create matches: %w", err)
+	}
+
+	// Update standings for BYE matches
+	for _, p := range pairings {
+		if p.IsBye {
+			standing, err := s.swissRepo.GetStandingByParticipantInGroup(ctx, tournamentID, stageID, groupID, p.Participant1ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get standing for BYE participant: %w", err)
 			}
@@ -293,6 +541,25 @@ func (s *swissService) AdvanceRound(ctx context.Context, tournamentID uint64) ([
 	config.CurrentRound = nextRound
 	if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
 		return nil, err
+	}
+
+	// Create stage entry for this round if in threshold mode (dynamic rounds)
+	// For fixed rounds, stages are created upfront in generateSwissGroupBracket
+	if s.stageRepo != nil && config.IsThresholdMode() {
+		stage := &domain.BracketStage{
+			TournamentID: tournamentID,
+			StageID:      &stageID,
+			GroupID:      &groupID,
+			BracketType:  domain.BracketSwiss,
+			Round:        nextRound,
+			BestOf:       1,
+		}
+		stageName := domain.DefaultSwissStageName(nextRound, nextRound) // totalRounds unknown in threshold mode
+		stage.StageName = &stageName
+		if err := s.stageRepo.UpsertForGroup(ctx, stage); err != nil {
+			// Non-fatal - stage creation is for UI display only
+			// Log but don't fail the operation
+		}
 	}
 
 	return matches, nil
@@ -335,7 +602,27 @@ func (s *swissService) CheckAndAdvanceRound(ctx context.Context, tournamentID ui
 		return nil, nil // Not ready to advance
 	}
 
-	// If we're at the final round, mark as complete
+	// For threshold mode, check if all participants are resolved
+	if config.IsThresholdMode() {
+		activeStandings, err := s.swissRepo.GetActiveStandings(ctx, tournamentID)
+		if err != nil {
+			return nil, err
+		}
+
+		// Stage is complete when no active participants remain
+		if len(activeStandings) == 0 {
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return nil, err
+			}
+			return nil, nil
+		}
+
+		// Continue to next round (AdvanceRound handles single remaining participant)
+		return s.AdvanceRound(ctx, tournamentID)
+	}
+
+	// Fixed rounds mode: If we're at the final round, mark as complete
 	if config.CurrentRound >= config.TotalRounds {
 		config.IsComplete = true
 		if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {

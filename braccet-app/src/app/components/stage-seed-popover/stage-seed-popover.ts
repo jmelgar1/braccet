@@ -1,7 +1,7 @@
-import { Component, inject, input, output, signal, computed, OnInit, OnDestroy } from '@angular/core';
+import { Component, inject, input, output, signal, OnDestroy, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TournamentService } from '../../services/tournament.service';
-import { TournamentStage, Participant, StageSeedAssignment, StageSeedInput } from '../../models/tournament.model';
+import { TournamentStage, Participant, StagePoolEntry, StagePoolConfigInput } from '../../models/tournament.model';
 import { Subject } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 
@@ -11,61 +11,66 @@ import { takeUntil } from 'rxjs/operators';
   templateUrl: './stage-seed-popover.html',
   styleUrl: './stage-seed-popover.css'
 })
-export class StageSeedPopover implements OnInit, OnDestroy {
+export class StageSeedPopover implements OnDestroy {
   private tournamentService = inject(TournamentService);
   private destroy$ = new Subject<void>();
+  private initialized = false;
 
   // Inputs
   stage = input.required<TournamentStage>();
+  allStages = input.required<TournamentStage[]>();
   participants = input.required<Participant[]>();
   tournamentSlug = input.required<string>();
-  initialSeeds = input<StageSeedAssignment[]>([]);
+  initialPool = input<StagePoolEntry[]>([]);
 
   // Outputs
   close = output<void>();
-  seedsUpdated = output<StageSeedAssignment[]>();
+  poolUpdated = output<StagePoolEntry[]>();
 
-  // State
-  currentSeeds = signal<StageSeedInput[]>([]);
+  // State - track selected participant IDs for THIS stage
+  selectedParticipantIds = signal<Set<number>>(new Set());
   saving = signal(false);
   error = signal('');
   searchQuery = signal('');
-  activeGroupDropdown = signal<number | null>(null);
 
-  // Expected number of groups based on participants and stage config
-  // For final stage, we use 1 "group" (the finals bracket itself)
-  expectedGroups = computed(() => {
-    const stg = this.stage();
-    if (stg.stage_type === 'final') {
-      return 1; // Finals has just one "group" - the bracket itself
-    }
-    const participantCount = this.participants().length;
-    const perGroup = stg.participants_per_group ?? 4;
-    return Math.ceil(participantCount / perGroup);
-  });
+  constructor() {
+    // Use effect to initialize from pool when inputs are ready
+    effect(() => {
+      const pool = this.initialPool();
+      const stage = this.stage();
 
-  // Generate group names (Group A, Group B, etc.) or "Finals" for final stage
-  groupNames = computed(() => {
-    const stg = this.stage();
-    if (stg.stage_type === 'final') {
-      return ['Finals'];
-    }
-    return Array.from({ length: this.expectedGroups() }, (_, i) =>
-      String.fromCharCode(65 + i)
-    );
-  });
-
-  // Get group letter from order
-  getGroupLetter(groupOrder: number): string {
-    if (this.stage().stage_type === 'final') {
-      return 'Finals';
-    }
-    return String.fromCharCode(65 + groupOrder);
+      // Only initialize once and when we have data
+      if (!this.initialized && stage) {
+        this.initialized = true;
+        const poolForThisStage = pool.filter(e => e.stage_id === stage.id);
+        if (poolForThisStage.length > 0) {
+          this.selectedParticipantIds.set(new Set(poolForThisStage.map(e => e.participant_id)));
+        }
+      }
+    });
   }
 
-  // Get seeds for a specific group
-  getSeedsForGroup(groupOrder: number): StageSeedInput[] {
-    return this.currentSeeds().filter(s => s.target_group_order === groupOrder);
+  // Get the first group stage ID (participants here are "default" assignments, not explicit)
+  private getFirstGroupStageId(): number | null {
+    const stages = this.allStages();
+    const groupStages = stages
+      .filter(s => s.stage_type === 'group' && s.stage_order > 0)
+      .sort((a, b) => a.stage_order - b.stage_order);
+    return groupStages.length > 0 ? groupStages[0].id : null;
+  }
+
+  // Get participant IDs explicitly assigned to OTHER later stages (not this one, not the first group stage)
+  // The first group stage contains "default" participants who weren't assigned elsewhere
+  private getParticipantIdsInOtherLaterStages(): Set<number> {
+    const currentStageId = this.stage().id;
+    const firstGroupStageId = this.getFirstGroupStageId();
+    const pool = this.initialPool();
+
+    return new Set(
+      pool
+        .filter(e => e.stage_id !== currentStageId && e.stage_id !== firstGroupStageId)
+        .map(e => e.participant_id)
+    );
   }
 
   // Get participant by ID
@@ -73,24 +78,22 @@ export class StageSeedPopover implements OnInit, OnDestroy {
     return this.participants().find(p => p.id === participantId);
   }
 
-  // Get unseeded participants (filtered by search)
-  getUnseededParticipants(): Participant[] {
-    const seededIds = new Set(this.currentSeeds().map(s => s.participant_id));
+  // Get available participants: not selected for THIS stage AND not explicitly assigned to OTHER later stages
+  getAvailableParticipants(): Participant[] {
+    const selectedIds = this.selectedParticipantIds();
+    const idsInOtherLaterStages = this.getParticipantIdsInOtherLaterStages();
     const query = this.searchQuery().toLowerCase();
+
     return this.participants()
-      .filter(p => !seededIds.has(p.id))
+      .filter(p => !selectedIds.has(p.id))
+      .filter(p => !idsInOtherLaterStages.has(p.id))
       .filter(p => !query || p.display_name.toLowerCase().includes(query));
   }
 
-  ngOnInit(): void {
-    // Initialize from existing seeds
-    const initial = this.initialSeeds();
-    if (initial.length > 0) {
-      this.currentSeeds.set(initial.map(s => ({
-        participant_id: s.participant_id,
-        target_group_order: s.target_group_order
-      })));
-    }
+  // Get selected participants in display order
+  getSelectedParticipants(): Participant[] {
+    const selectedIds = this.selectedParticipantIds();
+    return this.participants().filter(p => selectedIds.has(p.id));
   }
 
   ngOnDestroy(): void {
@@ -103,80 +106,94 @@ export class StageSeedPopover implements OnInit, OnDestroy {
     this.searchQuery.set(value);
   }
 
-  toggleGroupDropdown(groupOrder: number): void {
-    if (this.activeGroupDropdown() === groupOrder) {
-      this.activeGroupDropdown.set(null);
-    } else {
-      this.activeGroupDropdown.set(groupOrder);
-      this.searchQuery.set('');
-    }
-  }
-
-  addSeed(participantId: number, groupOrder: number): void {
-    this.currentSeeds.update(seeds => [
-      ...seeds,
-      { participant_id: participantId, target_group_order: groupOrder }
-    ]);
-    this.activeGroupDropdown.set(null);
-    this.searchQuery.set('');
-  }
-
-  removeSeed(participantId: number): void {
-    this.currentSeeds.update(seeds =>
-      seeds.filter(s => s.participant_id !== participantId)
-    );
-  }
-
-  // Auto-fill remaining unseeded participants using serpentine distribution
-  autoFillRemaining(): void {
-    const unseeded = this.getUnseededParticipants();
-    if (unseeded.length === 0) return;
-
-    const numGroups = this.expectedGroups();
-    const currentSeeds = [...this.currentSeeds()];
-
-    // Serpentine distribution: alternate direction each row
-    // Row 0: 0, 1, 2 (left to right)
-    // Row 1: 2, 1, 0 (right to left)
-    // Row 2: 0, 1, 2 (left to right)
-    // etc.
-    unseeded.forEach((p, i) => {
-      const row = Math.floor(i / numGroups);
-      const posInRow = i % numGroups;
-      const groupOrder = row % 2 === 0
-        ? posInRow                    // Even rows: left to right
-        : numGroups - 1 - posInRow;   // Odd rows: right to left
-
-      currentSeeds.push({
-        participant_id: p.id,
-        target_group_order: groupOrder
-      });
+  addParticipant(participantId: number): void {
+    this.selectedParticipantIds.update(ids => {
+      const newIds = new Set(ids);
+      newIds.add(participantId);
+      return newIds;
     });
-
-    this.currentSeeds.set(currentSeeds);
   }
 
-  // Clear all seeds
-  clearAllSeeds(): void {
-    this.currentSeeds.set([]);
+  removeParticipant(participantId: number): void {
+    this.selectedParticipantIds.update(ids => {
+      const newIds = new Set(ids);
+      newIds.delete(participantId);
+      return newIds;
+    });
+  }
+
+  // Select all available participants (those not explicitly assigned to other later stages)
+  selectAll(): void {
+    const idsInOtherLaterStages = this.getParticipantIdsInOtherLaterStages();
+    const availableIds = new Set(
+      this.participants()
+        .filter(p => !idsInOtherLaterStages.has(p.id))
+        .map(p => p.id)
+    );
+    this.selectedParticipantIds.set(availableIds);
+  }
+
+  // Clear all selections for this stage
+  clearAll(): void {
+    this.selectedParticipantIds.set(new Set());
   }
 
   save(): void {
     this.saving.set(true);
     this.error.set('');
 
-    this.tournamentService.updateStageSeeds(
+    // Build complete config for ALL stages (except first group stage which gets remainder)
+    const currentStageId = this.stage().id;
+    const firstGroupStageId = this.getFirstGroupStageId();
+    const pool = this.initialPool();
+    const stages = this.allStages();
+
+    // Count assignments per stage from existing pool (for OTHER later stages, not first group stage)
+    // First group stage is handled as "remainder" by the backend, so we don't include it
+    const stageCountMap = new Map<number, number>();
+    for (const entry of pool) {
+      if (entry.stage_id !== currentStageId && entry.stage_id !== firstGroupStageId) {
+        stageCountMap.set(entry.stage_id, (stageCountMap.get(entry.stage_id) || 0) + 1);
+      }
+    }
+
+    // Add this stage's count (unless it's the first group stage - those are auto-assigned)
+    if (currentStageId !== firstGroupStageId) {
+      stageCountMap.set(currentStageId, this.selectedParticipantIds().size);
+    }
+
+    // Build config array, sorted by stage order (later stages first, since they get top seeds)
+    // Final stage (order 0) should be processed first if it has assignments
+    const sortedStages = [...stages].sort((a, b) => {
+      // Finals (order 0) comes last in stage progression but gets top seeds
+      if (a.stage_order === 0) return -1;
+      if (b.stage_order === 0) return 1;
+      // Higher order stages (later stages) get processed first for top seeds
+      return b.stage_order - a.stage_order;
+    });
+
+    const config: StagePoolConfigInput[] = [];
+    for (const stage of sortedStages) {
+      const count = stageCountMap.get(stage.id) || 0;
+      if (count > 0) {
+        config.push({
+          stage_id: stage.id,
+          count: count
+        });
+      }
+    }
+
+    this.tournamentService.updateStagePool(
       this.tournamentSlug(),
-      this.stage().id,
-      { seeds: this.currentSeeds() }
+      { config }
     ).pipe(takeUntil(this.destroy$)).subscribe({
       next: (result) => {
         this.saving.set(false);
-        this.seedsUpdated.emit(result);
+        this.poolUpdated.emit(result.entries);
       },
       error: (err) => {
         this.saving.set(false);
-        this.error.set(err.error?.error || 'Failed to save seeds');
+        this.error.set(err.error?.error || 'Failed to save stage assignments');
       }
     });
   }

@@ -8,6 +8,8 @@ import (
 type BracketStage struct {
 	ID           uint64
 	TournamentID uint64
+	StageID      *uint64 // For multi-stage tournaments
+	GroupID      *uint64 // For group brackets
 	BracketType  BracketType
 	Round        int
 	StageName    *string
@@ -67,4 +69,12 @@ func (s *BracketStage) GetDisplayName(totalRounds int) string {
 		return *s.StageName
 	}
 	return DefaultStageName(s.BracketType, s.Round, totalRounds)
+}
+
+// DefaultSwissStageName returns the default name for a Swiss round
+func DefaultSwissStageName(round, totalRounds int) string {
+	if round == totalRounds {
+		return "Final Round"
+	}
+	return fmt.Sprintf("Round %d", round)
 }

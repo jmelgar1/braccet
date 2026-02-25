@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 
 	"github.com/braccet/tournament/internal/domain"
+	"github.com/lib/pq"
 )
 
 var ErrParticipantNotFound = errors.New("participant not found")
@@ -75,7 +75,12 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []uint64) ([]*
 		return nil, nil
 	}
 
-	// Build query with placeholders
+	// Convert []uint64 to []int64 for pq.Array (pq doesn't support uint64 directly)
+	int64Ids := make([]int64, len(ids))
+	for i, id := range ids {
+		int64Ids[i] = int64(id)
+	}
+
 	query := `
 		SELECT id, tournament_id, user_id, community_member_id, display_name, seed, status, checked_in_at, created_at
 		FROM participants
@@ -83,8 +88,7 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []uint64) ([]*
 		ORDER BY seed ASC NULLS LAST, created_at ASC
 	`
 
-	// Convert []uint64 to []interface{} for pq.Array
-	rows, err := r.db.QueryContext(ctx, query, pqUint64Array(ids))
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(int64Ids))
 	if err != nil {
 		return nil, err
 	}
@@ -107,25 +111,6 @@ func (r *participantRepository) GetByIDs(ctx context.Context, ids []uint64) ([]*
 	}
 
 	return participants, nil
-}
-
-// pqUint64Array converts []uint64 to a type that works with PostgreSQL's ANY operator
-type pqUint64Array []uint64
-
-func (a pqUint64Array) Value() (interface{}, error) {
-	if len(a) == 0 {
-		return "{}", nil
-	}
-	// Build PostgreSQL array literal
-	result := "{"
-	for i, v := range a {
-		if i > 0 {
-			result += ","
-		}
-		result += fmt.Sprintf("%d", v)
-	}
-	result += "}"
-	return result, nil
 }
 
 func (r *participantRepository) GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Participant, error) {

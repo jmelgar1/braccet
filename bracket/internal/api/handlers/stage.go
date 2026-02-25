@@ -121,3 +121,122 @@ func (h *StageHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(resp)
 }
+
+func (h *StageHandler) GetGroupStages(w http.ResponseWriter, r *http.Request) {
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	stageID, err := strconv.ParseUint(chi.URLParam(r, "stageId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid stage ID")
+		return
+	}
+
+	groupID, err := strconv.ParseUint(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid group ID")
+		return
+	}
+
+	stages, err := h.stageSvc.GetGroupStages(r.Context(), tournamentID, stageID, groupID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	resp := make([]*StageResponse, len(stages))
+	for i, s := range stages {
+		stageName := ""
+		if s.StageName != nil {
+			stageName = *s.StageName
+		}
+		resp[i] = &StageResponse{
+			TournamentID: s.TournamentID,
+			BracketType:  string(s.BracketType),
+			Round:        s.Round,
+			StageName:    stageName,
+			BestOf:       s.BestOf,
+		}
+	}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *StageHandler) UpdateGroupStage(w http.ResponseWriter, r *http.Request) {
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	stageID, err := strconv.ParseUint(chi.URLParam(r, "stageId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid stage ID")
+		return
+	}
+
+	groupID, err := strconv.ParseUint(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid group ID")
+		return
+	}
+
+	round, err := strconv.Atoi(chi.URLParam(r, "round"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid round number")
+		return
+	}
+
+	var req UpdateStageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Default to Swiss bracket type for group stages
+	bracketType := domain.BracketSwiss
+	if req.BracketType != nil {
+		switch *req.BracketType {
+		case "winners":
+			bracketType = domain.BracketWinners
+		case "losers":
+			bracketType = domain.BracketLosers
+		case "swiss":
+			bracketType = domain.BracketSwiss
+		default:
+			writeError(w, http.StatusBadRequest, "invalid bracket_type")
+			return
+		}
+	}
+
+	svcReq := service.UpdateStageRequest{
+		StageName: req.StageName,
+		BestOf:    req.BestOf,
+	}
+
+	stage, err := h.stageSvc.UpdateGroupStage(r.Context(), tournamentID, stageID, groupID, bracketType, round, svcReq)
+	if err != nil {
+		if err == service.ErrInvalidBestOf {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	stageName := ""
+	if stage.StageName != nil {
+		stageName = *stage.StageName
+	}
+	resp := &StageResponse{
+		TournamentID: stage.TournamentID,
+		BracketType:  string(stage.BracketType),
+		Round:        stage.Round,
+		StageName:    stageName,
+		BestOf:       stage.BestOf,
+	}
+	json.NewEncoder(w).Encode(resp)
+}

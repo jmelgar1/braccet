@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -427,6 +428,15 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+
+			// For single-stage tournaments, generate the bracket now
+			if tournament.Format != domain.FormatMultiStage {
+				if err := h.generateSingleStageBracket(r.Context(), tournament); err != nil {
+					log.Printf("Error generating bracket for tournament %d: %v", tournament.ID, err)
+					writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to generate bracket: %v", err))
+					return
+				}
+			}
 		}
 		// Close registration for any non-registration status
 		if newStatus != domain.StatusRegistration {
@@ -571,5 +581,68 @@ func (h *TournamentHandler) linkParticipantsToCommunity(ctx context.Context, tou
 		}
 	}
 
+	return nil
+}
+
+// generateSingleStageBracket creates a bracket for a single-stage (non-multi-stage) tournament.
+// This is called when the tournament status changes to in_progress.
+func (h *TournamentHandler) generateSingleStageBracket(ctx context.Context, tournament *domain.Tournament) error {
+	// Get participants
+	participants, err := h.participantRepo.GetByTournament(ctx, tournament.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get participants: %w", err)
+	}
+
+	if len(participants) < 2 {
+		return fmt.Errorf("at least 2 participants required")
+	}
+
+	// Fetch icon URLs for participants with community member IDs
+	var memberIDs []uint64
+	for _, p := range participants {
+		if p.CommunityMemberID != nil {
+			memberIDs = append(memberIDs, *p.CommunityMemberID)
+		}
+	}
+	memberData, err := h.communityClient.GetBulkMemberData(ctx, memberIDs)
+	if err != nil {
+		log.Printf("Error fetching member data for icons: %v", err)
+		// Non-fatal, continue without icons
+		memberData = make(map[uint64]client.MemberDataResponse)
+	}
+
+	// Build participant list for bracket request
+	bracketParticipants := make([]client.Participant, len(participants))
+	for i, p := range participants {
+		seed := 0
+		if p.Seed != nil {
+			seed = int(*p.Seed)
+		}
+		var iconURL string
+		if p.CommunityMemberID != nil {
+			if data, ok := memberData[*p.CommunityMemberID]; ok && data.IconURL != nil {
+				iconURL = *data.IconURL
+			}
+		}
+		bracketParticipants[i] = client.Participant{
+			ID:      p.ID,
+			Name:    p.DisplayName,
+			Seed:    seed,
+			IconURL: iconURL,
+		}
+	}
+
+	// Create bracket request
+	req := client.CreateBracketRequest{
+		TournamentID: tournament.ID,
+		Format:       string(tournament.Format),
+		Participants: bracketParticipants,
+		SwissRounds:  tournament.SwissRounds,
+	}
+
+	log.Printf("Creating bracket for tournament %d: format=%s, participants=%d", tournament.ID, tournament.Format, len(bracketParticipants))
+	if err := h.bracketClient.CreateBracket(ctx, req); err != nil {
+		return fmt.Errorf("bracket service: %w", err)
+	}
 	return nil
 }

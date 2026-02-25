@@ -458,6 +458,11 @@ func buildBracketState(tournamentID uint64, matches []*domain.Match) *BracketSta
 // GenerateGroupBracket creates a bracket for a specific group within a stage.
 // It generates matches tagged with the stage and group IDs for proper filtering.
 func (s *bracketService) GenerateGroupBracket(ctx context.Context, params engine.GroupBracketParams) (*BracketState, error) {
+	// For Swiss format with threshold options, use the Swiss service
+	if params.Format == "swiss" && s.swissRepo != nil && (params.WinsToAdvance != nil || params.LossesToEliminate != nil || params.SwissRounds != nil) {
+		return s.generateSwissGroupBracket(ctx, params)
+	}
+
 	// Generate matches in memory
 	matches, err := engine.GenerateGroupBracket(params)
 	if err != nil {
@@ -502,7 +507,193 @@ func (s *bracketService) GenerateGroupBracket(ctx context.Context, params engine
 		return nil, err
 	}
 
-	return buildBracketState(params.TournamentID, matches), nil
+	// Build state to determine total rounds
+	state := buildBracketState(params.TournamentID, matches)
+
+	// Create default stages for the bracket (if not already created for this tournament)
+	if s.stageRepo != nil && state.TotalRounds > 0 {
+		isDoubleElim := params.Format == "double_elimination"
+
+		if isDoubleElim {
+			bracketSize := engine.CalculateBracketSize(len(params.Participants))
+			winnersRounds := engine.TotalRounds(bracketSize)
+			losersRounds := engine.LosersRounds(winnersRounds)
+
+			// Winners bracket stages
+			if winnersRounds > 0 {
+				if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketWinners, winnersRounds, true); err != nil {
+					return nil, err
+				}
+			}
+			// Losers bracket stages
+			if losersRounds > 0 {
+				if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketLosers, losersRounds, true); err != nil {
+					return nil, err
+				}
+			}
+			// Grand final stage (only if skip_finals is false)
+			if !params.SkipFinals {
+				if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketGrandFinal, 1, true); err != nil {
+					return nil, err
+				}
+			}
+		} else if params.Format == "swiss" {
+			if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketSwiss, state.TotalRounds, false); err != nil {
+				return nil, err
+			}
+		} else {
+			// Single elimination
+			if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketWinners, state.TotalRounds, false); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return state, nil
+}
+
+// generateSwissGroupBracket creates a Swiss bracket with threshold options
+func (s *bracketService) generateSwissGroupBracket(ctx context.Context, params engine.GroupBracketParams) (*BracketState, error) {
+	// Calculate rounds - use 0 for threshold mode (dynamic rounds)
+	var totalRounds int
+	if params.WinsToAdvance != nil || params.LossesToEliminate != nil {
+		totalRounds = 0
+	} else {
+		totalRounds = engine.CalculateSwissRounds(len(params.Participants))
+		if params.SwissRounds != nil && *params.SwissRounds > 0 {
+			totalRounds = *params.SwissRounds
+		}
+	}
+
+	// Create config
+	config := &domain.SwissConfig{
+		TournamentID:      params.TournamentID,
+		StageID:           params.StageID,
+		GroupID:           params.GroupID,
+		TotalRounds:       totalRounds,
+		CurrentRound:      1,
+		IsComplete:        false,
+		WinsToAdvance:     params.WinsToAdvance,
+		LossesToEliminate: params.LossesToEliminate,
+	}
+	if err := s.swissRepo.CreateConfig(ctx, config); err != nil {
+		return nil, err
+	}
+
+	// Create standings for each participant
+	standings := make([]*domain.SwissStanding, len(params.Participants))
+	for i, p := range params.Participants {
+		iconURL := ""
+		if p.IconURL != "" {
+			iconURL = p.IconURL
+		}
+		standings[i] = &domain.SwissStanding{
+			TournamentID:       params.TournamentID,
+			StageID:            params.StageID,
+			GroupID:            params.GroupID,
+			ParticipantID:      p.ID,
+			ParticipantName:    p.Name,
+			ParticipantIconURL: &iconURL,
+			Seed:               p.Seed,
+			Wins:               0,
+			Losses:             0,
+			MatchWins:          0,
+			GameWins:           0,
+			GameLosses:         0,
+			OpponentWins:       0,
+			HasBye:             false,
+			Status:             domain.SwissStatusActive,
+		}
+	}
+	if err := s.swissRepo.CreateStandings(ctx, standings); err != nil {
+		return nil, err
+	}
+
+	// Generate round 1 pairings
+	pairings := engine.GenerateRound1Pairings(standings)
+
+	// Create pairing history for non-BYE matches
+	var historyRecords []*domain.SwissPairingHistory
+	for _, p := range pairings {
+		if !p.IsBye {
+			historyRecords = append(historyRecords, &domain.SwissPairingHistory{
+				TournamentID:   params.TournamentID,
+				StageID:        params.StageID,
+				GroupID:        params.GroupID,
+				Participant1ID: p.Participant1ID,
+				Participant2ID: p.Participant2ID,
+				Round:          1,
+			})
+		}
+	}
+	if err := s.swissRepo.CreatePairings(ctx, historyRecords); err != nil {
+		return nil, err
+	}
+
+	// Convert pairings to matches
+	matches := engine.PairingsToMatches(params.TournamentID, 1, pairings)
+
+	// Tag matches with stage and group IDs
+	for _, m := range matches {
+		m.StageID = &params.StageID
+		m.GroupID = &params.GroupID
+	}
+
+	// Save matches
+	if err := s.repo.CreateBatch(ctx, matches); err != nil {
+		return nil, err
+	}
+
+	// Update standings for BYE matches (BYEs increment Wins but NOT MatchWins)
+	for _, p := range pairings {
+		if p.IsBye {
+			standing, err := s.swissRepo.GetStandingByParticipant(ctx, params.TournamentID, p.Participant1ID)
+			if err != nil {
+				return nil, err
+			}
+			standing.Wins = 1
+			standing.HasBye = true
+			// Note: MatchWins stays at 0 - BYEs don't count toward advancement
+			if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Create stages for this group's Swiss bracket
+	if s.stageRepo != nil {
+		if totalRounds > 0 {
+			// Fixed rounds mode: create all stages upfront
+			if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketSwiss, totalRounds); err != nil {
+				return nil, err
+			}
+		} else {
+			// Threshold mode: create only Round 1 stage (others created dynamically in AdvanceGroupRound)
+			stage := &domain.BracketStage{
+				TournamentID: params.TournamentID,
+				StageID:      &params.StageID,
+				GroupID:      &params.GroupID,
+				BracketType:  domain.BracketSwiss,
+				Round:        1,
+				BestOf:       1,
+			}
+			stageName := domain.DefaultSwissStageName(1, 1)
+			stage.StageName = &stageName
+			if err := s.stageRepo.UpsertForGroup(ctx, stage); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Build state
+	state := &BracketState{
+		TournamentID: params.TournamentID,
+		TotalRounds:  totalRounds,
+		CurrentRound: 1,
+		IsComplete:   false,
+	}
+
+	return state, nil
 }
 
 // DeleteBracket deletes all bracket data for a tournament and reverts ELO changes.

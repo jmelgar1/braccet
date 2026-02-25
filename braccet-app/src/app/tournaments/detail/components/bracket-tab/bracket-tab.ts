@@ -1,8 +1,9 @@
-import { Component, input, computed, inject, signal, effect, ViewChild, output } from '@angular/core';
-import { Tournament, Participant, TournamentStage } from '../../../../models/tournament.model';
+import { Component, computed, inject, signal, effect, ViewChild, output } from '@angular/core';
+import { Tournament, TournamentStage, Participant } from '../../../../models/tournament.model';
 import { BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
 import { TournamentService } from '../../../../services/tournament.service';
+import { TournamentUIService } from '../../../../services/tournament-ui.service';
 import { BracketState, BracketStage, Match, BracketType, SwissBracketState } from '../../../../models/bracket.model';
 import { BracketViewer } from '../../../../components/bracket-viewer/bracket-viewer';
 import { DoubleElimBracket } from '../../../../components/double-elim-bracket/double-elim-bracket';
@@ -19,11 +20,12 @@ import { EditStageModal } from '../../../../components/edit-stage-modal/edit-sta
 export class BracketTab {
   private bracketService = inject(BracketService);
   private tournamentService = inject(TournamentService);
+  tournamentUI = inject(TournamentUIService);
 
-  tournament = input.required<Tournament>();
-  participants = input.required<Participant[]>();
-  refreshKey = input(0);
-  isOrganizer = input(false);
+  // Computed accessors from service
+  tournament = computed(() => this.tournamentUI.tournament()!);
+  participants = computed(() => this.tournamentUI.participants());
+  isOrganizer = computed(() => this.tournamentUI.isOrganizer());
 
   // Output for tournament ended event
   tournamentEnded = output<Tournament>();
@@ -40,6 +42,8 @@ export class BracketTab {
   tournamentStages = signal<TournamentStage[]>([]);
   loadingStages = signal(false);
   multiStageRefreshKey = signal(0);
+  multiStageBracketStages = signal<BracketStage[]>([]); // Track current group/final bracket stages
+  multiStageFinalsComplete = signal(false); // Track if multi-stage finals are complete
 
   // Preview state (loaded from backend API)
   previewState = signal<BracketPreview | null>(null);
@@ -56,6 +60,8 @@ export class BracketTab {
 
   // Stage modal state
   selectedStage = signal<BracketStage | null>(null);
+  selectedStageId = signal<number | null>(null); // For multi-stage group brackets
+  selectedGroupId = signal<number | null>(null); // For multi-stage group brackets
   showStageModal = signal(false);
   hideStageNameField = signal(false); // True for Swiss brackets
 
@@ -80,17 +86,31 @@ export class BracketTab {
   // Get bestOf for the selected match based on its round and bracket type
   selectedMatchBestOf = computed(() => {
     const match = this.selectedMatch();
+    if (!match) return 1;
+
+    // For multi-stage tournaments, use the multi-stage bracket stages
+    if (this.isMultiStage()) {
+      const multiStageStages = this.multiStageBracketStages();
+      if (multiStageStages.length > 0) {
+        const stage = multiStageStages.find(s =>
+          s.round === match.round &&
+          (!match.bracket_type || s.bracket_type === match.bracket_type)
+        );
+        return stage?.best_of ?? 1;
+      }
+      return 1;
+    }
 
     // Use Swiss stages if it's a Swiss bracket
     const swissState = this.swissBracketState();
     if (swissState && swissState.stages?.length > 0) {
-      const swissStage = swissState.stages.find(s => s.round === match?.round);
+      const swissStage = swissState.stages.find(s => s.round === match.round);
       return swissStage?.best_of ?? 1;
     }
 
     // Use regular bracket stages
     const stagesData = this.stages();
-    if (!match || stagesData.length === 0) return 1;
+    if (stagesData.length === 0) return 1;
 
     // For double elimination, also match on bracket_type
     const stage = stagesData.find(s =>
@@ -179,6 +199,11 @@ export class BracketTab {
   });
 
   canEndTournament = computed(() => {
+    // For multi-stage tournaments: can end when finals bracket is complete
+    if (this.isMultiStage()) {
+      return this.multiStageFinalsComplete();
+    }
+
     // For regular brackets (single/double elimination)
     const bracket = this.bracketState();
     if (bracket?.is_complete) return true;
@@ -209,7 +234,8 @@ export class BracketTab {
   constructor() {
     // Load actual bracket when tournament is in progress or completed
     effect(() => {
-      const t = this.tournament();
+      const t = this.tournamentUI.tournament();
+      if (!t) return;
       if (t.status === 'in_progress' || t.status === 'completed') {
         if (t.format === 'multi_stage') {
           this.loadStages(t.slug);
@@ -223,24 +249,28 @@ export class BracketTab {
 
     // Reload bracket when refreshKey changes (e.g., after withdraw)
     effect(() => {
-      const key = this.refreshKey();
-      const t = this.tournament();
+      const key = this.tournamentUI.bracketRefreshKey();
+      const t = this.tournamentUI.tournament();
+      if (!t) return;
       // Only reload if key > 0 (not initial) and bracket is active
       if (key > 0 && (t.status === 'in_progress' || t.status === 'completed')) {
         if (t.format === 'multi_stage') {
           this.multiStageRefreshKey.update(k => k + 1);
         } else if (t.format === 'swiss') {
-          this.loadSwissBracket(t.id);
+          // Silent reload to preserve panzoom state
+          this.loadSwissBracket(t.id, true);
         } else {
-          this.loadBracket(t.id);
+          // Silent reload to preserve panzoom state
+          this.loadBracket(t.id, true);
         }
       }
     });
 
     // Load preview from backend when tournament is in draft/registration mode
     effect(() => {
-      const t = this.tournament();
-      const p = this.participants();
+      const t = this.tournamentUI.tournament();
+      const p = this.tournamentUI.participants();
+      if (!t) return;
 
       // Only load preview if tournament is not in_progress/completed
       if (t.status === 'in_progress' || t.status === 'completed') {
@@ -276,8 +306,12 @@ export class BracketTab {
     });
   }
 
-  private loadBracket(tournamentId: number): void {
-    this.loadingBracket.set(true);
+  private loadBracket(tournamentId: number, silent = false): void {
+    // Only show loading indicator on initial load, not on refresh
+    // This prevents destroying/recreating the bracket component which resets panzoom
+    if (!silent) {
+      this.loadingBracket.set(true);
+    }
     this.bracketError.set('');
 
     this.bracketService.getBracket(tournamentId).subscribe({
@@ -292,8 +326,12 @@ export class BracketTab {
     });
   }
 
-  private loadSwissBracket(tournamentId: number): void {
-    this.loadingBracket.set(true);
+  private loadSwissBracket(tournamentId: number, silent = false): void {
+    // Only show loading indicator on initial load, not on refresh
+    // This prevents destroying/recreating the bracket component which resets panzoom
+    if (!silent) {
+      this.loadingBracket.set(true);
+    }
     this.bracketError.set('');
 
     this.bracketService.getSwissBracket(tournamentId).subscribe({
@@ -334,6 +372,25 @@ export class BracketTab {
 
   onMultiStageMatchReopened(match: Match): void {
     this.onMatchReopened(match);
+  }
+
+  onMultiStageStageClicked(event: { round: number; stage: BracketStage; bracketType?: BracketType }): void {
+    this.onStageClicked(event);
+  }
+
+  onMultiStageSwissStageClicked(event: { round: number; stage: BracketStage; stageId?: number; groupId?: number }): void {
+    // Store stageId and groupId for multi-stage group brackets
+    this.selectedStageId.set(event.stageId ?? null);
+    this.selectedGroupId.set(event.groupId ?? null);
+    this.onSwissStageClicked(event);
+  }
+
+  onMultiStageStagesChanged(stages: BracketStage[]): void {
+    this.multiStageBracketStages.set(stages);
+  }
+
+  onMultiStageFinalsCompleteChanged(isComplete: boolean): void {
+    this.multiStageFinalsComplete.set(isComplete);
   }
 
   onMultiStageAdvance(): void {
@@ -408,9 +465,11 @@ export class BracketTab {
       if (t.format === 'multi_stage') {
         this.multiStageRefreshKey.update(k => k + 1);
       } else if (t.format === 'swiss') {
-        this.loadSwissBracket(t.id);
+        // Silent reload to preserve panzoom state
+        this.loadSwissBracket(t.id, true);
       } else {
-        this.loadBracket(t.id);
+        // Silent reload to preserve panzoom state
+        this.loadBracket(t.id, true);
       }
     };
 
@@ -439,9 +498,11 @@ export class BracketTab {
         if (t.format === 'multi_stage') {
           this.multiStageRefreshKey.update(k => k + 1);
         } else if (t.format === 'swiss') {
-          this.loadSwissBracket(t.id);
+          // Silent reload to preserve panzoom state
+          this.loadSwissBracket(t.id, true);
         } else {
-          this.loadBracket(t.id);
+          // Silent reload to preserve panzoom state
+          this.loadBracket(t.id, true);
         }
       },
       error: (err) => {
@@ -508,7 +569,9 @@ export class BracketTab {
 
     // Reload the appropriate bracket type
     const t = this.tournament();
-    if (t.format === 'swiss') {
+    if (t.format === 'multi_stage') {
+      this.multiStageRefreshKey.update(k => k + 1);
+    } else if (t.format === 'swiss') {
       this.loadSwissBracket(t.id);
     } else {
       this.loadBracket(t.id);
@@ -518,6 +581,8 @@ export class BracketTab {
   closeStageModal(): void {
     this.showStageModal.set(false);
     this.selectedStage.set(null);
+    this.selectedStageId.set(null);
+    this.selectedGroupId.set(null);
     this.hideStageNameField.set(false);
   }
 

@@ -35,12 +35,14 @@ func NewRouter(
 	tiebreakerSvc := service.NewTiebreakerService(tiebreakerRepo, swissRepo, repo)
 	forfeitSvc := service.NewForfeitService(repo)
 	stageSvc := service.NewStageService(stageRepo)
+	multiStageSvc := service.NewMultiStageService(repo, setRepo, groupRepo)
 
 	// Create handlers
-	bracketHandler := handlers.NewBracketHandlerWithTiebreakers(bracketSvc, matchSvc, swissSvc, tiebreakerSvc, repo, setRepo, stageRepo)
+	bracketHandler := handlers.NewBracketHandlerWithTiebreakers(bracketSvc, matchSvc, swissSvc, tiebreakerSvc, repo, setRepo, stageRepo, swissRepo)
 	matchHandler := handlers.NewMatchHandler(matchSvc, repo, setRepo)
 	forfeitHandler := handlers.NewForfeitHandler(forfeitSvc)
 	stageHandler := handlers.NewStageHandler(stageSvc)
+	multiStageHandler := handlers.NewMultiStageHandler(multiStageSvc)
 
 	// Health check
 	r.Get("/health", handlers.Health)
@@ -51,6 +53,7 @@ func NewRouter(
 	r.Post("/brackets/groups", bracketHandler.GenerateGroup) // Generate bracket for a specific group
 	r.Get("/brackets/{tournamentId}", bracketHandler.GetState)
 	r.Get("/brackets/{tournamentId}/matches", bracketHandler.ListMatches)
+	r.Get("/brackets/{tournamentId}/stages/{stageId}", bracketHandler.GetStageBracket)                  // Get bracket for a stage (e.g., finals)
 	r.Get("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}", bracketHandler.GetGroupBracket) // Get bracket for a group
 	r.Delete("/brackets/{tournamentId}", bracketHandler.Delete) // Delete bracket and revert ELO (for tournament reset)
 
@@ -60,6 +63,7 @@ func NewRouter(
 
 	// Swiss-specific routes
 	r.Post("/brackets/{tournamentId}/advance-round", bracketHandler.AdvanceSwissRound)
+	r.Post("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}/advance-round", bracketHandler.AdvanceGroupSwissRound)
 
 	// Match routes (nested under /brackets)
 	r.Get("/brackets/matches/{id}", matchHandler.Get)
@@ -75,10 +79,16 @@ func NewRouter(
 
 	// Stage routes
 	r.Get("/brackets/{tournamentId}/stages", stageHandler.GetStages)
+	r.Get("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}/bracket-stages", stageHandler.GetGroupStages)
 	r.Group(func(r chi.Router) {
 		r.Use(authmw.Auth)
 		r.Put("/brackets/{tournamentId}/stages/{round}", stageHandler.UpdateStage)
+		r.Put("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}/bracket-stages/{round}", stageHandler.UpdateGroupStage)
 	})
+
+	// Multi-stage tournament routes
+	r.Post("/brackets/{tournamentId}/stages/{stageId}/complete", multiStageHandler.CompleteStage)
+	r.Get("/brackets/{tournamentId}/stages/{stageId}/advancing", multiStageHandler.GetStageAdvancingParticipants)
 
 	// Forfeit route (internal, called by tournament service)
 	r.Post("/brackets/forfeit-participant", forfeitHandler.ForfeitParticipant)

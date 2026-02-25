@@ -22,74 +22,120 @@
     </div>
   }
 
-  <!-- Body -->
+  <!-- Info banner -->
+  <div class="px-4 py-2 bg-blue-50 text-blue-700 text-sm border-b border-blue-100">
+    Select participants to start in this stage. Groups will be assigned automatically when the stage starts.
+  </div>
+
+  <!-- Body - Two column layout -->
   <div class="popover-body">
-    <div class="groups-grid">
-      @for (groupName of groupNames(); track groupName; let groupOrder = $index) {
-        <div class="group-column">
-          <div class="group-header">
-            <span>{{ stage().stage_type === 'final' ? 'Seeded Participants' : 'Group ' + groupName }}</span>
-            <span class="text-sm text-gray-400">({{ getSeedsForGroup(groupOrder).length }})</span>
-          </div>
-
-          <!-- Seeded participants in this group -->
-          <div class="seeded-list">
-            @for (seed of getSeedsForGroup(groupOrder); track seed.participant_id) {
-              @let participant = getParticipant(seed.participant_id);
-              @if (participant) {
-                <div class="seeded-item">
-                  @if (participant.icon_url) {
-                    <img [src]="participant.icon_url" [alt]="participant.display_name" class="rounded-full object-cover" />
-                  } @else {
-                    <span class="avatar-placeholder">
-                      {{ participant.display_name.charAt(0).toUpperCase() }}
-                    </span>
-                  }
-                  <span class="name">{{ participant.display_name }}</span>
-                  <button (click)="removeSeed(seed.participant_id)" title="Remove">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              }
-            }
-          </div>
-
-          <!-- Add participant button -->
-          <div class="add-seed-container">
-            <button
-              (click)="toggleGroupDropdown(groupOrder); $event.stopPropagation()"
-              class="add-seed-btn"
-            >
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Add Participant</span>
-            </button>
-          </div>
+    <div class="two-column-grid">
+      <!-- Available Participants Column -->
+      <div class="column">
+        <div class="column-header">
+          <span>Available</span>
+          <span class="text-sm text-gray-400">({{ getAvailableParticipants().length }})</span>
         </div>
-      }
+
+        <!-- Search input -->
+        <div class="search-container">
+          <input
+            type="text"
+            placeholder="Search participants..."
+            [value]="searchQuery()"
+            (input)="onSearchInput($event)"
+            class="search-input"
+          />
+        </div>
+
+        <!-- Available participants list -->
+        <div class="participant-list">
+          @if (getAvailableParticipants().length > 0) {
+            @for (p of getAvailableParticipants(); track p.id) {
+              <div class="participant-item" (click)="addParticipant(p.id)">
+                @if (p.icon_url) {
+                  <img [src]="p.icon_url" [alt]="p.display_name" class="participant-avatar" />
+                } @else {
+                  <span class="avatar-placeholder">
+                    {{ p.display_name.charAt(0).toUpperCase() }}
+                  </span>
+                }
+                <span class="participant-name">{{ p.display_name }}</span>
+                <svg class="w-4 h-4 text-gray-400 ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+              </div>
+            }
+          } @else {
+            <div class="empty-state">
+              @if (searchQuery()) {
+                No matches for "{{ searchQuery() }}"
+              } @else {
+                All participants selected
+              }
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Selected Participants Column -->
+      <div class="column">
+        <div class="column-header">
+          <span>Selected for Stage</span>
+          <span class="text-sm text-gray-400">({{ getSelectedParticipants().length }})</span>
+        </div>
+
+        <!-- Selected participants list -->
+        <div class="participant-list selected-list">
+          @if (getSelectedParticipants().length > 0) {
+            @for (p of getSelectedParticipants(); track p.id) {
+              <div class="participant-item selected">
+                @if (p.icon_url) {
+                  <img [src]="p.icon_url" [alt]="p.display_name" class="participant-avatar" />
+                } @else {
+                  <span class="avatar-placeholder">
+                    {{ p.display_name.charAt(0).toUpperCase() }}
+                  </span>
+                }
+                <span class="participant-name">{{ p.display_name }}</span>
+                <button
+                  (click)="removeParticipant(p.id); $event.stopPropagation()"
+                  class="remove-btn"
+                  title="Remove"
+                >
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            }
+          } @else {
+            <div class="empty-state">
+              No participants selected
+            </div>
+          }
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Footer -->
   <div class="popover-footer">
     <div class="footer-left">
-      @if (getUnseededParticipants().length > 0) {
+      @if (getAvailableParticipants().length > 0) {
         <button
-          (click)="autoFillRemaining()"
+          (click)="selectAll()"
           class="btn-secondary"
-          title="Distribute remaining participants using serpentine seeding"
+          title="Select all participants"
         >
-          Auto-Fill ({{ getUnseededParticipants().length }})
+          Select All
         </button>
       }
-      @if (currentSeeds().length > 0) {
+      @if (getSelectedParticipants().length > 0) {
         <button
-          (click)="clearAllSeeds()"
+          (click)="clearAll()"
           class="btn-secondary btn-danger"
-          title="Remove all seed assignments"
+          title="Remove all selections"
         >
           Clear All
         </button>
@@ -107,66 +153,9 @@
         @if (saving()) {
           Saving...
         } @else {
-          Save Seeds
+          Save
         }
       </button>
     </div>
   </div>
 </div>
-
-<!-- Participant selection modal (when adding to a group) -->
-@if (activeGroupDropdown() !== null) {
-  <div class="dropdown-backdrop" (click)="activeGroupDropdown.set(null)"></div>
-  <div class="dropdown-menu" (click)="$event.stopPropagation()">
-    <div class="dropdown-header">
-      <h5>Select Participant for Group {{ getGroupLetter(activeGroupDropdown()!) }}</h5>
-      <button (click)="activeGroupDropdown.set(null)" class="text-gray-400 hover:text-gray-600 p-1">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
-    </div>
-
-    <!-- Search input -->
-    <div class="dropdown-search">
-      <input
-        type="text"
-        placeholder="Search participants..."
-        [value]="searchQuery()"
-        (input)="onSearchInput($event)"
-        autofocus
-      />
-    </div>
-
-    <!-- Participant grid -->
-    <div class="dropdown-list">
-      @if (getUnseededParticipants().length > 0) {
-        <div class="participants-grid">
-          @for (p of getUnseededParticipants(); track p.id) {
-            <button
-              class="participant-card"
-              (click)="addSeed(p.id, activeGroupDropdown()!)"
-            >
-              @if (p.icon_url) {
-                <img [src]="p.icon_url" [alt]="p.display_name" />
-              } @else {
-                <span class="avatar-placeholder">
-                  {{ p.display_name.charAt(0).toUpperCase() }}
-                </span>
-              }
-              <span class="name">{{ p.display_name }}</span>
-            </button>
-          }
-        </div>
-      } @else {
-        <div class="empty-state">
-          @if (searchQuery()) {
-            No participants match "{{ searchQuery() }}"
-          } @else {
-            All participants have been seeded
-          }
-        </div>
-      }
-    </div>
-  </div>
-}

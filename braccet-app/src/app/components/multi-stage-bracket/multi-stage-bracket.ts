@@ -1,9 +1,10 @@
 import { Component, input, output, signal, computed, effect, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Tournament, TournamentStage, StageGroup } from '../../models/tournament.model';
-import { Match, GroupBracketState, GroupStanding, BracketState, SwissBracketState } from '../../models/bracket.model';
+import { Match, GroupBracketState, GroupStanding, BracketState, SwissBracketState, BracketStage, BracketType } from '../../models/bracket.model';
 import { TournamentService } from '../../services/tournament.service';
 import { BracketService } from '../../services/bracket.service';
+import { TournamentUIService } from '../../services/tournament-ui.service';
 import { BracketViewer } from '../bracket-viewer/bracket-viewer';
 import { DoubleElimBracket } from '../double-elim-bracket/double-elim-bracket';
 import { SwissBracket } from '../swiss-bracket/swiss-bracket';
@@ -25,8 +26,9 @@ import { GroupStandingsComponent } from '../group-standings/group-standings';
 export class MultiStageBracketComponent {
   private tournamentService = inject(TournamentService);
   private bracketService = inject(BracketService);
+  private tournamentUI = inject(TournamentUIService);
 
-  // Inputs
+  // Inputs - still used for backwards compatibility with bracket-tab
   tournament = input.required<Tournament>();
   stages = input.required<TournamentStage[]>();
   isOrganizer = input(false);
@@ -36,9 +38,12 @@ export class MultiStageBracketComponent {
   matchClicked = output<Match>();
   matchEditClicked = output<Match>();
   matchReopened = output<Match>();
-  stageClicked = output<{ stageId: number; round: number; bracketType: string }>();
+  stageClicked = output<{ round: number; stage: BracketStage; bracketType?: BracketType; stageId?: number; groupId?: number }>();
+  swissStageClicked = output<{ round: number; stage: BracketStage; stageId?: number; groupId?: number }>();
   advanceStageClicked = output<void>();
   startStageClicked = output<void>();
+  currentStagesChanged = output<BracketStage[]>();
+  finalsCompleteChanged = output<boolean>();
 
   // State
   activeStage = signal<TournamentStage | null>(null);
@@ -51,6 +56,7 @@ export class MultiStageBracketComponent {
   finalSwissBracketState = signal<SwissBracketState | null>(null);
   loading = signal(false);
   error = signal<string | null>(null);
+  advancingGroupRound = signal(false);
 
   // Computed
   activeGroup = computed(() => {
@@ -94,12 +100,38 @@ export class MultiStageBracketComponent {
       if (stage?.format === 'swiss') {
         const bracket = swissBrackets.get(group.id);
         if (bracket) {
-          isComplete = bracket.is_complete;
+          // Count matches for progress display
           for (const match of bracket.matches) {
             if (match.status !== 'bye') {
               total++;
               if (match.status === 'completed') {
                 completed++;
+              }
+            }
+          }
+
+          // For Swiss, check multiple completion conditions:
+          // 1. Backend has already marked it complete
+          if (bracket.is_complete) {
+            isComplete = true;
+          } else {
+            // 2. Check if current round is done and no more rounds can be generated
+            const currentRound = bracket.current_round;
+            const currentRoundMatches = bracket.matches.filter(m => m.round === currentRound);
+            const allCurrentRoundDone = currentRoundMatches.length > 0 &&
+              currentRoundMatches.every(m => m.status === 'completed' || m.status === 'bye');
+
+            if (allCurrentRoundDone) {
+              // Fixed rounds mode: complete when currentRound >= totalRounds
+              if (bracket.total_rounds > 0 && currentRound >= bracket.total_rounds) {
+                isComplete = true;
+              }
+              // Threshold mode: complete when fewer than 2 active participants
+              if (bracket.total_rounds === 0) {
+                const activeCount = bracket.standings.filter(s => s.status === 'active').length;
+                if (activeCount < 2) {
+                  isComplete = true;
+                }
               }
             }
           }
@@ -107,7 +139,6 @@ export class MultiStageBracketComponent {
       } else {
         const bracket = brackets.get(group.id);
         if (bracket) {
-          isComplete = bracket.is_complete;
           for (const match of bracket.matches) {
             if (match.status !== 'bye') {
               total++;
@@ -116,6 +147,8 @@ export class MultiStageBracketComponent {
               }
             }
           }
+          // For elimination brackets, complete when all matches are done
+          isComplete = total > 0 && completed === total;
         }
       }
 
@@ -128,6 +161,48 @@ export class MultiStageBracketComponent {
   finalBracket = computed(() => this.finalBracketState());
   finalSwissBracket = computed(() => this.finalSwissBracketState());
 
+  // Check if finals bracket is complete
+  finalsComplete = computed(() => {
+    // Find the final stage
+    const finalStage = this.stages().find(s => s.stage_type === 'final');
+    if (!finalStage) return false;
+
+    // Check if final bracket is complete based on format
+    if (finalStage.format === 'swiss') {
+      const swissBracket = this.finalSwissBracketState();
+      if (!swissBracket) return false;
+      // Swiss finals complete when is_complete flag is set
+      return swissBracket.is_complete;
+    } else {
+      const bracket = this.finalBracketState();
+      if (!bracket) return false;
+      return bracket.is_complete;
+    }
+  });
+
+  // Current bracket stages - computed from the active group/final bracket
+  currentBracketStages = computed(() => {
+    const stage = this.activeStage();
+    if (!stage) return [];
+
+    if (stage.stage_type === 'final') {
+      // For finals, use final bracket stages
+      if (stage.format === 'swiss') {
+        return this.finalSwissBracketState()?.stages ?? [];
+      }
+      return this.finalBracketState()?.stages ?? [];
+    }
+
+    // For group stages, use the current group's bracket stages
+    const group = this.activeGroup();
+    if (!group) return [];
+
+    if (stage.format === 'swiss') {
+      return this.groupSwissBrackets().get(group.id)?.stages ?? [];
+    }
+    return this.groupBrackets().get(group.id)?.stages ?? [];
+  });
+
   sortedStages = computed(() => {
     // Sort stages: group stages (1, 2, 3) first, then final stage (0)
     return [...this.stages()].sort((a, b) => {
@@ -137,11 +212,28 @@ export class MultiStageBracketComponent {
     });
   });
 
+  // Check if all groups in the current stage are complete
+  allGroupsComplete = computed(() => {
+    const groupList = this.groups();
+    const stats = this.groupCompletionStats();
+
+    if (groupList.length === 0) return false;
+
+    // All groups must have brackets loaded and be complete
+    for (const group of groupList) {
+      const groupStats = stats.get(group.id);
+      if (!groupStats || !groupStats.isComplete) {
+        return false;
+      }
+    }
+    return true;
+  });
+
   canAdvanceStage = computed(() => {
     const stage = this.activeStage();
     if (!stage || !this.isOrganizer()) return false;
-    // Can advance if stage is active and has groups (groups are complete check would need bracket data)
-    return stage.is_active && this.groups().length > 0;
+    // Can advance if stage is active, has groups, and ALL groups are complete
+    return stage.is_active && this.groups().length > 0 && this.allGroupsComplete();
   });
 
   canStartStage = computed(() => {
@@ -149,6 +241,42 @@ export class MultiStageBracketComponent {
     if (!stage || !this.isOrganizer()) return false;
     // Can start if stage is active but no groups exist yet
     return stage.is_active && this.groups().length === 0;
+  });
+
+  // Check if the current group's Swiss round can be advanced (all matches done, not yet complete)
+  canAdvanceGroupSwissRound = computed(() => {
+    const stage = this.activeStage();
+    if (!stage || stage.format !== 'swiss' || !this.isOrganizer()) return false;
+
+    const group = this.activeGroup();
+    if (!group) return false;
+
+    const bracket = this.groupSwissBrackets().get(group.id);
+    if (!bracket || bracket.is_complete) return false;
+
+    // Check if all matches in current round are completed
+    const currentRound = bracket.current_round;
+    const currentRoundMatches = bracket.matches.filter(m => m.round === currentRound);
+    if (currentRoundMatches.length === 0) return false;
+
+    const allMatchesComplete = currentRoundMatches.every(m => m.status === 'completed' || m.status === 'bye');
+    if (!allMatchesComplete) return false;
+
+    // For fixed rounds mode, check if this is the last round
+    if (bracket.total_rounds > 0 && currentRound >= bracket.total_rounds) {
+      return false; // No more rounds to generate
+    }
+
+    // For threshold mode, check if there are enough active participants for another round
+    if (bracket.total_rounds === 0) {
+      // Threshold mode: need at least 2 active participants
+      const activeCount = bracket.standings.filter(s => s.status === 'active').length;
+      if (activeCount < 2) {
+        return false; // Not enough participants for another round
+      }
+    }
+
+    return true;
   });
 
   constructor() {
@@ -166,12 +294,37 @@ export class MultiStageBracketComponent {
         }
       }
     });
+
+    // Watch for stage selection from UI service (header cards)
+    effect(() => {
+      const selectedId = this.tournamentUI.selectedStageId();
+      if (selectedId !== null) {
+        const stage = this.stages().find(s => s.id === selectedId);
+        if (stage && stage.id !== this.activeStage()?.id) {
+          this.selectStage(stage);
+        }
+      }
+    });
+
+    // Emit current bracket stages whenever they change
+    effect(() => {
+      const bracketStages = this.currentBracketStages();
+      this.currentStagesChanged.emit(bracketStages);
+    });
+
+    // Emit finals completion status whenever it changes
+    effect(() => {
+      const isComplete = this.finalsComplete();
+      this.finalsCompleteChanged.emit(isComplete);
+    });
   }
 
   selectStage(stage: TournamentStage): void {
     this.activeStage.set(stage);
     this.selectedGroupIndex.set(0);
     this.loadGroups(stage, false);
+    // Sync to UI service so header cards show selection
+    this.tournamentUI.selectStage(stage.id);
   }
 
   selectGroup(index: number): void {
@@ -192,12 +345,20 @@ export class MultiStageBracketComponent {
     // For final stage, load the final bracket directly
     if (stage.stage_type === 'final') {
       this.groups.set([]);
-      this.loading.set(true);
-      this.loadFinalBracket(stage);
+      // Only show loading indicator on initial load, not on refresh
+      // This prevents destroying/recreating the bracket component which resets panzoom
+      if (!preserveIndex) {
+        this.loading.set(true);
+      }
+      this.loadFinalBracket(stage, preserveIndex);
       return;
     }
 
-    this.loading.set(true);
+    // Only show loading indicator on initial load, not on refresh
+    // This prevents destroying/recreating the bracket component which resets panzoom
+    if (!preserveIndex) {
+      this.loading.set(true);
+    }
     this.tournamentService.getGroups(this.tournament().slug, stage.id).subscribe({
       next: (groups) => {
         this.groups.set(groups);
@@ -218,24 +379,30 @@ export class MultiStageBracketComponent {
     });
   }
 
-  private loadFinalBracket(stage: TournamentStage): void {
+  private loadFinalBracket(stage: TournamentStage, isRefresh = false): void {
     if (stage.format === 'swiss') {
+      // TODO: Add stage-specific Swiss bracket endpoint when needed
       this.bracketService.getSwissBracket(this.tournament().id).subscribe({
         next: (bracket) => {
           this.finalSwissBracketState.set(bracket);
           this.loading.set(false);
         },
         error: () => {
+          // No bracket yet - finals not started
+          this.finalSwissBracketState.set(null);
           this.loading.set(false);
         }
       });
     } else {
-      this.bracketService.getBracket(this.tournament().id).subscribe({
+      // Use stage-specific endpoint to only get matches for this stage
+      this.bracketService.getStageBracket(this.tournament().id, stage.id).subscribe({
         next: (bracket) => {
           this.finalBracketState.set(bracket);
           this.loading.set(false);
         },
         error: () => {
+          // No bracket yet - finals not started
+          this.finalBracketState.set(null);
           this.loading.set(false);
         }
       });
@@ -295,8 +462,26 @@ export class MultiStageBracketComponent {
     this.matchReopened.emit(match);
   }
 
-  onStageClicked(event: { stageId: number; round: number; bracketType: string }): void {
-    this.stageClicked.emit(event);
+  onStageClicked(event: { round: number; stage: BracketStage; bracketType?: BracketType }): void {
+    // Include stageId and groupId from active context if in a group bracket
+    const stage = this.activeStage();
+    const group = this.activeGroup();
+    this.stageClicked.emit({
+      ...event,
+      stageId: stage?.id,
+      groupId: group?.id
+    });
+  }
+
+  onSwissStageClicked(event: { round: number; stage: BracketStage }): void {
+    // Include stageId and groupId from active context if in a group bracket
+    const stage = this.activeStage();
+    const group = this.activeGroup();
+    this.swissStageClicked.emit({
+      ...event,
+      stageId: stage?.id,
+      groupId: group?.id
+    });
   }
 
   onAdvanceStage(): void {
@@ -305,6 +490,27 @@ export class MultiStageBracketComponent {
 
   onStartStage(): void {
     this.startStageClicked.emit();
+  }
+
+  advanceGroupSwissRound(): void {
+    const stage = this.activeStage();
+    const group = this.activeGroup();
+    if (!stage || !group || !this.canAdvanceGroupSwissRound() || this.advancingGroupRound()) return;
+
+    this.advancingGroupRound.set(true);
+    this.error.set(null);
+
+    this.bracketService.advanceGroupSwissRound(this.tournament().id, stage.id, group.id).subscribe({
+      next: () => {
+        this.advancingGroupRound.set(false);
+        // Reload the group bracket to show new matches
+        this.loadGroupBracket(group.id, stage.format);
+      },
+      error: (err) => {
+        this.error.set(err.error?.error || 'Failed to advance round');
+        this.advancingGroupRound.set(false);
+      }
+    });
   }
 
   getStageLabel(stage: TournamentStage): string {

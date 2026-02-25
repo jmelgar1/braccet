@@ -1,6 +1,7 @@
-import { Component, input, output, signal, computed } from '@angular/core';
+import { Component, input, output, signal, computed, inject } from '@angular/core';
 import { Tournament, Participant, TournamentStage } from '../../../../models/tournament.model';
-import { User } from '../../../../services/auth.service';
+import { User, AuthService } from '../../../../services/auth.service';
+import { TournamentUIService } from '../../../../services/tournament-ui.service';
 import { BracketTab } from '../bracket-tab/bracket-tab';
 import { ParticipantsTab } from '../participants-tab/participants-tab';
 import { SettingsTab } from '../settings-tab/settings-tab';
@@ -19,16 +20,14 @@ interface Tab {
   templateUrl: './side-panel.html'
 })
 export class SidePanel {
-  tournament = input.required<Tournament>();
-  participants = input.required<Participant[]>();
-  stages = input<TournamentStage[]>([]);
-  isOrganizer = input.required<boolean>();
-  isLoggedIn = input.required<boolean>();
+  tournamentUI = inject(TournamentUIService);
+  private authService = inject(AuthService);
+
+  // These inputs are still used for some props not in service
   currentUser = input<User | null>(null);
-  bracketRefreshKey = input(0);
   communitySlug = input<string | null>(null);
 
-  // Forward participant events
+  // Forward participant events (still needed for tournament-detail to update local state)
   participantAdded = output<Participant>();
   participantRemoved = output<number>();
   participantWithdrawn = output<number>();
@@ -44,7 +43,9 @@ export class SidePanel {
   activeTab = signal<TabId>('bracket');
 
   tabs = computed<Tab[]>(() => {
-    const t = this.tournament();
+    const t = this.tournamentUI.tournament();
+    if (!t) return [{ id: 'bracket' as TabId, label: 'Bracket' }];
+
     const baseTabs: Tab[] = [
       { id: 'bracket', label: 'Bracket' },
       { id: 'participants', label: 'Participants' }
@@ -56,7 +57,7 @@ export class SidePanel {
     }
 
     // Add settings tab only for organizers
-    if (this.isOrganizer()) {
+    if (this.tournamentUI.isOrganizer()) {
       baseTabs.push({ id: 'settings', label: 'Settings' });
     }
 
@@ -64,14 +65,15 @@ export class SidePanel {
   });
 
   currentUserParticipant = computed(() => {
-    const user = this.currentUser();
+    const user = this.currentUser() ?? this.authService.user();
     if (!user) return null;
-    return this.participants().find(p => p.user_id === user.id) || null;
+    return this.tournamentUI.participants().find(p => p.user_id === user.id) || null;
   });
 
   canSelfRegister = computed(() => {
-    const t = this.tournament();
-    return t && t.registration_open && this.isLoggedIn() && !this.isOrganizer() && !this.currentUserParticipant();
+    const t = this.tournamentUI.tournament();
+    if (!t) return false;
+    return t.registration_open && this.tournamentUI.isLoggedIn() && !this.tournamentUI.isOrganizer() && !this.currentUserParticipant();
   });
 
   setActiveTab(tabId: TabId): void {

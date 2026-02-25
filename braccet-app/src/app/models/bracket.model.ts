@@ -85,16 +85,21 @@ export interface EditResultResponse {
 }
 
 // Swiss-specific types
+export type SwissParticipantStatus = 'active' | 'advanced' | 'eliminated';
+
 export interface SwissStanding {
   rank: number;
   participant_id: number;
   participant_name: string;
   icon_url?: string;
+  seed: number;
   wins: number;
   losses: number;
+  match_wins?: number; // Real wins excluding BYEs (for threshold tracking)
   game_wins: number;
   game_losses: number;
   opponent_wins: number;
+  status?: SwissParticipantStatus;
 }
 
 export interface SwissBracketState {
@@ -103,6 +108,8 @@ export interface SwissBracketState {
   total_rounds: number;
   current_round: number;
   is_complete: boolean;
+  wins_to_advance?: number;
+  losses_to_eliminate?: number;
   standings: SwissStanding[];
   matches: Match[];
   stages: BracketStage[];

@@ -129,9 +129,11 @@
                 <div class="stage-card-wrapper relative flex-1 min-w-[200px] max-w-[280px]">
                   <div
                     class="bg-gray-50 rounded-lg border border-gray-200 p-3"
-                    [class.cursor-pointer]="canSeedStage(stage)"
-                    [class.hover:border-blue-300]="canSeedStage(stage)"
-                    (click)="canSeedStage(stage) && openSeedPopover(stage, $event)"
+                    [class.cursor-pointer]="isStageClickable(stage)"
+                    [class.hover:border-blue-300]="isStageClickable(stage)"
+                    [class.ring-2]="tournamentUI.selectedStageId() === stage.id"
+                    [class.ring-blue-400]="tournamentUI.selectedStageId() === stage.id"
+                    (click)="isStageClickable(stage) && onStageCardClick(stage, $event)"
                   >
                     <div class="flex items-center justify-between mb-2">
                       <div class="flex items-center gap-2">
@@ -178,36 +180,29 @@
                       }
                     </div>
 
-                    <!-- Seeded participants preview -->
-                    @if (getStageSeedsArray(stage.id).length > 0) {
+                    <!-- Participants assigned to this stage preview -->
+                    @if (getPoolParticipantsForStage(stage.id).length > 0) {
                       <div class="mt-2 pt-2 border-t border-gray-200">
-                        <div class="flex flex-wrap gap-2">
-                          @for (groupData of getGroupedSeeds(stage.id); track groupData.group) {
-                            <div class="flex items-center gap-1">
-                              <span class="text-xs text-gray-500">{{ groupData.groupLabel }}:</span>
-                              <div class="flex -space-x-1">
-                                @for (seed of groupData.seeds; track seed.participant_id) {
-                                  @let participant = getParticipantById(seed.participant_id);
-                                  @if (participant) {
-                                    @if (participant.icon_url) {
-                                      <img
-                                        [src]="participant.icon_url"
-                                        class="w-5 h-5 rounded-full border border-white object-cover"
-                                        [title]="participant.display_name"
-                                      />
-                                    } @else {
-                                      <span
-                                        class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-xs flex items-center justify-center border border-white font-medium"
-                                        [title]="participant.display_name"
-                                      >
-                                        {{ participant.display_name.charAt(0).toUpperCase() }}
-                                      </span>
-                                    }
-                                  }
-                                }
-                              </div>
-                            </div>
-                          }
+                        <div class="flex items-center gap-1">
+                          <span class="text-xs text-gray-500">Assigned:</span>
+                          <div class="flex -space-x-1">
+                            @for (participant of getPoolParticipantsForStage(stage.id); track participant.id) {
+                              @if (participant.icon_url) {
+                                <img
+                                  [src]="participant.icon_url"
+                                  class="w-5 h-5 rounded-full border border-white object-cover"
+                                  [title]="participant.display_name"
+                                />
+                              } @else {
+                                <span
+                                  class="w-5 h-5 rounded-full bg-blue-100 text-blue-600 text-xs flex items-center justify-center border border-white font-medium"
+                                  [title]="participant.display_name"
+                                >
+                                  {{ participant.display_name.charAt(0).toUpperCase() }}
+                                </span>
+                              }
+                            }
+                          </div>
                         </div>
                       </div>
                     }
@@ -217,11 +212,12 @@
                   @if (activeSeedPopoverStage()?.id === stage.id) {
                     <app-stage-seed-popover
                       [stage]="stage"
+                      [allStages]="tournament()!.stages!"
                       [participants]="participants()"
                       [tournamentSlug]="tournament()!.slug"
-                      [initialSeeds]="getStageSeedsArray(stage.id)"
+                      [initialPool]="getStagePoolArray()"
                       (close)="closeSeedPopover()"
-                      (seedsUpdated)="onSeedsUpdated(stage.id, $event)"
+                      (poolUpdated)="onPoolUpdated($event)"
                     />
                   }
                 </div>
@@ -237,13 +233,7 @@
 
       <!-- Side Panel with vertical tabs -->
       <app-side-panel
-        [tournament]="tournament()!"
-        [participants]="participants()"
-        [stages]="tournament()!.stages ?? []"
-        [isOrganizer]="isOrganizer()"
-        [isLoggedIn]="isLoggedIn()"
         [currentUser]="authService.user()"
-        [bracketRefreshKey]="bracketRefreshKey()"
         [communitySlug]="community()?.slug ?? null"
         (participantAdded)="onParticipantAdded($event)"
         (participantRemoved)="onParticipantRemoved($event)"

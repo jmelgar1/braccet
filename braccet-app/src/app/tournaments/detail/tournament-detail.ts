@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { switchMap } from 'rxjs';
@@ -7,7 +7,8 @@ import { BracketService } from '../../services/bracket.service';
 import { AuthService } from '../../services/auth.service';
 import { CommunityService } from '../../services/community.service';
 import { EloService } from '../../services/elo.service';
-import { Tournament, Participant, TournamentStage, StageSeedAssignment } from '../../models/tournament.model';
+import { TournamentUIService } from '../../services/tournament-ui.service';
+import { Tournament, Participant, TournamentStage, StagePoolEntry } from '../../models/tournament.model';
 import { CreateBracketRequest } from '../../models/bracket.model';
 import { Community } from '../../models/community.model';
 import { EloSystem } from '../../models/elo.model';
@@ -21,13 +22,14 @@ import { StageSeedPopover } from '../../components/stage-seed-popover/stage-seed
   templateUrl: './tournament-detail.html',
   styleUrl: './tournament-detail.css'
 })
-export class TournamentDetail implements OnInit {
+export class TournamentDetail implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private tournamentService = inject(TournamentService);
   private bracketService = inject(BracketService);
   private communityService = inject(CommunityService);
   private eloService = inject(EloService);
   authService = inject(AuthService);
+  tournamentUI = inject(TournamentUIService);
 
   tournament = signal<Tournament | null>(null);
   community = signal<Community | null>(null);
@@ -48,7 +50,8 @@ export class TournamentDetail implements OnInit {
 
   // Seeding popover state
   activeSeedPopoverStage = signal<TournamentStage | null>(null);
-  stageSeeds = signal<Map<number, StageSeedAssignment[]>>(new Map());
+  stagePool = signal<StagePoolEntry[]>([]);
+  stagePoolLoaded = signal(false);
 
   // Computed properties
   isOrganizer = computed(() => {
@@ -73,6 +76,8 @@ export class TournamentDetail implements OnInit {
   ];
 
   ngOnInit(): void {
+    // Sync auth state to UI service
+    this.tournamentUI.isLoggedIn.set(this.authService.isLoggedIn());
     const slug = this.route.snapshot.paramMap.get('slug');
     if (slug) {
       this.loadTournament(slug);
@@ -89,6 +94,7 @@ export class TournamentDetail implements OnInit {
     this.tournamentService.getTournament(slug).subscribe({
       next: (tournament) => {
         this.tournament.set(tournament);
+        this.tournamentUI.setTournament(tournament);
         this.breadcrumbs = [
           { label: 'Tournaments', route: '/tournaments' },
           { label: tournament.name }
@@ -102,6 +108,8 @@ export class TournamentDetail implements OnInit {
         if (tournament.format === 'multi_stage') {
           this.loadStages(slug);
         }
+        // Sync organizer status to UI service
+        this.syncOrganizerStatus();
       },
       error: (err) => {
         this.error.set(err.error?.error || 'Failed to load tournament');
@@ -115,6 +123,9 @@ export class TournamentDetail implements OnInit {
       next: (stages) => {
         // Update tournament with loaded stages
         this.tournament.update(t => t ? { ...t, stages } : null);
+        this.tournamentUI.stages.set(stages);
+        // Also load stage pool for participant assignments
+        this.loadStagePool();
       },
       error: () => {
         // Silently fail - stages display is optional
@@ -157,13 +168,19 @@ export class TournamentDetail implements OnInit {
     this.tournamentService.getParticipants(slug).subscribe({
       next: (participants) => {
         this.participants.set(participants || []);
+        this.tournamentUI.participants.set(participants || []);
         this.participantsLoading.set(false);
       },
       error: () => {
         this.participants.set([]);
+        this.tournamentUI.participants.set([]);
         this.participantsLoading.set(false);
       }
     });
+  }
+
+  private syncOrganizerStatus(): void {
+    this.tournamentUI.isOrganizer.set(this.isOrganizer());
   }
 
   getStatusLabel(status: string): string {
@@ -211,44 +228,60 @@ export class TournamentDetail implements OnInit {
     return labels[format] || format;
   }
 
+  ngOnDestroy(): void {
+    this.tournamentUI.reset();
+  }
+
   // Event handlers from SidePanel
   onParticipantAdded(participant: Participant): void {
     this.participants.update(list => [...list, participant]);
+    this.tournamentUI.addParticipant(participant);
   }
 
   onParticipantRemoved(id: number): void {
     this.participants.update(list => list.filter(p => p.id !== id));
+    this.tournamentUI.removeParticipant(id);
   }
 
   onParticipantWithdrawn(id: number): void {
     // Update participant status locally
     this.participants.update(list =>
-      list.map(p => p.id === id ? { ...p, status: 'withdrawn' } : p)
+      list.map(p => p.id === id ? { ...p, status: 'withdrawn' as const } : p)
     );
+    const updated = this.participants().find(p => p.id === id);
+    if (updated) {
+      this.tournamentUI.updateParticipant(updated);
+    }
     // Trigger bracket refresh to show forfeited matches
     this.bracketRefreshKey.update(k => k + 1);
+    this.tournamentUI.refreshBracket();
   }
 
   onParticipantUpdated(participant: Participant): void {
     this.participants.update(list =>
       list.map(p => p.id === participant.id ? participant : p)
     );
+    this.tournamentUI.updateParticipant(participant);
   }
 
   onSeedingChanged(participants: Participant[]): void {
     this.participants.set(participants);
+    this.tournamentUI.participants.set(participants);
   }
 
   onSelfRegistered(participant: Participant): void {
     this.participants.update(list => [...list, participant]);
+    this.tournamentUI.addParticipant(participant);
   }
 
   onLeft(id: number): void {
     this.participants.update(list => list.filter(p => p.id !== id));
+    this.tournamentUI.removeParticipant(id);
   }
 
   onTournamentUpdated(tournament: Tournament): void {
     this.tournament.set(tournament);
+    this.tournamentUI.setTournament(tournament);
     this.breadcrumbs = [
       { label: 'Tournaments', route: '/tournaments' },
       { label: tournament.name }
@@ -263,6 +296,11 @@ export class TournamentDetail implements OnInit {
         stages: t.stages.map(s => s.id === updatedStage.id ? updatedStage : s)
       };
     });
+    // Sync to UI service
+    const stages = this.tournament()?.stages;
+    if (stages) {
+      this.tournamentUI.stages.set(stages);
+    }
   }
 
   startTournament(): void {
@@ -332,9 +370,9 @@ export class TournamentDetail implements OnInit {
 
   openSeedPopover(stage: TournamentStage, event: Event): void {
     event.stopPropagation();
-    // Load existing seeds if not loaded
-    if (!this.stageSeeds().has(stage.id)) {
-      this.loadStageSeeds(stage.id);
+    // Load stage pool if not loaded
+    if (!this.stagePoolLoaded()) {
+      this.loadStagePool();
     }
     this.activeSeedPopoverStage.set(stage);
   }
@@ -343,30 +381,24 @@ export class TournamentDetail implements OnInit {
     this.activeSeedPopoverStage.set(null);
   }
 
-  loadStageSeeds(stageId: number): void {
+  loadStagePool(): void {
     const t = this.tournament();
     if (!t) return;
 
-    this.tournamentService.getStageSeeds(t.slug, stageId).subscribe({
-      next: (seeds) => {
-        this.stageSeeds.update(map => {
-          const newMap = new Map(map);
-          newMap.set(stageId, seeds);
-          return newMap;
-        });
+    this.tournamentService.getStagePool(t.slug).subscribe({
+      next: (response) => {
+        this.stagePool.set(response.entries);
+        this.stagePoolLoaded.set(true);
       },
       error: () => {
-        // Silently fail, seeds are optional
+        // Silently fail, pool is optional
+        this.stagePoolLoaded.set(true);
       }
     });
   }
 
-  onSeedsUpdated(stageId: number, seeds: StageSeedAssignment[]): void {
-    this.stageSeeds.update(map => {
-      const newMap = new Map(map);
-      newMap.set(stageId, seeds);
-      return newMap;
-    });
+  onPoolUpdated(entries: StagePoolEntry[]): void {
+    this.stagePool.set(entries);
     this.closeSeedPopover();
   }
 
@@ -374,27 +406,40 @@ export class TournamentDetail implements OnInit {
     return this.participants().find(p => p.id === participantId);
   }
 
-  getGroupedSeeds(stageId: number): { group: number; groupLabel: string; seeds: StageSeedAssignment[] }[] {
-    const seeds = this.stageSeeds().get(stageId) || [];
-    const grouped = new Map<number, StageSeedAssignment[]>();
-
-    for (const seed of seeds) {
-      if (!grouped.has(seed.target_group_order)) {
-        grouped.set(seed.target_group_order, []);
-      }
-      grouped.get(seed.target_group_order)!.push(seed);
-    }
-
-    return Array.from(grouped.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([group, seeds]) => ({
-        group,
-        groupLabel: String.fromCharCode(65 + group),
-        seeds
-      }));
+  // Returns participants assigned to a specific stage
+  getPoolParticipantsForStage(stageId: number): Participant[] {
+    return this.stagePool()
+      .filter(e => e.stage_id === stageId)
+      .map(e => this.getParticipantById(e.participant_id))
+      .filter((p): p is Participant => p !== undefined);
   }
 
-  getStageSeedsArray(stageId: number): StageSeedAssignment[] {
-    return this.stageSeeds().get(stageId) || [];
+  getStagePoolArray(): StagePoolEntry[] {
+    return this.stagePool();
+  }
+
+  /** Navigate to a stage in the bracket (for multi-stage tournaments) */
+  onStageCardClick(stage: TournamentStage, event: Event): void {
+    // If seeding is available, that takes priority
+    if (this.canSeedStage(stage)) {
+      this.openSeedPopover(stage, event);
+      return;
+    }
+
+    // Otherwise, if tournament is in progress, select this stage in the bracket
+    const t = this.tournament();
+    if (t && (t.status === 'in_progress' || t.status === 'completed')) {
+      this.tournamentUI.selectStage(stage.id);
+    }
+  }
+
+  /** Check if a stage card should be clickable for navigation */
+  isStageClickable(stage: TournamentStage): boolean {
+    const t = this.tournament();
+    if (!t) return false;
+    // Clickable for seeding or for navigation when in progress
+    return this.canSeedStage(stage) ||
+           t.status === 'in_progress' ||
+           t.status === 'completed';
   }
 }

@@ -1,4 +1,4 @@
-import { Component, input, computed, output, signal, AfterViewInit, OnDestroy, ElementRef, ViewChild } from '@angular/core';
+import { Component, input, computed, output, signal, effect, AfterViewInit, OnDestroy, ElementRef, ViewChild } from '@angular/core';
 import { Match, SwissBracketState, BracketStage } from '../../models/bracket.model';
 import Panzoom, { PanzoomObject } from '@panzoom/panzoom';
 
@@ -51,7 +51,11 @@ export class SwissBracket implements AfterViewInit, OnDestroy {
     const stagesData = this.stages();
     const tabs: { round: number; label: string; status: 'completed' | 'current' | 'upcoming'; bestOf: number }[] = [];
 
-    for (let r = 1; r <= total; r++) {
+    // For threshold mode (totalRounds = 0), generate tabs up to current round
+    // For fixed rounds mode, generate tabs up to totalRounds
+    const maxRound = total > 0 ? total : current;
+
+    for (let r = 1; r <= maxRound; r++) {
       let status: 'completed' | 'current' | 'upcoming';
       if (r < current) {
         status = 'completed';
@@ -89,14 +93,22 @@ export class SwissBracket implements AfterViewInit, OnDestroy {
     return matches.every(m => m.status === 'completed');
   });
 
-  // Initialize selected round to current round
+  // Track the last known current round to detect changes
+  private lastCurrentRound = 0;
+
   constructor() {
-    // Will be updated when bracketState changes via effect
+    // Auto-update selectedRound when currentRound changes (e.g., after advancing a round)
+    effect(() => {
+      const current = this.currentRound();
+      if (current !== this.lastCurrentRound) {
+        this.lastCurrentRound = current;
+        this.selectedRound.set(current);
+      }
+    });
   }
 
   ngOnInit(): void {
-    // Set initial selected round to current round
-    this.selectedRound.set(this.currentRound());
+    // Initial setup handled by effect
   }
 
   // Lifecycle hooks for panzoom

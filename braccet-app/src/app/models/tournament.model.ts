@@ -59,6 +59,8 @@ export interface TournamentStage {
   participants_per_group?: number;
   advancing_per_group?: number;
   swiss_rounds?: number;
+  wins_to_advance?: number;
+  losses_to_eliminate?: number;
   skip_finals?: boolean;
   is_active: boolean;
   is_complete: boolean;
@@ -81,6 +83,8 @@ export interface StageConfigRequest {
   participants_per_group?: number;
   advancing_per_group?: number;
   swiss_rounds?: number;
+  wins_to_advance?: number;
+  losses_to_eliminate?: number;
   skip_finals?: boolean;
   ranking_criteria?: RankingCriterion[];
   placement_matches?: boolean;
@@ -146,6 +150,8 @@ export interface UpdateStageRequest {
   participants_per_group?: number;
   advancing_per_group?: number;
   swiss_rounds?: number;
+  wins_to_advance?: number;
+  losses_to_eliminate?: number;
   skip_finals?: boolean;
   ranking_criteria?: RankingCriterion[];
 }
@@ -155,15 +161,35 @@ export interface StageSeedAssignment {
   id: number;
   stage_id: number;
   participant_id: number;
-  target_group_order: number;
+  target_group_order: number; // -1 means auto-assign via serpentine
   created_at: string;
 }
 
 export interface StageSeedInput {
   participant_id: number;
-  target_group_order: number;
+  target_group_order: number; // -1 means auto-assign via serpentine
 }
 
 export interface UpdateStageSeedsRequest {
   seeds: StageSeedInput[];
+}
+
+// Stage participant pool types (for assigning participants to start in specific stages)
+export interface StagePoolEntry {
+  participant_id: number;
+  stage_id: number;
+  stage_order: number;
+}
+
+export interface StagePoolResponse {
+  entries: StagePoolEntry[];
+}
+
+export interface StagePoolConfigInput {
+  stage_id: number;
+  count: number;
+}
+
+export interface UpdateStagePoolRequest {
+  config: StagePoolConfigInput[];
 }

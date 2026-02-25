@@ -14,6 +14,8 @@ export class EditStageModal {
 
   tournamentId = input.required<number>();
   stage = input.required<BracketStage>();
+  stageId = input<number | null>(null); // For multi-stage group stages
+  groupId = input<number | null>(null); // For multi-stage group stages
   hideNameField = input(false); // Hide stage name field (for Swiss brackets)
 
   close = output<void>();
@@ -52,18 +54,25 @@ export class EditStageModal {
       request.stage_name = this.stageName();
     }
 
-    this.bracketService.updateStage(this.tournamentId(), this.stage().round, request)
-      .subscribe({
-        next: (updated) => {
-          this.saving.set(false);
-          this.stageUpdated.emit(updated);
-          this.close.emit();
-        },
-        error: (err) => {
-          this.saving.set(false);
-          this.error.set(err.error?.error || 'Failed to update stage');
-        }
-      });
+    const sId = this.stageId();
+    const gId = this.groupId();
+
+    // Use group-specific API if stageId and groupId are provided
+    const updateCall = sId !== null && gId !== null
+      ? this.bracketService.updateGroupStage(this.tournamentId(), sId, gId, this.stage().round, request)
+      : this.bracketService.updateStage(this.tournamentId(), this.stage().round, request);
+
+    updateCall.subscribe({
+      next: (updated) => {
+        this.saving.set(false);
+        this.stageUpdated.emit(updated);
+        this.close.emit();
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.error.set(err.error?.error || 'Failed to update stage');
+      }
+    });
   }
 
   onBackdropClick(event: MouseEvent): void {

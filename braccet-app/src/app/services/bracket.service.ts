@@ -73,6 +73,13 @@ export class BracketService {
     );
   }
 
+  updateGroupStage(tournamentId: number, stageId: number, groupId: number, round: number, request: UpdateStageRequest): Observable<BracketStage> {
+    return this.http.put<BracketStage>(
+      `${this.apiUrl}/${tournamentId}/stages/${stageId}/groups/${groupId}/bracket-stages/${round}`,
+      request
+    );
+  }
+
   // Swiss-specific methods
 
   /**
@@ -96,6 +103,17 @@ export class BracketService {
   advanceSwissRound(tournamentId: number): Observable<{ matches: Match[] } | null> {
     return this.http.post<{ matches: Match[] } | null>(
       `${this.apiUrl}/${tournamentId}/advance-round`,
+      {}
+    );
+  }
+
+  /**
+   * Advance to the next round in a Swiss group within a multi-stage tournament.
+   * Returns the new matches for the next round, or null if group bracket is complete.
+   */
+  advanceGroupSwissRound(tournamentId: number, stageId: number, groupId: number): Observable<{ matches: Match[] } | null> {
+    return this.http.post<{ matches: Match[] } | null>(
+      `${this.apiUrl}/${tournamentId}/stages/${stageId}/groups/${groupId}/advance-round`,
       {}
     );
   }
@@ -147,6 +165,14 @@ export class BracketService {
   }
 
   // Multi-stage / Group bracket methods
+
+  /**
+   * Get bracket for a specific stage in a multi-stage tournament (e.g., finals stage).
+   * Unlike getBracket which returns all matches, this filters by stage_id.
+   */
+  getStageBracket(tournamentId: number, stageId: number): Observable<BracketState> {
+    return this.http.get<BracketState>(`${this.apiUrl}/${tournamentId}/stages/${stageId}`);
+  }
 
   /**
    * Get bracket for a specific group in a multi-stage tournament.

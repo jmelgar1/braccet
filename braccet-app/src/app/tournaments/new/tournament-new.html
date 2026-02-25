@@ -400,15 +400,54 @@
 
           @if (stageFormat() === 'swiss') {
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">Swiss Rounds</label>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Swiss Rounds (optional)</label>
               <input
                 type="number"
                 [ngModel]="stageSwissRounds()"
                 (ngModelChange)="stageSwissRounds.set($event)"
                 min="1"
                 max="10"
+                placeholder="Auto-calculated"
                 class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <p class="text-sm text-gray-500 mt-1">Leave empty for automatic calculation or threshold-based completion.</p>
+            </div>
+
+            <!-- Swiss Thresholds -->
+            <div class="border-t border-gray-200 pt-4">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Advancement Thresholds (optional)</label>
+              <p class="text-sm text-gray-500 mb-3">
+                Define win/loss thresholds. Participants advance or are eliminated when reaching these values.
+              </p>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm text-gray-600 mb-1">Wins to Advance</label>
+                  <input
+                    type="number"
+                    [ngModel]="stageWinsToAdvance()"
+                    (ngModelChange)="stageWinsToAdvance.set($event)"
+                    min="1"
+                    placeholder="e.g., 3"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm text-gray-600 mb-1">Losses to Eliminate</label>
+                  <input
+                    type="number"
+                    [ngModel]="stageLossesToEliminate()"
+                    (ngModelChange)="stageLossesToEliminate.set($event)"
+                    min="1"
+                    placeholder="e.g., 3"
+                    class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              @if (stageWinsToAdvance() !== null || stageLossesToEliminate() !== null) {
+                <p class="text-sm text-blue-600 mt-2">
+                  Threshold mode active. Rounds continue until all participants advance or are eliminated.
+                </p>
+              }
             </div>
           }
 

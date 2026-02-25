@@ -4,9 +4,17 @@
     <h3 class="standings-title">Standings</h3>
     <div class="standings-info">
       @if (isSwissFormat() && swissBracketState()) {
-        <span class="round-info">
-          Round {{ currentRound() }} of {{ totalRounds() }}
-        </span>
+        @if (isThresholdMode()) {
+          <span class="threshold-info">
+            @if (winsToAdvance()) { {{ winsToAdvance() }}W to advance }
+            @if (winsToAdvance() && lossesToEliminate()) { / }
+            @if (lossesToEliminate()) { {{ lossesToEliminate() }}L out }
+          </span>
+        } @else {
+          <span class="round-info">
+            Round {{ currentRound() }} of {{ totalRounds() }}
+          </span>
+        }
       }
       @if (isComplete()) {
         <span class="complete-badge">Complete</span>
@@ -34,6 +42,10 @@
           <tr>
             <th class="col-rank">#</th>
             <th class="col-player">Player</th>
+            @if (isThresholdMode()) {
+              <th class="col-status">Status</th>
+              <th class="col-progress">Progress</th>
+            }
             <th class="col-record">W-L</th>
             <th class="col-games">Games</th>
             <th class="col-diff">+/-</th>
@@ -42,7 +54,12 @@
         </thead>
         <tbody>
           @for (standing of swissStandings(); track standing.participant_id) {
-            <tr [class.current-user]="isCurrentUser(standing)" [class.top-3]="standing.rank <= 3">
+            <tr
+              [class.current-user]="isCurrentUser(standing)"
+              [class.top-3]="standing.rank <= 3"
+              [class.advanced]="standing.status === 'advanced'"
+              [class.eliminated]="standing.status === 'eliminated'"
+            >
               <td class="col-rank">
                 <span class="rank-badge" [ngClass]="getRankClass(standing.rank)">
                   {{ standing.rank }}
@@ -55,9 +72,30 @@
                   } @else {
                     <div class="player-icon-placeholder"></div>
                   }
-                  <span class="player-name">{{ standing.participant_name }}</span>
+                  <span class="player-name" [class.eliminated-name]="standing.status === 'eliminated'">
+                    {{ standing.participant_name }}
+                  </span>
                 </div>
               </td>
+              @if (isThresholdMode()) {
+                <td class="col-status">
+                  <span class="status-badge" [ngClass]="getStatusClass(standing.status)">
+                    {{ getStatusText(standing.status) }}
+                  </span>
+                </td>
+                <td class="col-progress">
+                  @if (getThresholdProgress(standing); as progress) {
+                    <div class="progress-info">
+                      @if (progress.winsProgress) {
+                        <span class="progress-wins">{{ progress.winsProgress }} W</span>
+                      }
+                      @if (progress.lossesProgress) {
+                        <span class="progress-losses">{{ progress.lossesProgress }} L</span>
+                      }
+                    </div>
+                  }
+                </td>
+              }
               <td class="col-record">
                 <span class="record">{{ getRecord(standing) }}</span>
               </td>
@@ -80,6 +118,14 @@
 
     <!-- Swiss Legend -->
     <div class="legend">
+      @if (isThresholdMode()) {
+        <div class="legend-item">
+          <span class="legend-label">Status:</span> Advanced / Eliminated / Active
+        </div>
+        <div class="legend-item">
+          <span class="legend-label">Progress:</span> Current wins/losses toward threshold
+        </div>
+      }
       <div class="legend-item">
         <span class="legend-label">W-L:</span> Match wins - losses
       </div>
@@ -93,7 +139,7 @@
         <span class="legend-label">Buch.:</span> Buchholz tiebreaker (total opponent wins)
       </div>
     </div>
-  } @else if (isEliminationFormat() && elimStandings().length > 0) {
+  } @else if ((isEliminationFormat() || isMultiStageFormat()) && elimStandings().length > 0) {
     <!-- Elimination Standings Table -->
     <div class="table-container">
       <table class="standings-table">

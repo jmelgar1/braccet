@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -21,6 +22,7 @@ type StageHandler struct {
 	participantRepo repository.ParticipantRepository
 	stageRepo       repository.StageRepository
 	bracketClient   client.BracketClient
+	communityClient client.CommunityClient
 }
 
 func NewStageHandler(
@@ -28,12 +30,14 @@ func NewStageHandler(
 	participantRepo repository.ParticipantRepository,
 	stageRepo repository.StageRepository,
 	bracketClient client.BracketClient,
+	communityClient client.CommunityClient,
 ) *StageHandler {
 	return &StageHandler{
 		tournamentRepo:  tournamentRepo,
 		participantRepo: participantRepo,
 		stageRepo:       stageRepo,
 		bracketClient:   bracketClient,
+		communityClient: communityClient,
 	}
 }
 
@@ -45,6 +49,8 @@ type StageConfigRequest struct {
 	ParticipantsPerGroup *int     `json:"participants_per_group,omitempty"`
 	AdvancingPerGroup    *int     `json:"advancing_per_group,omitempty"`
 	SwissRounds          *int     `json:"swiss_rounds,omitempty"`
+	WinsToAdvance        *int     `json:"wins_to_advance,omitempty"`     // Swiss threshold: wins needed to advance
+	LossesToEliminate    *int     `json:"losses_to_eliminate,omitempty"` // Swiss threshold: losses that eliminate
 	SkipFinals           *bool    `json:"skip_finals,omitempty"`
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
 	PlacementMatches     *bool    `json:"placement_matches,omitempty"`
@@ -72,6 +78,8 @@ type StageResponse struct {
 	ParticipantsPerGroup *int     `json:"participants_per_group,omitempty"`
 	AdvancingPerGroup    *int     `json:"advancing_per_group,omitempty"`
 	SwissRounds          *int     `json:"swiss_rounds,omitempty"`
+	WinsToAdvance        *int     `json:"wins_to_advance,omitempty"`
+	LossesToEliminate    *int     `json:"losses_to_eliminate,omitempty"`
 	SkipFinals           bool     `json:"skip_finals"`
 	IsActive             bool     `json:"is_active"`
 	IsComplete           bool     `json:"is_complete"`
@@ -93,6 +101,8 @@ type UpdateStageRequest struct {
 	ParticipantsPerGroup *int     `json:"participants_per_group,omitempty"`
 	AdvancingPerGroup    *int     `json:"advancing_per_group,omitempty"`
 	SwissRounds          *int     `json:"swiss_rounds,omitempty"`
+	WinsToAdvance        *int     `json:"wins_to_advance,omitempty"`
+	LossesToEliminate    *int     `json:"losses_to_eliminate,omitempty"`
 	SkipFinals           *bool    `json:"skip_finals,omitempty"`
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
 }
@@ -151,6 +161,8 @@ func toStageResponse(s *domain.TournamentStage, criteria []*domain.StageRankingC
 		ParticipantsPerGroup: s.ParticipantsPerGroup,
 		AdvancingPerGroup:    s.AdvancingPerGroup,
 		SwissRounds:          s.SwissRounds,
+		WinsToAdvance:        s.WinsToAdvance,
+		LossesToEliminate:    s.LossesToEliminate,
 		SkipFinals:           s.SkipFinals,
 		IsActive:             s.IsActive,
 		IsComplete:           s.IsComplete,
@@ -280,6 +292,8 @@ func (h *StageHandler) CreateMultiStage(w http.ResponseWriter, r *http.Request) 
 			ParticipantsPerGroup: stageReq.ParticipantsPerGroup,
 			AdvancingPerGroup:    stageReq.AdvancingPerGroup,
 			SwissRounds:          stageReq.SwissRounds,
+			WinsToAdvance:        stageReq.WinsToAdvance,
+			LossesToEliminate:    stageReq.LossesToEliminate,
 			VenueType:            domain.VenueTypeOnline, // Default to online
 			SkipFinals:           skipFinals,
 			IsActive:             i == 0, // First stage is active by default
@@ -542,7 +556,11 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get participants for this stage
-	// First check if there's a stage pool configured
+	// Sources:
+	// 1. Stage pool (pre-assigned "skip ahead" participants)
+	// 2. Advancing participants from previous stage (if not stage 1)
+	// 3. All tournament participants (backward compatibility if no pool and first stage)
+
 	poolEntries, err := h.stageRepo.GetParticipantPoolByStage(r.Context(), activeStage.ID)
 	if err != nil {
 		log.Printf("Error fetching participant pool: %v", err)
@@ -550,20 +568,53 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if there's a previous completed stage to get advancing participants from
+	var advancingFromPrevStage []client.AdvancingParticipant
+	if activeStage.StageOrder > 1 {
+		// Find previous stage
+		stages, err := h.stageRepo.GetStagesByTournament(r.Context(), tournament.ID)
+		if err == nil {
+			for _, s := range stages {
+				if s.StageOrder == activeStage.StageOrder-1 && s.IsComplete {
+					// Get advancing participants from bracket service
+					advancingFromPrevStage, err = h.bracketClient.GetStageAdvancingParticipants(r.Context(), tournament.ID, s.ID)
+					if err != nil {
+						log.Printf("Error fetching advancing participants from stage %d: %v", s.ID, err)
+						// Non-fatal, continue without advancing participants
+					}
+					break
+				}
+			}
+		}
+	}
+
+	// Collect participant IDs from all sources
+	participantIDSet := make(map[uint64]bool)
+
+	// Add advancing participants from previous stage
+	for _, ap := range advancingFromPrevStage {
+		participantIDSet[ap.ParticipantID] = true
+	}
+
+	// Add pool participants
+	for _, e := range poolEntries {
+		participantIDSet[e.ParticipantID] = true
+	}
+
 	var participants []*domain.Participant
-	if len(poolEntries) == 0 {
-		// No pool configured - use all participants (backward compatibility)
+	if len(participantIDSet) == 0 && activeStage.StageOrder == 1 {
+		// First stage with no pool - use all participants (backward compatibility)
 		participants, err = h.participantRepo.GetByTournament(r.Context(), tournament.ID)
 		if err != nil {
 			log.Printf("Error fetching participants: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to fetch participants")
 			return
 		}
-	} else {
-		// Pool configured - only use participants assigned to this stage
-		participantIDs := make([]uint64, len(poolEntries))
-		for i, e := range poolEntries {
-			participantIDs[i] = e.ParticipantID
+	} else if len(participantIDSet) > 0 {
+		// Have specific participants from pool or advancing
+		participantIDs := make([]uint64, 0, len(participantIDSet))
+		for id := range participantIDSet {
+			participantIDs = append(participantIDs, id)
 		}
 		participants, err = h.participantRepo.GetByIDs(r.Context(), participantIDs)
 		if err != nil {
@@ -639,6 +690,20 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 		participantMap[p.ID] = p
 	}
 
+	// Fetch icon URLs for all participants with community member IDs
+	var memberIDs []uint64
+	for _, p := range participants {
+		if p.CommunityMemberID != nil {
+			memberIDs = append(memberIDs, *p.CommunityMemberID)
+		}
+	}
+	memberData, err := h.communityClient.GetBulkMemberData(r.Context(), memberIDs)
+	if err != nil {
+		log.Printf("Error fetching member data for icons: %v", err)
+		// Non-fatal, continue without icons
+		memberData = make(map[uint64]client.MemberDataResponse)
+	}
+
 	for _, group := range groups {
 		groupAssignments := groupAssignmentsMap[group.ID]
 		if len(groupAssignments) < 2 {
@@ -650,28 +715,40 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 		for _, a := range groupAssignments {
 			p := participantMap[a.ParticipantID]
 			if p != nil {
+				// Use tournament-level seed for Swiss pairings (seed 1 vs seed 16, etc.)
+				// Fall back to SeedInGroup if tournament seed not set
 				seed := 0
-				if a.SeedInGroup != nil {
+				if p.Seed != nil {
+					seed = int(*p.Seed)
+				} else if a.SeedInGroup != nil {
 					seed = *a.SeedInGroup
 				}
+				var iconURL string
+				if p.CommunityMemberID != nil {
+					if data, ok := memberData[*p.CommunityMemberID]; ok && data.IconURL != nil {
+						iconURL = *data.IconURL
+					}
+				}
 				groupParticipants = append(groupParticipants, client.Participant{
-					ID:   p.ID,
-					Name: p.DisplayName,
-					Seed: seed,
-					// IconURL is fetched from member data if needed
+					ID:      p.ID,
+					Name:    p.DisplayName,
+					Seed:    seed,
+					IconURL: iconURL,
 				})
 			}
 		}
 
 		// Call bracket service to create the bracket
 		bracketReq := client.CreateGroupBracketRequest{
-			TournamentID: tournament.ID,
-			StageID:      activeStage.ID,
-			GroupID:      group.ID,
-			Format:       string(activeStage.Format),
-			Participants: groupParticipants,
-			SwissRounds:  activeStage.SwissRounds,
-			SkipFinals:   activeStage.SkipFinals,
+			TournamentID:      tournament.ID,
+			StageID:           activeStage.ID,
+			GroupID:           group.ID,
+			Format:            string(activeStage.Format),
+			Participants:      groupParticipants,
+			SwissRounds:       activeStage.SwissRounds,
+			WinsToAdvance:     activeStage.WinsToAdvance,
+			LossesToEliminate: activeStage.LossesToEliminate,
+			SkipFinals:        activeStage.SkipFinals,
 		}
 
 		if err := h.bracketClient.CreateGroupBracket(r.Context(), bracketReq); err != nil {
@@ -767,8 +844,34 @@ func (h *StageHandler) AdvanceStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Check with bracket service if all brackets in this stage are complete
-	// For now, we'll allow advancing manually
+	// Validate that all brackets in the stage are complete before advancing
+	if activeStage.StageType == domain.StageTypeGroup {
+		// For group stages, check each group's bracket
+		for _, group := range groups {
+			isComplete, err := h.bracketClient.IsGroupBracketComplete(r.Context(), tournament.ID, activeStage.ID, group.ID)
+			if err != nil {
+				log.Printf("Error checking group %d bracket completion: %v", group.ID, err)
+				writeError(w, http.StatusInternalServerError, "failed to check bracket completion")
+				return
+			}
+			if !isComplete {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("group '%s' bracket is not complete - all matches must be finished before advancing", group.GroupName))
+				return
+			}
+		}
+	} else if activeStage.StageType == domain.StageTypeFinal {
+		// For finals stage, check the stage bracket directly
+		isComplete, err := h.bracketClient.IsStageBracketComplete(r.Context(), tournament.ID, activeStage.ID)
+		if err != nil {
+			log.Printf("Error checking finals bracket completion: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to check bracket completion")
+			return
+		}
+		if !isComplete {
+			writeError(w, http.StatusBadRequest, "finals bracket is not complete - all matches must be finished before completing the tournament")
+			return
+		}
+	}
 
 	// Mark current stage as complete and inactive
 	activeStage.IsActive = false
@@ -808,6 +911,45 @@ func (h *StageHandler) AdvanceStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get advancing participants from current stage
+	advancingPerGroup := 2 // default
+	if activeStage.AdvancingPerGroup != nil {
+		advancingPerGroup = *activeStage.AdvancingPerGroup
+	}
+
+	// Collect group IDs
+	groupIDs := make([]uint64, len(groups))
+	for i, g := range groups {
+		groupIDs[i] = g.ID
+	}
+
+	// Get ranking criteria for the completed stage
+	rankingCriteria, _ := h.stageRepo.GetRankingCriteria(r.Context(), activeStage.ID)
+	criteriaStrings := make([]string, len(rankingCriteria))
+	for i, c := range rankingCriteria {
+		criteriaStrings[i] = string(c.Criterion)
+	}
+
+	// Determine if this is a threshold-based Swiss stage
+	isThresholdSwiss := activeStage.Format == domain.FormatSwiss &&
+		(activeStage.WinsToAdvance != nil || activeStage.LossesToEliminate != nil)
+
+	// Call bracket service to complete the stage and get advancing participants
+	completeResp, err := h.bracketClient.CompleteStage(r.Context(), client.CompleteStageRequest{
+		TournamentID:      tournament.ID,
+		StageID:           activeStage.ID,
+		GroupIDs:          groupIDs,
+		AdvancingPerGroup: advancingPerGroup,
+		RankingCriteria:   criteriaStrings,
+		Format:            string(activeStage.Format),
+		IsThresholdSwiss:  isThresholdSwiss,
+	})
+	if err != nil {
+		log.Printf("Error completing stage in bracket service: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to complete stage")
+		return
+	}
+
 	// Activate next stage
 	nextStage.IsActive = true
 	if err := h.stageRepo.UpdateStage(r.Context(), nextStage); err != nil {
@@ -816,16 +958,43 @@ func (h *StageHandler) AdvanceStage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get advancing participants from current stage
-	// TODO: Get standings from bracket service and determine who advances
-	advancingPerGroup := 2 // default
-	if activeStage.AdvancingPerGroup != nil {
-		advancingPerGroup = *activeStage.AdvancingPerGroup
-	}
+	// If next stage is finals, generate the finals bracket
+	if nextStage.StageType == domain.StageTypeFinal && len(completeResp.AdvancingParticipants) > 0 {
+		// Build participants list for finals bracket
+		finalsParticipants := make([]client.Participant, len(completeResp.AdvancingParticipants))
+		for i, ap := range completeResp.AdvancingParticipants {
+			iconURL := ""
+			if ap.IconURL != nil {
+				iconURL = *ap.IconURL
+			}
+			finalsParticipants[i] = client.Participant{
+				ID:      ap.ParticipantID,
+				Name:    ap.ParticipantName,
+				IconURL: iconURL,
+				Seed:    ap.StageRank, // Use stage rank as seed for finals
+			}
+		}
 
-	// For now, just return the next stage info
-	_ = advancingPerGroup
-	_ = groups
+		// Generate finals bracket
+		// Use GroupID = 0 to indicate this is a stage-level bracket (not a group)
+		finalsReq := client.CreateGroupBracketRequest{
+			TournamentID: tournament.ID,
+			StageID:      nextStage.ID,
+			GroupID:      0, // Finals don't belong to a group
+			Format:       string(nextStage.Format),
+			Participants: finalsParticipants,
+			SwissRounds:  nextStage.SwissRounds,
+			SkipFinals:   false, // Finals should have a final match
+		}
+
+		if err := h.bracketClient.CreateGroupBracket(r.Context(), finalsReq); err != nil {
+			log.Printf("Error creating finals bracket: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to create finals bracket")
+			return
+		}
+
+		log.Printf("Created finals bracket for tournament %d with %d participants", tournament.ID, len(finalsParticipants))
+	}
 
 	criteria, _ := h.stageRepo.GetRankingCriteria(r.Context(), nextStage.ID)
 	writeJSON(w, http.StatusOK, toStageResponse(nextStage, criteria))
@@ -951,6 +1120,39 @@ func (h *StageHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 		stage.SwissRounds = req.SwissRounds
 	}
 
+	// Swiss threshold fields (only valid for Swiss format group stages)
+	if req.WinsToAdvance != nil {
+		if stage.Format != domain.FormatSwiss {
+			writeError(w, http.StatusBadRequest, "wins_to_advance only applies to swiss format")
+			return
+		}
+		if !isGroupStage {
+			writeError(w, http.StatusBadRequest, "wins_to_advance only applies to group stages")
+			return
+		}
+		if *req.WinsToAdvance < 1 {
+			writeError(w, http.StatusBadRequest, "wins_to_advance must be at least 1")
+			return
+		}
+		stage.WinsToAdvance = req.WinsToAdvance
+	}
+
+	if req.LossesToEliminate != nil {
+		if stage.Format != domain.FormatSwiss {
+			writeError(w, http.StatusBadRequest, "losses_to_eliminate only applies to swiss format")
+			return
+		}
+		if !isGroupStage {
+			writeError(w, http.StatusBadRequest, "losses_to_eliminate only applies to group stages")
+			return
+		}
+		if *req.LossesToEliminate < 1 {
+			writeError(w, http.StatusBadRequest, "losses_to_eliminate must be at least 1")
+			return
+		}
+		stage.LossesToEliminate = req.LossesToEliminate
+	}
+
 	if req.SkipFinals != nil {
 		stage.SkipFinals = *req.SkipFinals
 	}
@@ -1036,6 +1238,22 @@ func validateStageConfig(stage StageConfigRequest, isGroupStage bool) error {
 		}
 	}
 
+	// Validate Swiss threshold fields (only for Swiss format group stages)
+	if stage.WinsToAdvance != nil || stage.LossesToEliminate != nil {
+		if format != domain.FormatSwiss {
+			return errors.New("wins_to_advance and losses_to_eliminate only apply to swiss format")
+		}
+		if !isGroupStage {
+			return errors.New("wins_to_advance and losses_to_eliminate only apply to group stages")
+		}
+		if stage.WinsToAdvance != nil && *stage.WinsToAdvance < 1 {
+			return errors.New("wins_to_advance must be at least 1")
+		}
+		if stage.LossesToEliminate != nil && *stage.LossesToEliminate < 1 {
+			return errors.New("losses_to_eliminate must be at least 1")
+		}
+	}
+
 	return nil
 }
 
@@ -1071,9 +1289,12 @@ func serpentineAssignmentWithSeeds(
 	}
 
 	// Build manual seed map: participantID -> targetGroupOrder
+	// Only include seeds with specific group assignments (not -1 which means auto-assign)
 	manualSeedMap := make(map[uint64]int)
 	for _, seed := range manualSeeds {
-		manualSeedMap[seed.ParticipantID] = seed.TargetGroupOrder
+		if seed.TargetGroupOrder >= 0 {
+			manualSeedMap[seed.ParticipantID] = seed.TargetGroupOrder
+		}
 	}
 
 	// Track how many participants are in each group
@@ -1313,8 +1534,9 @@ func (h *StageHandler) UpdateStageSeeds(w http.ResponseWriter, r *http.Request) 
 		}
 		seenParticipants[seed.ParticipantID] = true
 
-		if seed.TargetGroupOrder < 0 || seed.TargetGroupOrder >= expectedGroups {
-			writeError(w, http.StatusBadRequest, "target_group_order must be between 0 and "+strconv.Itoa(expectedGroups-1))
+		// -1 means "auto-assign via serpentine", otherwise validate group range
+		if seed.TargetGroupOrder != -1 && (seed.TargetGroupOrder < 0 || seed.TargetGroupOrder >= expectedGroups) {
+			writeError(w, http.StatusBadRequest, "target_group_order must be -1 (auto) or between 0 and "+strconv.Itoa(expectedGroups-1))
 			return
 		}
 	}
@@ -1506,16 +1728,10 @@ func (h *StageHandler) UpdateStagePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate participant counts for each stage format
-	for _, c := range req.Config {
-		stage := stageMap[c.StageID]
-		if c.Count > 0 {
-			if err := validateParticipantCountForStage(stage, c.Count); err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-		}
-	}
+	// NOTE: We don't validate participant counts for configured stages here because:
+	// - These are later stages where participants also come from advancement
+	// - The pool count is just the "skip-ahead" participants
+	// - Final validation happens at StartStage when all participants (pool + advanced) are known
 
 	// Find the first stage (lowest stage_order > 0) for remaining participants
 	var firstStageID uint64

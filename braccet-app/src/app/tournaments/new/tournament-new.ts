@@ -68,6 +68,8 @@ export class TournamentNew implements OnInit {
   stageAdvancingPerGroup = signal(2);
   stageFormat = signal<StageFormat>('swiss');
   stageSwissRounds = signal(3);
+  stageWinsToAdvance = signal<number | null>(null);
+  stageLossesToEliminate = signal<number | null>(null);
   stageRankingCriteria = signal<RankingCriterion[]>([]);
   stagePlacementMatches = signal(false);
   stagePlacementDepth = signal(1);
@@ -261,6 +263,8 @@ export class TournamentNew implements OnInit {
     this.stageAdvancingPerGroup.set(stage.advancing_per_group || 2);
     this.stageFormat.set(stage.format);
     this.stageSwissRounds.set(stage.swiss_rounds || 3);
+    this.stageWinsToAdvance.set(stage.wins_to_advance ?? null);
+    this.stageLossesToEliminate.set(stage.losses_to_eliminate ?? null);
     this.stageSkipFinals.set(stage.skip_finals || false);
     // For elim formats, empty criteria means use bracket ranking (which is the default)
     // For swiss, if no criteria set, use sensible defaults
@@ -289,6 +293,12 @@ export class TournamentNew implements OnInit {
 
     if (this.stageFormat() === 'swiss') {
       updatedStage.swiss_rounds = this.stageSwissRounds();
+      if (this.stageWinsToAdvance() !== null) {
+        updatedStage.wins_to_advance = this.stageWinsToAdvance()!;
+      }
+      if (this.stageLossesToEliminate() !== null) {
+        updatedStage.losses_to_eliminate = this.stageLossesToEliminate()!;
+      }
     }
 
     this.groupStages.update(stages =>

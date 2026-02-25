@@ -8,13 +8,15 @@ import (
 
 // GroupBracketParams contains parameters for generating a group bracket
 type GroupBracketParams struct {
-	TournamentID uint64
-	StageID      uint64
-	GroupID      uint64
-	Format       string // single_elimination, double_elimination, swiss
-	Participants []domain.Participant
-	SwissRounds  *int // Optional override for Swiss format
-	SkipFinals   bool // When true, skip final match(es) and determine standings by bracket position
+	TournamentID      uint64
+	StageID           uint64
+	GroupID           uint64
+	Format            string // single_elimination, double_elimination, swiss
+	Participants      []domain.Participant
+	SwissRounds       *int // Optional override for Swiss format
+	WinsToAdvance     *int // Swiss threshold: wins needed to advance (excluding BYEs)
+	LossesToEliminate *int // Swiss threshold: losses that eliminate a participant
+	SkipFinals        bool // When true, skip final match(es) and determine standings by bracket position
 }
 
 // GenerateGroupBracket creates a bracket for a single group

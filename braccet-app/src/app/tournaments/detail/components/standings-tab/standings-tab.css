@@ -289,3 +289,77 @@
   font-weight: 600;
   color: var(--text-secondary);
 }
+
+/* Threshold info in header */
+.threshold-info {
+  font-size: 0.875rem;
+  color: var(--accent-blue);
+  font-weight: 500;
+}
+
+/* Status column */
+.col-status {
+  width: 5rem;
+  text-align: center;
+}
+
+.col-progress {
+  width: 5rem;
+  text-align: center;
+}
+
+/* Status badges */
+.status-badge {
+  display: inline-block;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 0.25rem;
+}
+
+.status-badge.status-advanced {
+  background: var(--accent-green-bg);
+  color: var(--accent-green);
+}
+
+.status-badge.status-eliminated {
+  background: var(--accent-red-bg);
+  color: var(--accent-red);
+}
+
+.status-badge.status-active {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+/* Row styling for advanced/eliminated */
+.standings-table tbody tr.advanced {
+  background: rgba(134, 239, 172, 0.08);
+}
+
+.standings-table tbody tr.eliminated {
+  opacity: 0.7;
+}
+
+.eliminated-name {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+/* Progress display */
+.progress-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  font-size: 0.75rem;
+}
+
+.progress-wins {
+  color: var(--accent-green);
+  font-weight: 500;
+}
+
+.progress-losses {
+  color: var(--accent-red);
+  font-weight: 500;
+}

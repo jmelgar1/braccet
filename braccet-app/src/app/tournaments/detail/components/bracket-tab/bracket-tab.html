@@ -136,8 +136,12 @@
                 (matchClicked)="onMultiStageMatchClicked($event)"
                 (matchEditClicked)="onMultiStageMatchEditClicked($event)"
                 (matchReopened)="onMultiStageMatchReopened($event)"
+                (stageClicked)="onMultiStageStageClicked($event)"
+                (swissStageClicked)="onMultiStageSwissStageClicked($event)"
                 (advanceStageClicked)="onMultiStageAdvance()"
                 (startStageClicked)="onMultiStageStart()"
+                (currentStagesChanged)="onMultiStageStagesChanged($event)"
+                (finalsCompleteChanged)="onMultiStageFinalsCompleteChanged($event)"
               />
             </div>
           } @else {
@@ -226,6 +230,8 @@
   <app-edit-stage-modal
     [tournamentId]="tournament().id"
     [stage]="selectedStage()!"
+    [stageId]="selectedStageId()"
+    [groupId]="selectedGroupId()"
     [hideNameField]="hideStageNameField()"
     (close)="closeStageModal()"
     (stageUpdated)="onStageUpdated($event)"

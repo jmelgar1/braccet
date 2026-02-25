@@ -3,9 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { Subject, of } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap, takeUntil, catchError } from 'rxjs/operators';
-import { Tournament, Participant, MemberSearchResult } from '../../../../models/tournament.model';
+import { Participant, MemberSearchResult } from '../../../../models/tournament.model';
 import { CommunityMember } from '../../../../models/community.model';
 import { TournamentService } from '../../../../services/tournament.service';
+import { TournamentUIService } from '../../../../services/tournament-ui.service';
 import { AuthService } from '../../../../services/auth.service';
 import { EditMemberModal } from '../../../../components/edit-member-modal/edit-member-modal';
 
@@ -16,11 +17,15 @@ import { EditMemberModal } from '../../../../components/edit-member-modal/edit-m
 })
 export class ParticipantsTab implements OnInit, OnDestroy {
   private tournamentService = inject(TournamentService);
+  private tournamentUI = inject(TournamentUIService);
   authService = inject(AuthService);
 
-  tournament = input.required<Tournament>();
-  participants = input.required<Participant[]>();
-  isOrganizer = input.required<boolean>();
+  // Read from service
+  tournament = computed(() => this.tournamentUI.tournament()!);
+  participants = computed(() => this.tournamentUI.participants());
+  isOrganizer = computed(() => this.tournamentUI.isOrganizer());
+
+  // These inputs are still passed from side-panel
   currentUserParticipant = input<Participant | null>(null);
   canSelfRegister = input(false);
   communitySlug = input<string | null>(null);

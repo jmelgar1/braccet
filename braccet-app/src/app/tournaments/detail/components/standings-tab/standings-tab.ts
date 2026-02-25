@@ -1,8 +1,9 @@
-import { Component, input, computed, inject, signal, effect } from '@angular/core';
+import { Component, computed, inject, signal, effect } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { Tournament } from '../../../../models/tournament.model';
-import { SwissBracketState, SwissStanding, EliminationStandingsResponse, EliminationStanding } from '../../../../models/bracket.model';
+import { SwissBracketState, SwissStanding, SwissParticipantStatus, EliminationStandingsResponse, EliminationStanding } from '../../../../models/bracket.model';
 import { BracketService } from '../../../../services/bracket.service';
+import { TournamentUIService } from '../../../../services/tournament-ui.service';
 import { AuthService } from '../../../../services/auth.service';
 
 @Component({
@@ -13,10 +14,11 @@ import { AuthService } from '../../../../services/auth.service';
 })
 export class StandingsTab {
   private bracketService = inject(BracketService);
+  private tournamentUI = inject(TournamentUIService);
   private authService = inject(AuthService);
 
-  tournament = input.required<Tournament>();
-  refreshKey = input(0);
+  // Read from service
+  tournament = computed(() => this.tournamentUI.tournament()!);
 
   // State
   swissBracketState = signal<SwissBracketState | null>(null);
@@ -30,6 +32,7 @@ export class StandingsTab {
     const format = this.tournament().format;
     return format === 'single_elimination' || format === 'double_elimination';
   });
+  isMultiStageFormat = computed(() => this.tournament().format === 'multi_stage');
 
   // Swiss standings
   swissStandings = computed(() => this.swissBracketState()?.standings ?? []);
@@ -47,6 +50,13 @@ export class StandingsTab {
     return this.eliminationStandings()?.is_complete ?? false;
   });
 
+  // Swiss threshold info
+  winsToAdvance = computed(() => this.swissBracketState()?.wins_to_advance);
+  lossesToEliminate = computed(() => this.swissBracketState()?.losses_to_eliminate);
+  isThresholdMode = computed(() =>
+    this.winsToAdvance() !== undefined || this.lossesToEliminate() !== undefined
+  );
+
   // Format display name
   formatDisplayName = computed(() => {
     const format = this.tournament().format;
@@ -54,6 +64,7 @@ export class StandingsTab {
       case 'swiss': return 'Swiss';
       case 'single_elimination': return 'Single Elimination';
       case 'double_elimination': return 'Double Elimination';
+      case 'multi_stage': return 'Multi-Stage';
       default: return format;
     }
   });
@@ -64,17 +75,17 @@ export class StandingsTab {
   constructor() {
     // Load standings when tournament changes
     effect(() => {
-      const t = this.tournament();
-      if (t.status === 'in_progress' || t.status === 'completed') {
+      const t = this.tournamentUI.tournament();
+      if (t && (t.status === 'in_progress' || t.status === 'completed')) {
         this.loadStandings(t);
       }
     });
 
     // Reload when refresh key changes
     effect(() => {
-      const key = this.refreshKey();
-      const t = this.tournament();
-      if (key > 0 && (t.status === 'in_progress' || t.status === 'completed')) {
+      const key = this.tournamentUI.bracketRefreshKey();
+      const t = this.tournamentUI.tournament();
+      if (t && key > 0 && (t.status === 'in_progress' || t.status === 'completed')) {
         this.loadStandings(t);
       }
     });
@@ -143,5 +154,40 @@ export class StandingsTab {
     if (placement === '2nd') return 'placement-second';
     if (placement === '3rd' || placement === '3rd-4th') return 'placement-third';
     return '';
+  }
+
+  // Swiss threshold mode helpers
+  getStatusClass(status?: SwissParticipantStatus): string {
+    switch (status) {
+      case 'advanced': return 'status-advanced';
+      case 'eliminated': return 'status-eliminated';
+      default: return 'status-active';
+    }
+  }
+
+  getStatusText(status?: SwissParticipantStatus): string {
+    switch (status) {
+      case 'advanced': return 'Advanced';
+      case 'eliminated': return 'Eliminated';
+      default: return 'Active';
+    }
+  }
+
+  getThresholdProgress(standing: SwissStanding): { winsProgress?: string; lossesProgress?: string } {
+    const result: { winsProgress?: string; lossesProgress?: string } = {};
+
+    const winsThreshold = this.winsToAdvance();
+    const lossesThreshold = this.lossesToEliminate();
+
+    if (winsThreshold !== undefined) {
+      const matchWins = standing.match_wins ?? standing.wins;
+      result.winsProgress = `${matchWins}/${winsThreshold}`;
+    }
+
+    if (lossesThreshold !== undefined) {
+      result.lossesProgress = `${standing.losses}/${lossesThreshold}`;
+    }
+
+    return result;
   }
 }
