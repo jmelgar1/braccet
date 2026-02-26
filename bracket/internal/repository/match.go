@@ -26,6 +26,9 @@ type MatchRepository interface {
 	ClearParticipant(ctx context.Context, matchID uint64, slot int) error
 	UpdateVenueOverride(ctx context.Context, matchID uint64, venueOverride *domain.MatchVenueType) error
 	DeleteByTournament(ctx context.Context, tournamentID uint64) error
+	DeleteByRoundRange(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, fromRound int) error
+	DeleteByRoundRangeForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, bracketType domain.BracketType, fromRound int) error
+	DeleteByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) error
 }
 
 type matchRepository struct {
@@ -431,5 +434,30 @@ func (r *matchRepository) UpdateVenueOverride(ctx context.Context, matchID uint6
 func (r *matchRepository) DeleteByTournament(ctx context.Context, tournamentID uint64) error {
 	query := `DELETE FROM matches WHERE tournament_id = $1`
 	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
+}
+
+// DeleteByRoundRange deletes all matches for rounds >= fromRound.
+// Note: match_sets are deleted via ON DELETE CASCADE.
+func (r *matchRepository) DeleteByRoundRange(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, fromRound int) error {
+	query := `DELETE FROM matches WHERE tournament_id = $1 AND bracket_type = $2 AND round >= $3`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, bracketType, fromRound)
+	return err
+}
+
+// DeleteByRoundRangeForGroup deletes all matches for rounds >= fromRound in a specific group.
+// Note: match_sets are deleted via ON DELETE CASCADE.
+func (r *matchRepository) DeleteByRoundRangeForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, bracketType domain.BracketType, fromRound int) error {
+	query := `DELETE FROM matches WHERE tournament_id = $1 AND stage_id = $2 AND group_id = $3 AND bracket_type = $4 AND round >= $5`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, stageID, groupID, bracketType, fromRound)
+	return err
+}
+
+// DeleteByTournamentStageGroup deletes all matches for a specific stage and group.
+// For finals brackets, groupID is 0.
+// Note: match_sets are deleted via ON DELETE CASCADE.
+func (r *matchRepository) DeleteByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) error {
+	query := `DELETE FROM matches WHERE tournament_id = $1 AND stage_id = $2 AND group_id = $3`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, stageID, groupID)
 	return err
 }

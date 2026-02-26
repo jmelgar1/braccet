@@ -1,0 +1,169 @@
+<div class="dag-editor-container" #panzoomContainer>
+  <!-- Zoom controls -->
+  <div class="zoom-controls">
+    <button class="zoom-btn" (click)="zoomIn()" title="Zoom In">+</button>
+    <span class="zoom-level">{{ (currentScale() * 100).toFixed(0) }}%</span>
+    <button class="zoom-btn" (click)="zoomOut()" title="Zoom Out">-</button>
+    <button class="zoom-btn reset-btn" (click)="resetView()" title="Reset View">Reset</button>
+  </div>
+
+  <!-- Selected edge actions -->
+  @if (selectedEdge() && isOrganizer()) {
+    <div class="edge-actions">
+      <span class="edge-info">
+        Top {{ selectedEdge()!.advancing_count }} advance
+      </span>
+      <button class="btn btn-sm btn-danger" (click)="deleteSelectedEdge()">
+        Delete Connection
+      </button>
+    </div>
+  }
+
+  <!-- Canvas -->
+  <div
+    class="dag-canvas"
+    #dagCanvas
+    (mousemove)="onCanvasMouseMove($event)"
+    (mouseup)="onCanvasMouseUp($event)"
+    (mouseleave)="onCanvasMouseUp($event)"
+  >
+    <!-- SVG layer for edges -->
+    <svg class="svg-layer" #svgLayer>
+      <defs>
+        <marker
+          id="arrowhead"
+          markerWidth="10"
+          markerHeight="7"
+          refX="9"
+          refY="3.5"
+          orient="auto"
+        >
+          <polygon points="0 0, 10 3.5, 0 7" fill="#6B7280" />
+        </marker>
+        <marker
+          id="arrowhead-selected"
+          markerWidth="10"
+          markerHeight="7"
+          refX="9"
+          refY="3.5"
+          orient="auto"
+        >
+          <polygon points="0 0, 10 3.5, 0 7" fill="#3B82F6" />
+        </marker>
+      </defs>
+
+      <!-- Existing edges -->
+      @for (edge of edges(); track trackByEdge($index, edge)) {
+        <g class="edge-group" [class.selected]="isEdgeSelected(edge)">
+          <path
+            class="edge-path"
+            [attr.d]="getEdgePath(edge)"
+            [attr.stroke]="isEdgeSelected(edge) ? '#3B82F6' : '#6B7280'"
+            stroke-width="2"
+            fill="none"
+            [attr.marker-end]="isEdgeSelected(edge) ? 'url(#arrowhead-selected)' : 'url(#arrowhead)'"
+            (click)="onEdgeClick(edge, $event)"
+            (dblclick)="onEdgeDoubleClick(edge, $event)"
+          />
+          <text
+            class="edge-label"
+            [attr.x]="getEdgeLabelPosition(edge).x"
+            [attr.y]="getEdgeLabelPosition(edge).y"
+            text-anchor="middle"
+            fill="#6B7280"
+            font-size="12"
+          >
+            Top {{ edge.advancing_count }}
+          </text>
+        </g>
+      }
+
+      <!-- Dragging connection line -->
+      @if (dragState()) {
+        <path
+          class="dragging-path"
+          [attr.d]="getDraggingPath()"
+          stroke="#3B82F6"
+          stroke-width="2"
+          stroke-dasharray="5,5"
+          fill="none"
+          marker-end="url(#arrowhead-selected)"
+        />
+      }
+    </svg>
+
+    <!-- Tournament nodes -->
+    @for (node of nodes(); track trackByTournamentId($index, node)) {
+      <div
+        class="tournament-node"
+        [class.main-event]="node.role === 'main'"
+        [class.qualifier]="node.role === 'qualifier'"
+        [class.drop-target]="dragState() && node.role === 'main'"
+        [ngStyle]="getNodeStyle(node.tournament_id)"
+        (mouseup)="onNodeDrop(node.tournament_id)"
+      >
+        <div class="node-header">
+          <span class="node-role" [class.main]="node.role === 'main'">
+            {{ node.role === 'main' ? 'MAIN' : 'QUALIFIER' }}
+          </span>
+          <span class="node-status" [ngClass]="getStatusClass(node.status)">
+            {{ node.status }}
+          </span>
+        </div>
+        <div class="node-name">{{ node.tournament_name }}</div>
+        <div class="node-stats">
+          <span>{{ node.participant_count }} participants</span>
+          @if (node.role === 'qualifier' && node.advancing_count) {
+            <span class="advancing-info">
+              {{ node.advanced_count || 0 }}/{{ node.advancing_count }} advanced
+            </span>
+          }
+        </div>
+
+        <!-- Connection anchor (right side, for qualifiers only) -->
+        @if (node.role === 'qualifier' && isOrganizer()) {
+          <div
+            class="connection-anchor"
+            (mousedown)="onNodeDragStart($event, node.tournament_id)"
+            title="Drag to connect"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16">
+              <circle cx="8" cy="8" r="6" fill="#3B82F6" />
+              <circle cx="8" cy="8" r="3" fill="white" />
+            </svg>
+          </div>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- Edit advancing count modal -->
+  @if (editingEdge()) {
+    <div class="modal-overlay" (click)="cancelEditAdvancingCount()">
+      <div class="modal-content" (click)="$event.stopPropagation()">
+        <h3>Edit Advancing Count</h3>
+        <div class="form-group">
+          <label>How many participants advance?</label>
+          <input
+            type="number"
+            class="form-control"
+            [(ngModel)]="editingAdvancingCount"
+            min="1"
+          />
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" (click)="cancelEditAdvancingCount()">Cancel</button>
+          <button class="btn btn-primary" (click)="saveAdvancingCount()">Save</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Instructions -->
+  @if (isOrganizer() && nodes().length > 0) {
+    <div class="instructions">
+      <p>Drag from the blue anchor to connect qualifiers to the main event</p>
+      <p>Click an edge to select, double-click to edit advancing count</p>
+    </div>
+  }
+</div>

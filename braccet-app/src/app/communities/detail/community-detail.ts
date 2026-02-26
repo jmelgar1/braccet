@@ -1,20 +1,23 @@
 import { Component, inject, signal, computed, OnInit } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CommunityService } from '../../services/community.service';
 import { TournamentService } from '../../services/tournament.service';
 import { EloService } from '../../services/elo.service';
+import { PowerRankingService } from '../../services/power-ranking.service';
 import { AuthService } from '../../services/auth.service';
 import { Community, CommunityMember, AddMemberRequest, MemberRole } from '../../models/community.model';
 import { Tournament } from '../../models/tournament.model';
 import { EloSystem, MemberEloRating, CreateEloSystemRequest } from '../../models/elo.model';
+import { PRSystem, MemberPowerRanking, CreatePRSystemRequest } from '../../models/power-ranking.model';
 import { EditMemberModal } from '../../components/edit-member-modal/edit-member-modal';
 import { EloHistoryModal } from '../../components/elo-history-modal/elo-history-modal';
+import { PRHistoryModal } from '../../components/pr-history-modal/pr-history-modal';
 
 @Component({
   selector: 'app-community-detail',
-  imports: [DatePipe, FormsModule, RouterLink, EditMemberModal, EloHistoryModal],
+  imports: [DatePipe, DecimalPipe, FormsModule, RouterLink, EditMemberModal, EloHistoryModal, PRHistoryModal],
   templateUrl: './community-detail.html',
   styleUrl: './community-detail.css'
 })
@@ -22,6 +25,7 @@ export class CommunityDetail implements OnInit {
   private communityService = inject(CommunityService);
   private tournamentService = inject(TournamentService);
   private eloService = inject(EloService);
+  private prService = inject(PowerRankingService);
   private authService = inject(AuthService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -33,7 +37,7 @@ export class CommunityDetail implements OnInit {
   error = signal('');
 
   // Tab state
-  activeTab = signal<'members' | 'tournaments' | 'leaderboards' | 'elo'>('members');
+  activeTab = signal<'members' | 'tournaments' | 'leaderboards' | 'power-rankings' | 'elo' | 'pr-settings'>('members');
 
   // ELO state
   eloSystems = signal<EloSystem[]>([]);
@@ -72,6 +76,30 @@ export class CommunityDetail implements OnInit {
 
   // ELO history modal
   selectedLeaderboardMember = signal<MemberEloRating | null>(null);
+
+  // Power Rankings state
+  prSystems = signal<PRSystem[]>([]);
+  selectedPRSystem = signal<PRSystem | null>(null);
+  prLeaderboard = signal<MemberPowerRanking[]>([]);
+  loadingPR = signal(false);
+  showCreatePRForm = signal(false);
+  creatingPR = signal(false);
+  createPRError = signal('');
+  newPRSystem: CreatePRSystemRequest = {
+    name: '',
+    description: undefined,
+    achievements_weight: 50,
+    form_weight: 30,
+    lan_weight: 20,
+    achievement_decay_months: 6,
+    achievement_window_months: 12,
+    form_window_months: 3,
+    lan_results_count: 10,
+    is_default: false
+  };
+
+  // PR history modal
+  selectedPRMember = signal<MemberPowerRanking | null>(null);
 
   // Current user info
   currentUser = computed(() => this.authService.user());
@@ -144,10 +172,13 @@ export class CommunityDetail implements OnInit {
     });
   }
 
-  setActiveTab(tab: 'members' | 'tournaments' | 'leaderboards' | 'elo'): void {
+  setActiveTab(tab: 'members' | 'tournaments' | 'leaderboards' | 'power-rankings' | 'elo' | 'pr-settings'): void {
     this.activeTab.set(tab);
     if ((tab === 'elo' || tab === 'leaderboards') && this.eloSystems().length === 0) {
       this.loadEloSystems();
+    }
+    if ((tab === 'power-rankings' || tab === 'pr-settings') && this.prSystems().length === 0) {
+      this.loadPRSystems();
     }
   }
 
@@ -401,6 +432,159 @@ export class CommunityDetail implements OnInit {
 
   onTournamentClick(slug: string): void {
     this.router.navigate(['/tournaments', slug]);
+  }
+
+  // Power Rankings methods
+  loadPRSystems(): void {
+    const slug = this.community()?.slug;
+    if (!slug) return;
+
+    this.loadingPR.set(true);
+    this.prService.getPRSystems(slug).subscribe({
+      next: (systems) => {
+        this.prSystems.set(systems || []);
+        // Select the default system or the first one
+        const defaultSystem = systems?.find(s => s.is_default) || systems?.[0];
+        if (defaultSystem) {
+          this.selectPRSystem(defaultSystem);
+        }
+        this.loadingPR.set(false);
+      },
+      error: (err) => {
+        console.error('Failed to load PR systems:', err);
+        this.loadingPR.set(false);
+      }
+    });
+  }
+
+  selectPRSystem(system: PRSystem): void {
+    this.selectedPRSystem.set(system);
+    this.loadPRLeaderboard(system.id);
+  }
+
+  onPRSystemSelect(systemIdStr: string): void {
+    const systemId = parseInt(systemIdStr, 10);
+    const system = this.prSystems().find(s => s.id === systemId);
+    if (system) {
+      this.selectPRSystem(system);
+    }
+  }
+
+  loadPRLeaderboard(systemId: number): void {
+    const slug = this.community()?.slug;
+    if (!slug) return;
+
+    this.prService.getLeaderboard(slug, systemId, 50).subscribe({
+      next: (rankings) => {
+        this.prLeaderboard.set(rankings || []);
+      },
+      error: (err) => {
+        console.error('Failed to load PR leaderboard:', err);
+      }
+    });
+  }
+
+  toggleCreatePRForm(): void {
+    this.showCreatePRForm.update(v => !v);
+    if (!this.showCreatePRForm()) {
+      this.resetCreatePRForm();
+    }
+  }
+
+  resetCreatePRForm(): void {
+    this.newPRSystem = {
+      name: '',
+      description: undefined,
+      achievements_weight: 50,
+      form_weight: 30,
+      lan_weight: 20,
+      achievement_decay_months: 6,
+      achievement_window_months: 12,
+      form_window_months: 3,
+      lan_results_count: 10,
+      is_default: false
+    };
+    this.createPRError.set('');
+  }
+
+  get prWeightsTotal(): number {
+    return (this.newPRSystem.achievements_weight || 0) +
+           (this.newPRSystem.form_weight || 0) +
+           (this.newPRSystem.lan_weight || 0);
+  }
+
+  get prWeightsValid(): boolean {
+    return this.prWeightsTotal === 100;
+  }
+
+  onCreatePRSystem(): void {
+    if (!this.newPRSystem.name?.trim()) {
+      this.createPRError.set('Name is required');
+      return;
+    }
+
+    if (!this.prWeightsValid) {
+      this.createPRError.set('Component weights must sum to 100');
+      return;
+    }
+
+    const slug = this.community()?.slug;
+    if (!slug) return;
+
+    this.creatingPR.set(true);
+    this.createPRError.set('');
+
+    this.prService.createPRSystem(slug, this.newPRSystem).subscribe({
+      next: (system) => {
+        this.prSystems.update(list => [...list, system]);
+        this.selectPRSystem(system);
+        this.showCreatePRForm.set(false);
+        this.resetCreatePRForm();
+        this.creatingPR.set(false);
+      },
+      error: (err) => {
+        this.createPRError.set(err.error?.error || 'Failed to create PR system');
+        this.creatingPR.set(false);
+      }
+    });
+  }
+
+  deletePRSystem(system: PRSystem, event: Event): void {
+    event.stopPropagation();
+
+    if (!confirm(`Are you sure you want to delete the "${system.name}" power ranking system? This will remove all rankings and placements.`)) {
+      return;
+    }
+
+    const slug = this.community()?.slug;
+    if (!slug) return;
+
+    this.prService.deletePRSystem(slug, system.id).subscribe({
+      next: () => {
+        this.prSystems.update(list => list.filter(s => s.id !== system.id));
+        if (this.selectedPRSystem()?.id === system.id) {
+          const remaining = this.prSystems();
+          if (remaining.length > 0) {
+            this.selectPRSystem(remaining[0]);
+          } else {
+            this.selectedPRSystem.set(null);
+            this.prLeaderboard.set([]);
+          }
+        }
+      },
+      error: (err) => {
+        this.error.set(err.error?.error || 'Failed to delete PR system');
+      }
+    });
+  }
+
+  // PR History Modal
+  openPRHistoryModal(ranking: MemberPowerRanking): void {
+    this.selectedPRMember.set(ranking);
+  }
+
+  closePRHistoryModal(): void {
+    this.selectedPRMember.set(null);
   }
 
   getRoleBadgeClass(role: MemberRole): string {

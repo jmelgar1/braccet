@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/braccet/tournament/internal/domain"
 	"github.com/lib/pq"
@@ -18,6 +20,8 @@ type ParticipantRepository interface {
 	GetByTournament(ctx context.Context, tournamentID uint64) ([]*domain.Participant, error)
 	GetByTournamentAndUser(ctx context.Context, tournamentID, userID uint64) (*domain.Participant, error)
 	CountByTournament(ctx context.Context, tournamentID uint64) (int, error)
+	GetCommunityMemberIDsByTournaments(ctx context.Context, tournamentIDs []uint64, limit int) (map[uint64][]uint64, error)
+	GetCommunityMemberIDsFromTournaments(ctx context.Context, tournamentIDs []uint64) ([]uint64, error)
 	UpdateSeeding(ctx context.Context, tournamentID uint64, seeds map[uint64]uint) error
 	UpdateStatus(ctx context.Context, id uint64, status domain.ParticipantStatus) error
 	UpdateCommunityMemberID(ctx context.Context, id uint64, communityMemberID uint64) error
@@ -298,4 +302,101 @@ func (r *participantRepository) ResetAllStatuses(ctx context.Context, tournament
 	query := `UPDATE participants SET status = $1 WHERE tournament_id = $2`
 	_, err := r.db.ExecContext(ctx, query, status, tournamentID)
 	return err
+}
+
+// GetCommunityMemberIDsFromTournaments gets all unique community member IDs from multiple tournaments.
+// Returns a flat slice of unique community_member_ids (excluding withdrawn/disqualified).
+func (r *participantRepository) GetCommunityMemberIDsFromTournaments(ctx context.Context, tournamentIDs []uint64) ([]uint64, error) {
+	if len(tournamentIDs) == 0 {
+		return []uint64{}, nil
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(tournamentIDs))
+	args := make([]interface{}, len(tournamentIDs))
+	for i, id := range tournamentIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT community_member_id
+		FROM participants
+		WHERE tournament_id IN (%s)
+		  AND community_member_id IS NOT NULL
+		  AND status NOT IN ('withdrawn', 'disqualified')
+	`, strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memberIDs []uint64
+	for rows.Next() {
+		var id uint64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		memberIDs = append(memberIDs, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return memberIDs, nil
+}
+
+// GetCommunityMemberIDsByTournaments gets community member IDs for multiple tournaments.
+// Returns a map of tournament_id -> list of community_member_ids (up to `limit` per tournament, ordered by seed).
+func (r *participantRepository) GetCommunityMemberIDsByTournaments(ctx context.Context, tournamentIDs []uint64, limit int) (map[uint64][]uint64, error) {
+	if len(tournamentIDs) == 0 {
+		return make(map[uint64][]uint64), nil
+	}
+
+	// Build placeholders for IN clause
+	placeholders := make([]string, len(tournamentIDs))
+	args := make([]interface{}, len(tournamentIDs)+1)
+	for i, id := range tournamentIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	args[len(tournamentIDs)] = limit
+
+	query := fmt.Sprintf(`
+		SELECT tournament_id, community_member_id
+		FROM (
+			SELECT tournament_id, community_member_id,
+			       ROW_NUMBER() OVER (PARTITION BY tournament_id ORDER BY seed ASC NULLS LAST, created_at ASC) as rn
+			FROM participants
+			WHERE tournament_id IN (%s)
+			  AND community_member_id IS NOT NULL
+			  AND status NOT IN ('withdrawn', 'disqualified')
+		) ranked
+		WHERE rn <= $%d
+		ORDER BY tournament_id, rn
+	`, strings.Join(placeholders, ","), len(tournamentIDs)+1)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[uint64][]uint64)
+	for rows.Next() {
+		var tournamentID, memberID uint64
+		if err := rows.Scan(&tournamentID, &memberID); err != nil {
+			return nil, err
+		}
+		result[tournamentID] = append(result[tournamentID], memberID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }

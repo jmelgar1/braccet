@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -55,6 +56,7 @@ type StageConfigRequest struct {
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
 	PlacementMatches     *bool    `json:"placement_matches,omitempty"`
 	PlacementDepth       *int     `json:"placement_depth,omitempty"`
+	VenueType            *string  `json:"venue_type,omitempty"` // "lan", "online", or "hybrid"
 }
 
 type CreateMultiStageTournamentRequest struct {
@@ -81,6 +83,7 @@ type StageResponse struct {
 	WinsToAdvance        *int     `json:"wins_to_advance,omitempty"`
 	LossesToEliminate    *int     `json:"losses_to_eliminate,omitempty"`
 	SkipFinals           bool     `json:"skip_finals"`
+	VenueType            string   `json:"venue_type"`
 	IsActive             bool     `json:"is_active"`
 	IsComplete           bool     `json:"is_complete"`
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
@@ -105,6 +108,7 @@ type UpdateStageRequest struct {
 	LossesToEliminate    *int     `json:"losses_to_eliminate,omitempty"`
 	SkipFinals           *bool    `json:"skip_finals,omitempty"`
 	RankingCriteria      []string `json:"ranking_criteria,omitempty"`
+	VenueType            *string  `json:"venue_type,omitempty"` // "lan", "online", or "hybrid"
 }
 
 type MultiStageTournamentResponse struct {
@@ -164,6 +168,7 @@ func toStageResponse(s *domain.TournamentStage, criteria []*domain.StageRankingC
 		WinsToAdvance:        s.WinsToAdvance,
 		LossesToEliminate:    s.LossesToEliminate,
 		SkipFinals:           s.SkipFinals,
+		VenueType:            string(s.VenueType),
 		IsActive:             s.IsActive,
 		IsComplete:           s.IsComplete,
 		CreatedAt:            s.CreatedAt.Format(time.RFC3339),
@@ -284,6 +289,10 @@ func (h *StageHandler) CreateMultiStage(w http.ResponseWriter, r *http.Request) 
 		if stageReq.SkipFinals != nil {
 			skipFinals = *stageReq.SkipFinals
 		}
+		venueType := domain.VenueTypeOnline // Default to online
+		if stageReq.VenueType != nil {
+			venueType = parseVenueType(*stageReq.VenueType)
+		}
 		stage := &domain.TournamentStage{
 			TournamentID:         tournament.ID,
 			StageOrder:           i + 1,
@@ -294,9 +303,9 @@ func (h *StageHandler) CreateMultiStage(w http.ResponseWriter, r *http.Request) 
 			SwissRounds:          stageReq.SwissRounds,
 			WinsToAdvance:        stageReq.WinsToAdvance,
 			LossesToEliminate:    stageReq.LossesToEliminate,
-			VenueType:            domain.VenueTypeOnline, // Default to online
+			VenueType:            venueType,
 			SkipFinals:           skipFinals,
-			IsActive:             i == 0, // First stage is active by default
+			IsActive:             false, // Stages become active when tournament starts
 			IsComplete:           false,
 		}
 
@@ -349,13 +358,17 @@ func (h *StageHandler) CreateMultiStage(w http.ResponseWriter, r *http.Request) 
 		if req.FinalStage.SkipFinals != nil {
 			finalSkipFinals = *req.FinalStage.SkipFinals
 		}
+		finalVenueType := domain.VenueTypeOnline // Default to online
+		if req.FinalStage.VenueType != nil {
+			finalVenueType = parseVenueType(*req.FinalStage.VenueType)
+		}
 		finalStage := &domain.TournamentStage{
 			TournamentID: tournament.ID,
 			StageOrder:   0, // Final stage uses order 0
 			StageType:    domain.StageTypeFinal,
 			Format:       domain.TournamentFormat(req.FinalStage.Format),
 			SwissRounds:  req.FinalStage.SwissRounds,
-			VenueType:    domain.VenueTypeOnline, // Default to online
+			VenueType:    finalVenueType,
 			SkipFinals:   finalSkipFinals,
 			IsActive:     false,
 			IsComplete:   false,
@@ -591,9 +604,11 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 	// Collect participant IDs from all sources
 	participantIDSet := make(map[uint64]bool)
 
-	// Add advancing participants from previous stage
+	// Add advancing participants from previous stage, tracking their stage ranks
+	advancingRanks := make(map[uint64]int)
 	for _, ap := range advancingFromPrevStage {
 		participantIDSet[ap.ParticipantID] = true
+		advancingRanks[ap.ParticipantID] = ap.StageRank
 	}
 
 	// Add pool participants
@@ -622,6 +637,24 @@ func (h *StageHandler) StartStage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to fetch participants")
 			return
 		}
+	}
+
+	// Sort participants by their stage rank from the previous stage (if advancing)
+	// This ensures serpentine seeding respects the cross-group seeding order:
+	// Group 1: 1, 4, 5, 8  |  Group 2: 2, 3, 6, 7
+	if len(advancingRanks) > 0 {
+		sort.SliceStable(participants, func(i, j int) bool {
+			rankI, okI := advancingRanks[participants[i].ID]
+			rankJ, okJ := advancingRanks[participants[j].ID]
+			if okI && okJ {
+				return rankI < rankJ
+			}
+			// Advancing participants come before pool participants
+			if okI != okJ {
+				return okI
+			}
+			return false
+		})
 	}
 
 	if len(participants) < 2 {
@@ -1157,6 +1190,14 @@ func (h *StageHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 		stage.SkipFinals = *req.SkipFinals
 	}
 
+	if req.VenueType != nil {
+		if !isValidVenueType(*req.VenueType) {
+			writeError(w, http.StatusBadRequest, "venue_type must be 'lan', 'online', or 'hybrid'")
+			return
+		}
+		stage.VenueType = parseVenueType(*req.VenueType)
+	}
+
 	// Update stage
 	if err := h.stageRepo.UpdateStage(r.Context(), stage); err != nil {
 		log.Printf("Error updating stage %d: %v", stageID, err)
@@ -1204,6 +1245,23 @@ func (h *StageHandler) UpdateStage(w http.ResponseWriter, r *http.Request) {
 }
 
 // Helper functions
+
+// parseVenueType converts a string to VenueType, defaulting to online if invalid
+func parseVenueType(s string) domain.VenueType {
+	switch s {
+	case "lan":
+		return domain.VenueTypeLAN
+	case "hybrid":
+		return domain.VenueTypeHybrid
+	default:
+		return domain.VenueTypeOnline
+	}
+}
+
+// isValidVenueType checks if the string is a valid venue type
+func isValidVenueType(s string) bool {
+	return s == "lan" || s == "online" || s == "hybrid"
+}
 
 func validateStageConfig(stage StageConfigRequest, isGroupStage bool) error {
 	format := domain.TournamentFormat(stage.Format)
@@ -1258,10 +1316,10 @@ func validateStageConfig(stage StageConfigRequest, isGroupStage bool) error {
 }
 
 // serpentineAssignment distributes participants across groups using serpentine seeding
-// Serpentine pattern: if we have 9 participants and 3 groups:
-// Group A: 1, 6, 7 (positions 0, 5, 6)
-// Group B: 2, 5, 8 (positions 1, 4, 7)
-// Group C: 3, 4, 9 (positions 2, 3, 8)
+// Serpentine pattern (for 8 participants and 2 groups):
+// Group B: 1, 4, 5, 8 (seeds that go to the "later" group first)
+// Group A: 2, 3, 6, 7 (seeds that go to the "earlier" group)
+// This puts the top seed in the later group, balancing competitive strength
 func serpentineAssignment(
 	participants []*domain.Participant,
 	groups []*domain.StageGroup,
@@ -1273,6 +1331,8 @@ func serpentineAssignment(
 // serpentineAssignmentWithSeeds distributes participants across groups using serpentine seeding
 // while respecting manual seed assignments. Manual seeds are placed first, then remaining
 // participants fill via serpentine around the manual seeds.
+// Pattern: Row 0 (R→L), Row 1 (L→R), Row 2 (R→L), ...
+// For 8 participants, 2 groups: Group B gets 1,4,5,8 and Group A gets 2,3,6,7
 func serpentineAssignmentWithSeeds(
 	participants []*domain.Participant,
 	groups []*domain.StageGroup,
@@ -1340,11 +1400,13 @@ func serpentineAssignmentWithSeeds(
 
 		var groupOrder int
 		if row%2 == 0 {
-			// Even rows: left to right (0, 1, 2, ...)
-			groupOrder = posInRow
-		} else {
-			// Odd rows: right to left (2, 1, 0, ...)
+			// Even rows: right to left (N-1, N-2, ..., 0)
+			// Seed 1 goes to Group B (order N-1), Seed 2 goes to Group A (order 0)
 			groupOrder = numGroups - 1 - posInRow
+		} else {
+			// Odd rows: left to right (0, 1, 2, ...)
+			// Seed 3 goes to Group A (order 0), Seed 4 goes to Group B (order N-1)
+			groupOrder = posInRow
 		}
 
 		groupID := groupOrderToID[groupOrder]
@@ -1873,4 +1935,219 @@ func validateParticipantCountForStage(stage *domain.TournamentStage, count int) 
 	}
 
 	return nil
+}
+
+// ========== Internal Endpoints (for bracket service) ==========
+
+// StageGroupInternalResponse is the response for GetStageGroupsInternal
+type StageGroupInternalResponse struct {
+	ID         uint64 `json:"id"`
+	GroupName  string `json:"group_name"`
+	GroupOrder int    `json:"group_order"`
+}
+
+// GetStageGroupsInternal returns all groups for a stage (internal endpoint for bracket service)
+// GET /internal/stages/{stageId}/groups
+func (h *StageHandler) GetStageGroupsInternal(w http.ResponseWriter, r *http.Request) {
+	stageIDStr := chi.URLParam(r, "stageId")
+	stageID, err := strconv.ParseUint(stageIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid stage ID")
+		return
+	}
+
+	groups, err := h.stageRepo.GetGroupsByStage(r.Context(), stageID)
+	if err != nil {
+		log.Printf("Error fetching groups for stage %d: %v", stageID, err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch groups")
+		return
+	}
+
+	response := make([]StageGroupInternalResponse, len(groups))
+	for i, g := range groups {
+		response[i] = StageGroupInternalResponse{
+			ID:         g.ID,
+			GroupName:  g.GroupName,
+			GroupOrder: g.GroupOrder,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// StageParticipantInternalResponse is the response for GetStageParticipantsInternal
+type StageParticipantInternalResponse struct {
+	ParticipantID uint64  `json:"participant_id"`
+	Name          string  `json:"name"`
+	IconURL       *string `json:"icon_url,omitempty"`
+	GlobalSeed    int     `json:"global_seed"` // Position in the original ordering (1-based)
+}
+
+// GetStageParticipantsInternal returns all participants in a stage with their global seed order
+// This retrieves participants from group_assignments and returns them sorted by their
+// tournament-level seed (participant.Seed field).
+// GET /internal/stages/{stageId}/participants
+func (h *StageHandler) GetStageParticipantsInternal(w http.ResponseWriter, r *http.Request) {
+	stageIDStr := chi.URLParam(r, "stageId")
+	stageID, err := strconv.ParseUint(stageIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid stage ID")
+		return
+	}
+
+	// Verify the stage exists
+	_, err = h.stageRepo.GetStageByID(r.Context(), stageID)
+	if err != nil {
+		if errors.Is(err, repository.ErrStageNotFound) {
+			writeError(w, http.StatusNotFound, "stage not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch stage")
+		return
+	}
+
+	// Get all assignments for the stage
+	assignments, err := h.stageRepo.GetAssignmentsByStage(r.Context(), stageID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch assignments")
+		return
+	}
+
+	if len(assignments) == 0 {
+		writeJSON(w, http.StatusOK, []StageParticipantInternalResponse{})
+		return
+	}
+
+	// Collect participant IDs from assignments
+	participantIDs := make([]uint64, 0, len(assignments))
+	participantIDSet := make(map[uint64]bool)
+	for _, a := range assignments {
+		if !participantIDSet[a.ParticipantID] {
+			participantIDs = append(participantIDs, a.ParticipantID)
+			participantIDSet[a.ParticipantID] = true
+		}
+	}
+
+	// Get participants by IDs
+	participants, err := h.participantRepo.GetByIDs(r.Context(), participantIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch participants")
+		return
+	}
+
+	// Get community member IDs for icon URLs
+	var memberIDs []uint64
+	for _, p := range participants {
+		if p.CommunityMemberID != nil {
+			memberIDs = append(memberIDs, *p.CommunityMemberID)
+		}
+	}
+
+	// Fetch icon URLs
+	memberData := make(map[uint64]client.MemberDataResponse)
+	if len(memberIDs) > 0 {
+		memberData, _ = h.communityClient.GetBulkMemberData(r.Context(), memberIDs)
+	}
+
+	// Sort participants by their tournament-level seed
+	// If seed is nil, use a high value to put them at the end
+	sort.SliceStable(participants, func(i, j int) bool {
+		seedI := 9999
+		seedJ := 9999
+		if participants[i].Seed != nil {
+			seedI = int(*participants[i].Seed)
+		}
+		if participants[j].Seed != nil {
+			seedJ = int(*participants[j].Seed)
+		}
+		if seedI != seedJ {
+			return seedI < seedJ
+		}
+		// Fall back to ID for stable ordering
+		return participants[i].ID < participants[j].ID
+	})
+
+	// Build response with 1-based global seed based on sorted order
+	response := make([]StageParticipantInternalResponse, 0, len(participants))
+	for i, p := range participants {
+		resp := StageParticipantInternalResponse{
+			ParticipantID: p.ID,
+			Name:          p.DisplayName,
+			GlobalSeed:    i + 1, // 1-based seed
+		}
+
+		// Get icon URL if available
+		if p.CommunityMemberID != nil {
+			if data, ok := memberData[*p.CommunityMemberID]; ok && data.IconURL != nil {
+				resp.IconURL = data.IconURL
+			}
+		}
+
+		response = append(response, resp)
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// UpdateStageAssignmentsRequest is the request body for UpdateStageAssignmentsInternal
+type UpdateStageAssignmentsRequest struct {
+	Assignments []AssignmentUpdateRequest `json:"assignments"`
+}
+
+// AssignmentUpdateRequest represents a single group assignment update
+type AssignmentUpdateRequest struct {
+	GroupID       uint64 `json:"group_id"`
+	ParticipantID uint64 `json:"participant_id"`
+	SeedInGroup   int    `json:"seed_in_group"`
+}
+
+// UpdateStageAssignmentsInternal replaces all group assignments for a stage
+// This is used by the bracket service during stage reseeding
+// PUT /internal/stages/{stageId}/assignments
+func (h *StageHandler) UpdateStageAssignmentsInternal(w http.ResponseWriter, r *http.Request) {
+	stageIDStr := chi.URLParam(r, "stageId")
+	stageID, err := strconv.ParseUint(stageIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid stage ID")
+		return
+	}
+
+	var req UpdateStageAssignmentsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Get the stage to find the tournament ID
+	stage, err := h.stageRepo.GetStageByID(r.Context(), stageID)
+	if err != nil {
+		if errors.Is(err, repository.ErrStageNotFound) {
+			writeError(w, http.StatusNotFound, "stage not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch stage")
+		return
+	}
+
+	// Convert request to domain assignments
+	assignments := make([]*domain.GroupAssignment, len(req.Assignments))
+	for i, a := range req.Assignments {
+		seedInGroup := a.SeedInGroup
+		assignments[i] = &domain.GroupAssignment{
+			TournamentID:  stage.TournamentID,
+			StageID:       stageID,
+			GroupID:       a.GroupID,
+			ParticipantID: a.ParticipantID,
+			SeedInGroup:   &seedInGroup,
+		}
+	}
+
+	// Replace all assignments
+	if err := h.stageRepo.ReplaceAssignmentsByStage(r.Context(), stageID, stage.TournamentID, assignments); err != nil {
+		log.Printf("Error replacing assignments for stage %d: %v", stageID, err)
+		writeError(w, http.StatusInternalServerError, "failed to update assignments")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

@@ -40,9 +40,10 @@ func main() {
 	communityServiceURL := getEnv("COMMUNITY_SERVICE_URL", "http://localhost:8084")
 	tournamentClient := client.NewTournamentClient(tournamentServiceURL)
 	communityClient := client.NewCommunityClient(communityServiceURL)
+	prClient := client.NewPowerRankingClient(communityServiceURL)
 
 	// Create router
-	router := api.NewRouter(repo, setRepo, stageRepo, swissRepo, tiebreakerRepo, groupRepo, tournamentClient, communityClient)
+	router := api.NewRouter(repo, setRepo, stageRepo, swissRepo, tiebreakerRepo, groupRepo, tournamentClient, communityClient, prClient)
 
 	// Get port from environment
 	port := os.Getenv("SERVICE_PORT")

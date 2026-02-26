@@ -102,6 +102,15 @@
             Add
           }
         </button>
+
+        @if (isEloEnabled && tournament().status === 'registration') {
+          <button
+            type="button"
+            (click)="openRegionInviteModal()"
+            class="px-4 py-2 bg-purple-400 text-gray-900 rounded-lg hover:bg-purple-500 text-sm font-medium whitespace-nowrap">
+            Bulk Invite
+          </button>
+        }
       </div>
 
       <!-- Help text for community tournaments -->
@@ -260,4 +269,120 @@
     (memberUpdated)="onMemberUpdated($event)"
     (requestPromotion)="onRequestPromotion()"
   />
+}
+
+<!-- Region Invite Modal -->
+@if (showRegionInviteModal()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Bulk Invite by Region</h3>
+
+      <!-- Region selector -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-700 mb-2">Select Region</label>
+        @if (loadingRegions()) {
+          <div class="text-sm text-gray-500">Loading regions...</div>
+        } @else if (availableRegions().length === 0) {
+          <div class="text-sm text-gray-500">No regions available. Members need to have regions assigned.</div>
+        } @else {
+          <select
+            [value]="selectedRegion() ?? ''"
+            (change)="onRegionSelected($any($event.target).value)"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
+            <option value="">Choose a region...</option>
+            @for (region of availableRegions(); track region) {
+              <option [value]="region">{{ region }}</option>
+            }
+          </select>
+        }
+      </div>
+
+      <!-- Count input -->
+      @if (selectedRegion()) {
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">Number of invites</label>
+          <input
+            type="number"
+            [value]="inviteCount()"
+            (input)="onInviteCountChanged(+$any($event.target).value)"
+            min="1"
+            max="50"
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
+          <p class="mt-1 text-xs text-gray-500">Top members by ELO will be selected (max 50)</p>
+        </div>
+      }
+
+      <!-- Preview members -->
+      @if (loadingRegionMembers()) {
+        <div class="mb-4 text-sm text-gray-500">Loading members...</div>
+      } @else if (selectedRegion() && regionMembers().length === 0) {
+        <div class="mb-4 text-sm text-gray-500">
+          No available members with ELO in this region.
+          @if (participants().length > 0) {
+            <span>Some may already be registered.</span>
+          }
+        </div>
+      } @else if (regionMembers().length > 0) {
+        <div class="mb-4">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium text-gray-700">
+              Members to invite ({{ selectedCount }} / {{ regionMembers().length }} selected)
+            </label>
+            <button
+              type="button"
+              (click)="toggleSelectAll()"
+              class="text-xs text-purple-600 hover:text-purple-700 font-medium">
+              @if (selectedCount === regionMembers().length) {
+                Deselect All
+              } @else {
+                Select All
+              }
+            </button>
+          </div>
+          <div class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+            @for (member of regionMembers(); track member.id) {
+              <label class="px-3 py-2 border-b border-gray-100 last:border-b-0 flex items-center gap-2 cursor-pointer hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  [checked]="isMemberSelected(member.id)"
+                  (change)="toggleMemberSelection(member.id)"
+                  class="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500" />
+                @if (member.icon_url) {
+                  <img [src]="member.icon_url" [alt]="member.display_name" class="w-6 h-6 rounded object-cover" />
+                } @else {
+                  <span class="w-6 h-6 flex items-center justify-center bg-purple-100 text-purple-400 rounded-full text-xs font-semibold">
+                    {{ member.display_name.charAt(0).toUpperCase() }}
+                  </span>
+                }
+                <span class="flex-1 text-sm text-gray-900">{{ member.display_name }}</span>
+                @if (member.elo_rating) {
+                  <span class="text-xs text-gray-500">({{ member.elo_rating }})</span>
+                }
+              </label>
+            }
+          </div>
+        </div>
+      }
+
+      <!-- Actions -->
+      <div class="flex justify-end gap-2 pt-2">
+        <button
+          (click)="closeRegionInviteModal()"
+          [disabled]="bulkInviting()"
+          class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg text-sm font-medium">
+          Cancel
+        </button>
+        <button
+          (click)="bulkInviteRegionMembers()"
+          [disabled]="selectedCount === 0 || bulkInviting()"
+          class="px-4 py-2 bg-purple-400 text-gray-900 rounded-lg hover:bg-purple-500 disabled:opacity-50 text-sm font-medium">
+          @if (bulkInviting()) {
+            Inviting...
+          } @else {
+            Invite {{ selectedCount }} Members
+          }
+        </button>
+      </div>
+    </div>
+  </div>
 }

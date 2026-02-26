@@ -1,12 +1,33 @@
 <div class="h-full flex flex-col">
   <!-- Header -->
   <div class="flex justify-between items-center mb-2">
-    <h3 class="text-lg font-semibold text-gray-900">
-      Bracket
-      @if (isPreviewMode()) {
-        <span class="text-sm font-normal text-gray-500 ml-2">(Preview)</span>
+    <!-- Group Tabs or Preview indicator -->
+    <div class="flex items-center gap-2">
+      @if (showGroupTabs()) {
+        @for (group of multiStageGroups(); track group.id; let i = $index) {
+          <button
+            class="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors"
+            [class]="multiStageSelectedGroupIndex() === i
+              ? 'bg-indigo-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'"
+            [class.ring-2]="getGroupStats(group.id)?.isComplete"
+            [class.ring-green-500]="getGroupStats(group.id)?.isComplete"
+            (click)="selectMultiStageGroup(i)"
+          >
+            <span>{{ group.group_name }}</span>
+            @if (getGroupStats(group.id); as stats) {
+              @if (stats.isComplete) {
+                <span class="ml-1 text-green-400">✓</span>
+              } @else if (stats.total > 0) {
+                <span class="ml-1 opacity-70">({{ stats.completed }}/{{ stats.total }})</span>
+              }
+            }
+          </button>
+        }
+      } @else if (isPreviewMode()) {
+        <span class="text-sm font-normal text-gray-500">(Preview)</span>
       }
-    </h3>
+    </div>
     <div class="flex gap-2">
       @if (showAdvanceRoundButton()) {
         <button
@@ -21,6 +42,21 @@
             Advancing...
           } @else {
             Advance Round
+          }
+        </button>
+      }
+      @if (showReseedStageButton()) {
+        <button
+          (click)="triggerStageReseed()"
+          [disabled]="reseedingStage()"
+          class="px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-blue-100 text-blue-700 hover:bg-blue-200"
+          [class.opacity-50]="reseedingStage()"
+          [class.cursor-not-allowed]="reseedingStage()"
+        >
+          @if (reseedingStage()) {
+            Reseeding...
+          } @else {
+            Reseed Stage
           }
         </button>
       }
@@ -133,15 +169,21 @@
                 [stages]="tournamentStages()"
                 [isOrganizer]="isOrganizer()"
                 [refreshKey]="multiStageRefreshKey()"
+                [selectedGroupIdx]="multiStageSelectedGroupIndex()"
                 (matchClicked)="onMultiStageMatchClicked($event)"
                 (matchEditClicked)="onMultiStageMatchEditClicked($event)"
                 (matchReopened)="onMultiStageMatchReopened($event)"
                 (stageClicked)="onMultiStageStageClicked($event)"
                 (swissStageClicked)="onMultiStageSwissStageClicked($event)"
+                (swissReseedClicked)="onMultiStageSwissReseedClicked($event)"
+                (finalsReseedClicked)="onFinalsReseedClicked($event)"
+                (stageReseedClicked)="onStageReseedClicked($event)"
                 (advanceStageClicked)="onMultiStageAdvance()"
                 (startStageClicked)="onMultiStageStart()"
                 (currentStagesChanged)="onMultiStageStagesChanged($event)"
                 (finalsCompleteChanged)="onMultiStageFinalsCompleteChanged($event)"
+                (activeStageChanged)="onActiveStageChanged($event)"
+                (groupsChanged)="onGroupsChanged($event)"
               />
             </div>
           } @else {
@@ -161,6 +203,7 @@
                 (matchReopened)="onMatchReopened($event)"
                 (matchEditClicked)="onMatchEditClicked($event)"
                 (stageClicked)="onSwissStageClicked($event)"
+                (reseedRoundClicked)="onSwissReseedClicked($event)"
               />
             </div>
           } @else {
@@ -262,6 +305,127 @@
           class="px-4 py-2 text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 rounded-lg transition-colors"
         >
           Reset Tournament
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Reseed Round Confirmation Dialog -->
+@if (showReseedConfirm()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+      <h3 class="text-lg font-semibold text-gray-900 mb-2">Reseed Round {{ reseedRound() }}?</h3>
+      <p class="text-sm text-gray-600 mb-3">
+        This will regenerate new pairings for Round {{ reseedRound() }}.
+      </p>
+      @if (isReseedCascade()) {
+        <p class="text-sm text-amber-600 font-medium mb-3">
+          <strong>Warning:</strong> This round is before the current round. Reseeding will also delete all matches and results from Round {{ reseedRound() }} onwards.
+        </p>
+      }
+      @if (reseedRoundHasResults()) {
+        <p class="text-sm text-red-600 font-medium mb-3">
+          <strong>Warning:</strong> This round has completed matches. All match results will be lost.
+        </p>
+      }
+      <p class="text-sm text-gray-500 mb-4">
+        Pairing history will be cleared to allow new matchups.
+      </p>
+      <div class="flex justify-end gap-3">
+        <button
+          (click)="cancelReseed()"
+          class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          (click)="confirmReseedRound()"
+          [disabled]="reseedingRound()"
+          class="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
+          [class.opacity-50]="reseedingRound()"
+          [class.cursor-not-allowed]="reseedingRound()"
+        >
+          @if (reseedingRound()) {
+            Reseeding...
+          } @else {
+            Reseed Round
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Finals Reseed Confirmation Dialog -->
+@if (showFinalsReseedConfirm()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+      <h3 class="text-lg font-semibold text-gray-900 mb-2">Reseed Final Bracket?</h3>
+      <p class="text-sm text-gray-600 mb-3">
+        This will delete all matches in the final bracket and regenerate it from scratch using the advancing participants.
+      </p>
+      <p class="text-sm text-red-600 font-medium mb-4">
+        <strong>Warning:</strong> All match results in the finals will be lost. This action cannot be undone.
+      </p>
+      <div class="flex justify-end gap-3">
+        <button
+          (click)="cancelFinalsReseed()"
+          class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          (click)="confirmFinalsReseed()"
+          [disabled]="reseedingFinals()"
+          class="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+          [class.opacity-50]="reseedingFinals()"
+          [class.cursor-not-allowed]="reseedingFinals()"
+        >
+          @if (reseedingFinals()) {
+            Reseeding...
+          } @else {
+            Reseed Finals
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Stage Reseed Confirmation Dialog (reseeds all groups in a stage) -->
+@if (showStageReseedConfirm()) {
+  <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+      <h3 class="text-lg font-semibold text-gray-900 mb-2">Reseed Stage?</h3>
+      <p class="text-sm text-gray-600 mb-3">
+        This will delete all matches in ALL groups and redistribute participants across groups using balanced seeding (snake draft).
+      </p>
+      <p class="text-sm text-amber-600 font-medium mb-3">
+        Participants may be moved to different groups to ensure fair distribution.
+      </p>
+      <p class="text-sm text-red-600 font-medium mb-4">
+        <strong>Warning:</strong> All match results in this stage will be lost. This action cannot be undone.
+      </p>
+      <div class="flex justify-end gap-3">
+        <button
+          (click)="cancelStageReseed()"
+          class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          (click)="confirmStageReseed()"
+          [disabled]="reseedingStage()"
+          class="px-4 py-2 text-sm font-medium text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors"
+          [class.opacity-50]="reseedingStage()"
+          [class.cursor-not-allowed]="reseedingStage()"
+        >
+          @if (reseedingStage()) {
+            Reseeding...
+          } @else {
+            Reseed Stage
+          }
         </button>
       </div>
     </div>

@@ -1,5 +1,31 @@
 export type TournamentFormat = 'single_elimination' | 'double_elimination' | 'swiss' | 'multi_stage';
 
+export type TournamentClass = 'major' | 'world_lan' | 'continental' | 'regional' | 'online';
+
+export type VenueType = 'lan' | 'online' | 'hybrid';
+
+export type EventTournamentRole = 'qualifier' | 'main';
+
+export type PrizeDistributionMode = 'percentage' | 'amount';
+
+export interface PlacementTier {
+  placement: string;  // e.g., "1st", "3rd-4th"
+  low: number;        // Lower placement bound
+  high: number;       // Upper placement bound
+  value: number;      // Percentage or dollar amount based on mode
+}
+
+export interface PrizeDistribution {
+  mode: PrizeDistributionMode;
+  tiers: PlacementTier[];
+  computed_amounts?: Record<string, number>; // Placement -> USD amount (for percentage mode)
+}
+
+export interface SuggestedPrizeTiersResponse {
+  participant_count: number;
+  tiers: PlacementTier[];
+}
+
 export interface Tournament {
   id: number;
   slug: string;
@@ -14,9 +40,16 @@ export interface Tournament {
   max_participants?: number;
   swiss_rounds?: number;
   participant_count?: number;
+  participant_icons?: string[]; // First N participant icon URLs for preview
   registration_open: boolean;
+  logo_url?: string;
   starts_at?: string;
   starts_at_tentative: boolean;
+  tournament_class?: TournamentClass;
+  prize_pool_usd?: number;
+  prize_distribution?: PrizeDistribution;
+  event_id?: number;
+  event_role?: EventTournamentRole;
   created_at: string;
   updated_at: string;
   // Multi-stage tournament fields
@@ -35,6 +68,8 @@ export interface CreateTournamentRequest {
   starts_at_tentative?: boolean;
   community_id?: number;
   elo_system_id?: number;
+  tournament_class?: TournamentClass;
+  prize_pool_usd?: number;
 }
 
 // Multi-stage tournament types
@@ -65,6 +100,7 @@ export interface TournamentStage {
   is_active: boolean;
   is_complete: boolean;
   ranking_criteria?: RankingCriterion[];
+  venue_type?: VenueType;
   created_at: string;
   updated_at: string;
 }
@@ -89,6 +125,7 @@ export interface StageConfigRequest {
   ranking_criteria?: RankingCriterion[];
   placement_matches?: boolean;
   placement_depth?: number;
+  venue_type?: VenueType;
 }
 
 export interface CreateMultiStageTournamentRequest {
@@ -100,6 +137,8 @@ export interface CreateMultiStageTournamentRequest {
   starts_at_tentative?: boolean;
   community_id?: number;
   elo_system_id?: number;
+  tournament_class?: TournamentClass;
+  prize_pool_usd?: number;
   group_stages: StageConfigRequest[];
   final_stage?: StageConfigRequest;
 }
@@ -130,6 +169,13 @@ export interface MemberSearchResult {
   display_name: string;
 }
 
+export interface RegionInviteMember {
+  id: number;
+  display_name: string;
+  elo_rating?: number;
+  icon_url?: string;
+}
+
 export interface UpdateSeedingRequest {
   seeds: Record<number, number>;
 }
@@ -143,6 +189,12 @@ export interface UpdateTournamentRequest {
   starts_at_tentative?: boolean;
   registration_open?: boolean;
   elo_system_id?: number;
+  tournament_class?: TournamentClass;
+  prize_pool_usd?: number;
+  prize_distribution?: {
+    mode: PrizeDistributionMode;
+    tiers: PlacementTier[];
+  };
 }
 
 export interface UpdateStageRequest {
@@ -154,6 +206,7 @@ export interface UpdateStageRequest {
   losses_to_eliminate?: number;
   skip_finals?: boolean;
   ranking_criteria?: RankingCriterion[];
+  venue_type?: VenueType;
 }
 
 // Stage seed assignment types (for manual seeding before stage starts)

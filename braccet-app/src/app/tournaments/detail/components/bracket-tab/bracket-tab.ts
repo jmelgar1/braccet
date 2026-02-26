@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal, effect, ViewChild, output } from '@angular/core';
-import { Tournament, TournamentStage, Participant } from '../../../../models/tournament.model';
+import { Tournament, TournamentStage, Participant, StageGroup } from '../../../../models/tournament.model';
 import { BracketPreview } from '../../../../services/bracket-generator.service';
 import { BracketService } from '../../../../services/bracket.service';
 import { TournamentService } from '../../../../services/tournament.service';
@@ -64,6 +64,35 @@ export class BracketTab {
   selectedGroupId = signal<number | null>(null); // For multi-stage group brackets
   showStageModal = signal(false);
   hideStageNameField = signal(false); // True for Swiss brackets
+
+  // Reseed modal state
+  showReseedConfirm = signal(false);
+  reseedRound = signal(0);
+  reseedingRound = signal(false);
+  reseedStageId = signal<number | null>(null); // For multi-stage group brackets
+  reseedGroupId = signal<number | null>(null); // For multi-stage group brackets
+
+  // Finals reseed modal state
+  showFinalsReseedConfirm = signal(false);
+  reseedingFinals = signal(false);
+  finalsReseedStageId = signal<number | null>(null);
+  finalsReseedFormat = signal<string>('');
+
+  // Stage reseed modal state (reseeds all groups in a stage)
+  showStageReseedConfirm = signal(false);
+  reseedingStage = signal(false);
+  stageReseedStageId = signal<number | null>(null);
+  stageReseedFormat = signal<string>('');
+
+  // Active stage info for header reseed button (from multi-stage bracket)
+  activeStageId = signal<number | null>(null);
+  activeStageFormat = signal<string>('');
+  activeStageType = signal<string>('');
+
+  // Group tabs state (from multi-stage bracket)
+  multiStageGroups = signal<StageGroup[]>([]);
+  multiStageSelectedGroupIndex = signal(0);
+  multiStageGroupStats = signal<Map<number, { completed: number; total: number; isComplete: boolean }>>(new Map());
 
   @ViewChild(MatchResultModal) matchModal?: MatchResultModal;
 
@@ -231,6 +260,24 @@ export class BracketTab {
     return this.isOrganizer() && t.status === 'in_progress';
   });
 
+  // Show reseed stage button for multi-stage tournaments with elimination format group stages
+  showReseedStageButton = computed(() => {
+    const t = this.tournament();
+    if (!this.isOrganizer() || t.status !== 'in_progress' || !this.isMultiStage()) return false;
+
+    // Only show for elimination formats (single/double), not Swiss
+    const format = this.activeStageFormat();
+    const stageType = this.activeStageType();
+    return stageType === 'group' && (format === 'single_elimination' || format === 'double_elimination');
+  });
+
+  // Show group tabs for multi-stage tournaments with group stages
+  showGroupTabs = computed(() => {
+    return this.isMultiStage() &&
+           this.activeStageType() === 'group' &&
+           this.multiStageGroups().length > 0;
+  });
+
   constructor() {
     // Load actual bracket when tournament is in progress or completed
     effect(() => {
@@ -374,7 +421,10 @@ export class BracketTab {
     this.onMatchReopened(match);
   }
 
-  onMultiStageStageClicked(event: { round: number; stage: BracketStage; bracketType?: BracketType }): void {
+  onMultiStageStageClicked(event: { round: number; stage: BracketStage; bracketType?: BracketType; stageId?: number; groupId?: number }): void {
+    // Store stageId and groupId for multi-stage group brackets
+    this.selectedStageId.set(event.stageId ?? null);
+    this.selectedGroupId.set(event.groupId ?? null);
     this.onStageClicked(event);
   }
 
@@ -391,6 +441,34 @@ export class BracketTab {
 
   onMultiStageFinalsCompleteChanged(isComplete: boolean): void {
     this.multiStageFinalsComplete.set(isComplete);
+  }
+
+  onActiveStageChanged(event: { stageId: number; format: string; stageType: string }): void {
+    this.activeStageId.set(event.stageId);
+    this.activeStageFormat.set(event.format);
+    this.activeStageType.set(event.stageType);
+  }
+
+  onGroupsChanged(event: { groups: StageGroup[]; selectedIndex: number; stats: Map<number, { completed: number; total: number; isComplete: boolean }> }): void {
+    this.multiStageGroups.set(event.groups);
+    this.multiStageSelectedGroupIndex.set(event.selectedIndex);
+    this.multiStageGroupStats.set(event.stats);
+  }
+
+  selectMultiStageGroup(index: number): void {
+    this.multiStageSelectedGroupIndex.set(index);
+  }
+
+  getGroupStats(groupId: number): { completed: number; total: number; isComplete: boolean } | null {
+    return this.multiStageGroupStats().get(groupId) || null;
+  }
+
+  triggerStageReseed(): void {
+    const stageId = this.activeStageId();
+    const format = this.activeStageFormat();
+    if (stageId !== null) {
+      this.onStageReseedClicked({ stageId, format });
+    }
   }
 
   onMultiStageAdvance(): void {
@@ -611,6 +689,163 @@ export class BracketTab {
       error: (err) => {
         this.bracketError.set(err.error?.error || 'Failed to reset tournament');
         this.resettingTournament.set(false);
+      }
+    });
+  }
+
+  // Reseed Swiss round methods
+  onSwissReseedClicked(event: { round: number }): void {
+    this.reseedRound.set(event.round);
+    this.reseedStageId.set(null);
+    this.reseedGroupId.set(null);
+    this.showReseedConfirm.set(true);
+  }
+
+  onMultiStageSwissReseedClicked(event: { round: number; stageId?: number; groupId?: number }): void {
+    this.reseedRound.set(event.round);
+    this.reseedStageId.set(event.stageId ?? null);
+    this.reseedGroupId.set(event.groupId ?? null);
+    this.showReseedConfirm.set(true);
+  }
+
+  cancelReseed(): void {
+    this.showReseedConfirm.set(false);
+    this.reseedRound.set(0);
+    this.reseedStageId.set(null);
+    this.reseedGroupId.set(null);
+  }
+
+  confirmReseedRound(): void {
+    const t = this.tournament();
+    const round = this.reseedRound();
+    const stageId = this.reseedStageId();
+    const groupId = this.reseedGroupId();
+
+    if (!this.isOrganizer() || round < 1) return;
+
+    this.showReseedConfirm.set(false);
+    this.reseedingRound.set(true);
+    this.bracketError.set('');
+
+    // Determine if this is a group reseed or regular Swiss reseed
+    if (stageId !== null && groupId !== null) {
+      // Multi-stage group Swiss reseed
+      this.bracketService.reseedGroupSwissRound(t.id, stageId, groupId, round).subscribe({
+        next: () => {
+          this.reseedingRound.set(false);
+          this.reseedRound.set(0);
+          this.reseedStageId.set(null);
+          this.reseedGroupId.set(null);
+          this.multiStageRefreshKey.update(k => k + 1);
+        },
+        error: (err) => {
+          this.bracketError.set(err.error?.error || 'Failed to reseed round');
+          this.reseedingRound.set(false);
+        }
+      });
+    } else {
+      // Regular Swiss reseed
+      this.bracketService.reseedSwissRound(t.id, round).subscribe({
+        next: () => {
+          this.reseedingRound.set(false);
+          this.reseedRound.set(0);
+          this.loadSwissBracket(t.id);
+        },
+        error: (err) => {
+          this.bracketError.set(err.error?.error || 'Failed to reseed round');
+          this.reseedingRound.set(false);
+        }
+      });
+    }
+  }
+
+  // Helper computed for reseed warning messages
+  isReseedCascade(): boolean {
+    const swissState = this.swissBracketState();
+    if (!swissState) return false;
+    return this.reseedRound() < swissState.current_round;
+  }
+
+  reseedRoundHasResults(): boolean {
+    const swissState = this.swissBracketState();
+    if (!swissState) return false;
+    const round = this.reseedRound();
+    const roundMatches = swissState.matches.filter(m => m.round === round);
+    return roundMatches.some(m => m.status === 'completed');
+  }
+
+  // Finals reseed methods
+  onFinalsReseedClicked(event: { stageId: number; format: string }): void {
+    this.finalsReseedStageId.set(event.stageId);
+    this.finalsReseedFormat.set(event.format);
+    this.showFinalsReseedConfirm.set(true);
+  }
+
+  cancelFinalsReseed(): void {
+    this.showFinalsReseedConfirm.set(false);
+    this.finalsReseedStageId.set(null);
+    this.finalsReseedFormat.set('');
+  }
+
+  confirmFinalsReseed(): void {
+    const t = this.tournament();
+    const stageId = this.finalsReseedStageId();
+    const format = this.finalsReseedFormat();
+
+    if (!this.isOrganizer() || stageId === null) return;
+
+    this.showFinalsReseedConfirm.set(false);
+    this.reseedingFinals.set(true);
+    this.bracketError.set('');
+
+    this.bracketService.reseedFinalBracket(t.id, stageId, format).subscribe({
+      next: () => {
+        this.reseedingFinals.set(false);
+        this.finalsReseedStageId.set(null);
+        this.finalsReseedFormat.set('');
+        this.multiStageRefreshKey.update(k => k + 1);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to reseed finals bracket');
+        this.reseedingFinals.set(false);
+      }
+    });
+  }
+
+  // Stage reseed methods (reseeds all groups in a stage with proper cross-group distribution)
+  onStageReseedClicked(event: { stageId: number; format: string }): void {
+    this.stageReseedStageId.set(event.stageId);
+    this.stageReseedFormat.set(event.format);
+    this.showStageReseedConfirm.set(true);
+  }
+
+  cancelStageReseed(): void {
+    this.showStageReseedConfirm.set(false);
+    this.stageReseedStageId.set(null);
+    this.stageReseedFormat.set('');
+  }
+
+  confirmStageReseed(): void {
+    const t = this.tournament();
+    const stageId = this.stageReseedStageId();
+    const format = this.stageReseedFormat();
+
+    if (!this.isOrganizer() || stageId === null) return;
+
+    this.showStageReseedConfirm.set(false);
+    this.reseedingStage.set(true);
+    this.bracketError.set('');
+
+    this.bracketService.reseedStage(t.id, stageId, format).subscribe({
+      next: () => {
+        this.reseedingStage.set(false);
+        this.stageReseedStageId.set(null);
+        this.stageReseedFormat.set('');
+        this.multiStageRefreshKey.update(k => k + 1);
+      },
+      error: (err) => {
+        this.bracketError.set(err.error?.error || 'Failed to reseed stage');
+        this.reseedingStage.set(false);
       }
     });
   }

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Tournament, CreateTournamentRequest, CreateMultiStageTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult, TournamentStage, StageGroup, UpdateStageRequest, StageSeedAssignment, UpdateStageSeedsRequest, StagePoolResponse, UpdateStagePoolRequest } from '../models/tournament.model';
+import { Tournament, CreateTournamentRequest, CreateMultiStageTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult, RegionInviteMember, TournamentStage, StageGroup, UpdateStageRequest, StageSeedAssignment, UpdateStageSeedsRequest, StagePoolResponse, UpdateStagePoolRequest, SuggestedPrizeTiersResponse } from '../models/tournament.model';
 
 @Injectable({ providedIn: 'root' })
 export class TournamentService {
@@ -64,6 +64,12 @@ export class TournamentService {
     return this.http.post<Participant>(`${this.baseUrl}/${slug}/participants/${participantId}/promote`, {});
   }
 
+  getTopMembersForRegionInvite(slug: string, region: string, count: number): Observable<RegionInviteMember[]> {
+    return this.http.get<RegionInviteMember[]>(`${this.baseUrl}/${slug}/participants/invite-by-region`, {
+      params: { region, count: count.toString() }
+    });
+  }
+
   // Multi-stage tournament methods
 
   createMultiStageTournament(request: CreateMultiStageTournamentRequest): Observable<Tournament> {
@@ -108,5 +114,26 @@ export class TournamentService {
 
   updateStagePool(slug: string, request: UpdateStagePoolRequest): Observable<StagePoolResponse> {
     return this.http.put<StagePoolResponse>(`${this.baseUrl}/${slug}/stages/pool`, request);
+  }
+
+  // Logo upload
+  getLogoUploadUrl(slug: string, contentType: string): Observable<{ upload_url: string; logo_url: string; expires_at: string }> {
+    return this.http.post<{ upload_url: string; logo_url: string; expires_at: string }>(
+      `${this.baseUrl}/${slug}/logo/upload-url`,
+      { content_type: contentType }
+    );
+  }
+
+  updateLogoUrl(slug: string, logoUrl: string): Observable<{ logo_url: string }> {
+    return this.http.put<{ logo_url: string }>(`${this.baseUrl}/${slug}/logo`, { logo_url: logoUrl });
+  }
+
+  // Prize distribution methods
+  getSuggestedPrizeTiers(slug: string, participants?: number): Observable<SuggestedPrizeTiersResponse> {
+    const options: { params?: { participants: string } } = {};
+    if (participants) {
+      options.params = { participants: participants.toString() };
+    }
+    return this.http.get<SuggestedPrizeTiersResponse>(`${this.baseUrl}/${slug}/prize-tiers`, options);
   }
 }

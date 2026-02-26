@@ -319,15 +319,27 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
   onStageHeaderClick(round: number): void {
     if (!this.isOrganizer() || this.isPreview()) return;
 
-    const stage = this.stages().find(s => s.round === round);
-    if (stage) {
-      this.stageClicked.emit({ round, stage });
+    let stage = this.stages().find(s => s.round === round);
+
+    // If no stage exists yet, create a default one so the modal can be opened
+    // to preset configuration before matches are populated
+    if (!stage) {
+      stage = {
+        tournament_id: 0, // Will be filled by the API
+        bracket_type: this.bracketType(),
+        round: round,
+        stage_name: this.getRoundLabel(round),
+        best_of: 1
+      };
     }
+
+    this.stageClicked.emit({ round, stage });
   }
 
   // Check if stage header should be clickable
+  // Allow clicking even if no stages exist yet - organizers can preset configuration
   isStageClickable(): boolean {
-    return this.isOrganizer() && !this.isPreview() && this.stages().length > 0;
+    return this.isOrganizer() && !this.isPreview();
   }
 
   // Get best_of for a round
@@ -419,6 +431,23 @@ export class BracketViewer implements AfterViewInit, OnDestroy {
       return match.participant2_icon_url;
     }
     return null;
+  }
+
+  // Get first letter for fallback icon when no logo is available
+  getParticipant1Initial(match: DisplayMatch): string {
+    const name = this.getParticipant1Display(match);
+    if (!name || name === 'TBD' || name === 'BYE' || name.startsWith('Seed ')) {
+      return '';
+    }
+    return name.charAt(0).toUpperCase();
+  }
+
+  getParticipant2Initial(match: DisplayMatch): string {
+    const name = this.getParticipant2Display(match);
+    if (!name || name === 'TBD' || name === 'BYE' || name.startsWith('Seed ')) {
+      return '';
+    }
+    return name.charAt(0).toUpperCase();
   }
 
   // Check if this is a spacer match (invisible placeholder for alignment)

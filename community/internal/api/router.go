@@ -15,6 +15,7 @@ func NewRouter(
 	communityRepo repository.CommunityRepository,
 	memberRepo repository.MemberRepository,
 	eloService service.EloService,
+	prService service.PowerRankingService,
 	storageService service.StorageService,
 ) *chi.Mux {
 	r := chi.NewRouter()
@@ -34,6 +35,7 @@ func NewRouter(
 	communityHandler := handlers.NewCommunityHandler(communityRepo, memberRepo)
 	memberHandler := handlers.NewMemberHandler(memberRepo, communityRepo)
 	eloHandler := handlers.NewEloHandler(eloService, communityRepo, memberRepo)
+	prHandler := handlers.NewPowerRankingHandler(prService, communityRepo, memberRepo)
 	uploadHandler := handlers.NewUploadHandler(storageService, memberRepo, communityRepo)
 
 	// Internal routes (service-to-service, no auth required)
@@ -45,6 +47,7 @@ func NewRouter(
 			r.Post("/{id}/members/find-or-create", memberHandler.FindOrCreateGhostMember)
 			r.Post("/{id}/members/search", memberHandler.SearchMembers)
 			r.Post("/{id}/members/delete", memberHandler.DeleteMembersInternal)
+			r.Post("/{id}/members/top-by-region", memberHandler.GetTopMembersByRegion)
 		})
 		r.Route("/members", func(r chi.Router) {
 			r.Post("/bulk-icons", memberHandler.GetBulkMemberIcons)
@@ -56,6 +59,12 @@ func NewRouter(
 			r.Post("/bulk-ratings", eloHandler.GetBulkMemberRatings)
 			r.Delete("/tournament/{tournamentId}", eloHandler.RevertTournamentElo)
 			r.Delete("/match/{matchId}", eloHandler.RevertMatchElo)
+		})
+		r.Route("/power-rankings", func(r chi.Router) {
+			r.Post("/placements", prHandler.ProcessPlacement)
+			r.Post("/matches", prHandler.ProcessMatch)
+			r.Get("/systems/{id}", prHandler.GetSystemByID)
+			r.Delete("/tournament/{tournamentId}", prHandler.RevertTournamentPlacements)
 		})
 	})
 
@@ -86,6 +95,8 @@ func NewRouter(
 			r.Get("/{memberId}/elo", eloHandler.GetMemberRatings)
 			r.Get("/{memberId}/elo/{systemId}/history", eloHandler.GetMemberHistory)
 			r.Post("/{memberId}/elo/{systemId}/revert-to/{historyId}", eloHandler.RevertMemberElo)
+			r.Get("/{memberId}/power-rankings", prHandler.GetMemberRankings)
+			r.Get("/{memberId}/power-rankings/{systemId}/placements", prHandler.GetMemberPlacements)
 		})
 
 		// Leaderboard (legacy)
@@ -102,6 +113,16 @@ func NewRouter(
 			r.Put("/{systemId}", eloHandler.UpdateSystem)
 			r.Delete("/{systemId}", eloHandler.DeleteSystem)
 			r.Get("/{systemId}/leaderboard", eloHandler.GetLeaderboard)
+		})
+
+		// Power ranking systems routes
+		r.Route("/{slug}/power-rankings", func(r chi.Router) {
+			r.Get("/systems", prHandler.ListSystems)
+			r.Post("/systems", prHandler.CreateSystem)
+			r.Get("/systems/{systemId}", prHandler.GetSystem)
+			r.Put("/systems/{systemId}", prHandler.UpdateSystem)
+			r.Delete("/systems/{systemId}", prHandler.DeleteSystem)
+			r.Get("/systems/{systemId}/leaderboard", prHandler.GetLeaderboard)
 		})
 	})
 

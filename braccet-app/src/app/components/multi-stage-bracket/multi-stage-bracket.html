@@ -26,28 +26,8 @@
 
   <!-- Stage Content -->
   @if (!loading() && activeStage()) {
-    <!-- Group Tabs (for group stages) -->
+    <!-- Group Content (for group stages) -->
     @if (activeStage()?.stage_type === 'group' && groups().length > 0) {
-      <div class="group-tabs">
-        @for (group of groups(); track group.id; let i = $index) {
-          <button
-            class="group-tab"
-            [class.active]="selectedGroupIndex() === i"
-            [class.complete]="getGroupStats(group.id)?.isComplete"
-            (click)="selectGroup(i)"
-          >
-            <span class="group-tab-name">{{ group.group_name }}</span>
-            @if (getGroupStats(group.id); as stats) {
-              @if (stats.isComplete) {
-                <img src="checkmark.png" alt="Complete" class="group-checkmark" />
-              } @else if (stats.total > 0) {
-                <span class="group-progress">{{ stats.completed }}/{{ stats.total }}</span>
-              }
-            }
-          </button>
-        }
-      </div>
-
       <!-- Group Content -->
       @if (activeGroup()) {
         <div class="group-content">
@@ -116,6 +96,7 @@
                     (matchEditClicked)="onMatchEditClicked($event)"
                     (matchReopened)="onMatchReopened($event)"
                     (stageClicked)="onSwissStageClicked($event)"
+                    (reseedRoundClicked)="onSwissReseedClicked($event)"
                   />
                 }
               }
@@ -155,6 +136,13 @@
     <!-- Final Stage -->
     @if (activeStage()?.stage_type === 'final') {
       <div class="final-stage">
+        @if (finalBracket() && isOrganizer()) {
+          <div class="finals-reseed-container">
+            <button class="reseed-btn" (click)="onFinalsReseedClicked()" title="Reseed final bracket">
+              &#8635; Reseed Bracket
+            </button>
+          </div>
+        }
         @if (finalBracket()) {
           @switch (activeStage()?.format) {
             @case ('single_elimination') {
@@ -200,6 +188,7 @@
                 (matchEditClicked)="onMatchEditClicked($event)"
                 (matchReopened)="onMatchReopened($event)"
                 (stageClicked)="onSwissStageClicked($event)"
+                (reseedRoundClicked)="onSwissReseedClicked($event)"
               />
             }
           }

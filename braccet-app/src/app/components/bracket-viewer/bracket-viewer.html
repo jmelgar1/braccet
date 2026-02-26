@@ -48,6 +48,8 @@
                       <div class="participant-info">
                         @if (getIconURL1(match)) {
                           <img [src]="getIconURL1(match)" alt="" class="participant-icon" />
+                        } @else if (getParticipant1Initial(match)) {
+                          <span class="participant-icon-fallback">{{ getParticipant1Initial(match) }}</span>
                         }
                         <span class="name">{{ getParticipant1Display(match) }}</span>
                         @if (isParticipant1Forfeited(match)) {
@@ -63,6 +65,8 @@
                       <div class="participant-info">
                         @if (getIconURL2(match)) {
                           <img [src]="getIconURL2(match)" alt="" class="participant-icon" />
+                        } @else if (getParticipant2Initial(match)) {
+                          <span class="participant-icon-fallback">{{ getParticipant2Initial(match) }}</span>
                         }
                         <span class="name">{{ getParticipant2Display(match) }}</span>
                         @if (isParticipant2Forfeited(match)) {

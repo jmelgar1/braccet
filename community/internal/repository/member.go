@@ -30,6 +30,7 @@ type MemberRepository interface {
 	GetBulkIconURLs(ctx context.Context, memberIDs []uint64) (map[uint64]string, error)
 	GetBulkMemberData(ctx context.Context, memberIDs []uint64) (map[uint64]MemberData, error)
 	GetDistinctRegions(ctx context.Context, communityID uint64) ([]string, error)
+	GetTopByRegionExcluding(ctx context.Context, communityID uint64, region string, excludeIDs []uint64, limit int) ([]*domain.CommunityMember, error)
 }
 
 // MemberData holds icon and region data for bulk fetches
@@ -474,4 +475,43 @@ func (r *memberRepository) GetDistinctRegions(ctx context.Context, communityID u
 	}
 
 	return regions, nil
+}
+
+func (r *memberRepository) GetTopByRegionExcluding(ctx context.Context, communityID uint64, region string, excludeIDs []uint64, limit int) ([]*domain.CommunityMember, error) {
+	// Build base query
+	var query string
+	var args []any
+
+	if len(excludeIDs) == 0 {
+		query = `
+			SELECT id, community_id, user_id, display_name, role::text, icon_url, region, elo_rating, ranking_points, matches_played, matches_won, joined_at, created_at, updated_at
+			FROM community_members
+			WHERE community_id = $1 AND region = $2
+			ORDER BY elo_rating DESC NULLS LAST
+			LIMIT $3
+		`
+		args = []any{communityID, region, limit}
+	} else {
+		// Build exclusion placeholders starting at $4
+		excludePlaceholders := make([]string, len(excludeIDs))
+		args = make([]any, 3+len(excludeIDs))
+		args[0] = communityID
+		args[1] = region
+		args[2] = limit
+
+		for i, id := range excludeIDs {
+			excludePlaceholders[i] = fmt.Sprintf("$%d", i+4)
+			args[i+3] = id
+		}
+
+		query = fmt.Sprintf(`
+			SELECT id, community_id, user_id, display_name, role::text, icon_url, region, elo_rating, ranking_points, matches_played, matches_won, joined_at, created_at, updated_at
+			FROM community_members
+			WHERE community_id = $1 AND region = $2 AND id NOT IN (%s)
+			ORDER BY elo_rating DESC NULLS LAST
+			LIMIT $3
+		`, strings.Join(excludePlaceholders, ", "))
+	}
+
+	return r.queryMembers(ctx, query, args...)
 }

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"sort"
 
 	"github.com/braccet/bracket/internal/client"
 	"github.com/braccet/bracket/internal/domain"
@@ -14,6 +16,7 @@ type BracketService interface {
 	GenerateDoubleElimination(ctx context.Context, tournamentID uint64, participants []domain.Participant) (*BracketState, error)
 	GenerateGroupBracket(ctx context.Context, params engine.GroupBracketParams) (*BracketState, error)
 	DeleteBracket(ctx context.Context, tournamentID uint64) error
+	ReseedGroupBracket(ctx context.Context, tournamentID, stageID, groupID uint64, format string) error
 }
 
 type bracketService struct {
@@ -510,7 +513,7 @@ func (s *bracketService) GenerateGroupBracket(ctx context.Context, params engine
 	// Build state to determine total rounds
 	state := buildBracketState(params.TournamentID, matches)
 
-	// Create default stages for the bracket (if not already created for this tournament)
+	// Create default stages for the bracket (if not already created for this group)
 	if s.stageRepo != nil && state.TotalRounds > 0 {
 		isDoubleElim := params.Format == "double_elimination"
 
@@ -521,29 +524,29 @@ func (s *bracketService) GenerateGroupBracket(ctx context.Context, params engine
 
 			// Winners bracket stages
 			if winnersRounds > 0 {
-				if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketWinners, winnersRounds, true); err != nil {
+				if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketWinners, winnersRounds, true); err != nil {
 					return nil, err
 				}
 			}
 			// Losers bracket stages
 			if losersRounds > 0 {
-				if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketLosers, losersRounds, true); err != nil {
+				if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketLosers, losersRounds, true); err != nil {
 					return nil, err
 				}
 			}
 			// Grand final stage (only if skip_finals is false)
 			if !params.SkipFinals {
-				if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketGrandFinal, 1, true); err != nil {
+				if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketGrandFinal, 1, true); err != nil {
 					return nil, err
 				}
 			}
 		} else if params.Format == "swiss" {
-			if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketSwiss, state.TotalRounds, false); err != nil {
+			if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketSwiss, state.TotalRounds, false); err != nil {
 				return nil, err
 			}
 		} else {
 			// Single elimination
-			if err := s.stageRepo.CreateDefaultStages(ctx, params.TournamentID, domain.BracketWinners, state.TotalRounds, false); err != nil {
+			if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketWinners, state.TotalRounds, false); err != nil {
 				return nil, err
 			}
 		}
@@ -664,7 +667,7 @@ func (s *bracketService) generateSwissGroupBracket(ctx context.Context, params e
 	if s.stageRepo != nil {
 		if totalRounds > 0 {
 			// Fixed rounds mode: create all stages upfront
-			if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketSwiss, totalRounds); err != nil {
+			if err := s.stageRepo.CreateDefaultStagesForGroup(ctx, params.TournamentID, params.StageID, params.GroupID, domain.BracketSwiss, totalRounds, false); err != nil {
 				return nil, err
 			}
 		} else {
@@ -734,6 +737,140 @@ func (s *bracketService) DeleteBracket(ctx context.Context, tournamentID uint64)
 		if err := s.groupRepo.DeleteStageStandingsByTournament(ctx, tournamentID); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// ReseedGroupBracket deletes and regenerates a bracket for a specific group.
+// This is used to reseed elimination brackets within a multi-stage tournament group.
+func (s *bracketService) ReseedGroupBracket(ctx context.Context, tournamentID, stageID, groupID uint64, format string) error {
+	var participants []domain.Participant
+
+	// Try to get participants from group standings first (used by Swiss format)
+	if s.groupRepo != nil {
+		groupStandings, err := s.groupRepo.GetGroupStandings(ctx, groupID)
+		if err != nil {
+			return fmt.Errorf("failed to get group standings: %w", err)
+		}
+
+		if len(groupStandings) >= 2 {
+			// Convert group standings to participants for bracket generation
+			participants = make([]domain.Participant, len(groupStandings))
+			for i, gs := range groupStandings {
+				iconURL := ""
+				if gs.ParticipantIconURL != nil {
+					iconURL = *gs.ParticipantIconURL
+				}
+				seed := i + 1 // Default to position in standings
+				if gs.Seed > 0 {
+					seed = gs.Seed
+				}
+				participants[i] = domain.Participant{
+					ID:      gs.ParticipantID,
+					Name:    gs.ParticipantName,
+					IconURL: iconURL,
+					Seed:    seed,
+				}
+			}
+		}
+	}
+
+	// If no standings found, extract participants from existing matches
+	// This handles elimination brackets which don't use group_standings
+	if len(participants) == 0 {
+		matches, err := s.repo.GetByTournamentStageGroup(ctx, tournamentID, stageID, groupID)
+		if err != nil {
+			return fmt.Errorf("failed to get matches: %w", err)
+		}
+
+		// Extract unique participants from round 1 matches (original seeding)
+		participantMap := make(map[uint64]domain.Participant)
+		for _, m := range matches {
+			if m.Round == 1 {
+				if m.Participant1ID != nil && *m.Participant1ID > 0 {
+					iconURL := ""
+					if m.Participant1IconURL != nil {
+						iconURL = *m.Participant1IconURL
+					}
+					name := ""
+					if m.Participant1Name != nil {
+						name = *m.Participant1Name
+					}
+					seed := 0
+					if m.Seed1 != nil {
+						seed = *m.Seed1
+					}
+					participantMap[*m.Participant1ID] = domain.Participant{
+						ID:      *m.Participant1ID,
+						Name:    name,
+						IconURL: iconURL,
+						Seed:    seed,
+					}
+				}
+				if m.Participant2ID != nil && *m.Participant2ID > 0 {
+					iconURL := ""
+					if m.Participant2IconURL != nil {
+						iconURL = *m.Participant2IconURL
+					}
+					name := ""
+					if m.Participant2Name != nil {
+						name = *m.Participant2Name
+					}
+					seed := 0
+					if m.Seed2 != nil {
+						seed = *m.Seed2
+					}
+					participantMap[*m.Participant2ID] = domain.Participant{
+						ID:      *m.Participant2ID,
+						Name:    name,
+						IconURL: iconURL,
+						Seed:    seed,
+					}
+				}
+			}
+		}
+
+		// Convert map to slice
+		participants = make([]domain.Participant, 0, len(participantMap))
+		for _, p := range participantMap {
+			participants = append(participants, p)
+		}
+
+		// Sort by seed
+		sort.Slice(participants, func(i, j int) bool {
+			return participants[i].Seed < participants[j].Seed
+		})
+	}
+
+	if len(participants) < 2 {
+		return fmt.Errorf("not enough participants to generate bracket (need at least 2, have %d)", len(participants))
+	}
+
+	// Delete existing matches for this group
+	if err := s.repo.DeleteByTournamentStageGroup(ctx, tournamentID, stageID, groupID); err != nil {
+		return fmt.Errorf("failed to delete matches: %w", err)
+	}
+
+	// Delete existing bracket stages for this group
+	if s.stageRepo != nil {
+		if err := s.stageRepo.DeleteByTournamentStageGroup(ctx, tournamentID, stageID, groupID); err != nil {
+			return fmt.Errorf("failed to delete bracket stages: %w", err)
+		}
+	}
+
+	// Regenerate the bracket
+	params := engine.GroupBracketParams{
+		TournamentID: tournamentID,
+		StageID:      stageID,
+		GroupID:      groupID,
+		Format:       format,
+		Participants: participants,
+	}
+
+	_, err := s.GenerateGroupBracket(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to regenerate bracket: %w", err)
 	}
 
 	return nil

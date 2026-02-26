@@ -50,6 +50,13 @@ type SwissService interface {
 	// Returns the new matches (regular or tiebreaker) if advanced, nil if not ready
 	CheckAndAdvanceRoundWithTiebreakers(ctx context.Context, tournamentID uint64, tiebreakerEnabled bool) ([]*domain.Match, error)
 
+	// ReseedRound regenerates pairings for a specific round.
+	// If round < current_round, cascades and deletes all subsequent rounds.
+	ReseedRound(ctx context.Context, tournamentID uint64, round int) ([]*domain.Match, error)
+
+	// ReseedGroupRound regenerates pairings for a specific round in a group.
+	ReseedGroupRound(ctx context.Context, tournamentID, stageID, groupID uint64, round int) ([]*domain.Match, error)
+
 	// Delete removes all Swiss data for a tournament
 	Delete(ctx context.Context, tournamentID uint64) error
 }
@@ -59,6 +66,7 @@ type swissService struct {
 	matchRepo      repository.MatchRepository
 	stageRepo      repository.StageRepository
 	tiebreakerRepo repository.TiebreakerRepository
+	setRepo        repository.SetRepository
 }
 
 func NewSwissService(swissRepo repository.SwissRepository, matchRepo repository.MatchRepository, stageRepo repository.StageRepository) SwissService {
@@ -81,6 +89,23 @@ func NewSwissServiceWithTiebreakers(
 		matchRepo:      matchRepo,
 		stageRepo:      stageRepo,
 		tiebreakerRepo: tiebreakerRepo,
+	}
+}
+
+// NewSwissServiceFull creates a Swiss service with all dependencies for full functionality
+func NewSwissServiceFull(
+	swissRepo repository.SwissRepository,
+	matchRepo repository.MatchRepository,
+	stageRepo repository.StageRepository,
+	tiebreakerRepo repository.TiebreakerRepository,
+	setRepo repository.SetRepository,
+) SwissService {
+	return &swissService{
+		swissRepo:      swissRepo,
+		matchRepo:      matchRepo,
+		stageRepo:      stageRepo,
+		tiebreakerRepo: tiebreakerRepo,
+		setRepo:        setRepo,
 	}
 }
 
@@ -736,6 +761,397 @@ func (s *swissService) CheckAndAdvanceRoundWithTiebreakers(ctx context.Context, 
 // Delete removes all Swiss data for a tournament.
 func (s *swissService) Delete(ctx context.Context, tournamentID uint64) error {
 	return s.swissRepo.DeleteByTournament(ctx, tournamentID)
+}
+
+// ReseedRound regenerates pairings for a specific round.
+// If round < current_round, cascades and deletes all subsequent rounds.
+func (s *swissService) ReseedRound(ctx context.Context, tournamentID uint64, round int) ([]*domain.Match, error) {
+	config, err := s.swissRepo.GetConfig(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate round bounds
+	if round < 1 {
+		return nil, fmt.Errorf("round must be >= 1")
+	}
+	if config.TotalRounds > 0 && round > config.TotalRounds {
+		return nil, fmt.Errorf("round %d exceeds total rounds %d", round, config.TotalRounds)
+	}
+
+	// Delete matches for rounds >= round
+	if err := s.matchRepo.DeleteByRoundRange(ctx, tournamentID, domain.BracketSwiss, round); err != nil {
+		return nil, fmt.Errorf("failed to delete matches: %w", err)
+	}
+
+	// Delete pairing history for rounds >= round
+	if err := s.swissRepo.DeletePairingsByRoundRange(ctx, tournamentID, round); err != nil {
+		return nil, fmt.Errorf("failed to delete pairing history: %w", err)
+	}
+
+	// Reset all standings to initial values
+	if err := s.swissRepo.ResetStandings(ctx, tournamentID); err != nil {
+		return nil, fmt.Errorf("failed to reset standings: %w", err)
+	}
+
+	// Replay completed matches from rounds < round to rebuild standings
+	if round > 1 {
+		if err := s.replayMatchesForStandings(ctx, tournamentID, 0, 0, round); err != nil {
+			return nil, fmt.Errorf("failed to replay matches: %w", err)
+		}
+	}
+
+	// Update config
+	config.CurrentRound = round
+	config.IsComplete = false
+	config.HasTiebreakers = false
+	config.TiebreakersComplete = false
+	if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+		return nil, fmt.Errorf("failed to update config: %w", err)
+	}
+
+	// Update opponent wins before pairing
+	if err := s.swissRepo.UpdateOpponentWins(ctx, tournamentID); err != nil {
+		return nil, fmt.Errorf("failed to update opponent wins: %w", err)
+	}
+
+	// Get standings (now rebuilt from prior rounds)
+	standings, err := s.swissRepo.GetStandings(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get pairing history (now only contains rounds < round)
+	history, err := s.swissRepo.GetPairingHistory(ctx, tournamentID)
+	if err != nil {
+		return nil, err
+	}
+	playedPairs := engine.BuildPlayedPairsMap(history)
+
+	// Generate pairings
+	var pairings []domain.Pairing
+	if round == 1 {
+		pairings = engine.GenerateRound1Pairings(standings)
+	} else {
+		pairings, err = engine.GenerateSwissPairings(standings, playedPairs, round)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate pairings: %w", err)
+		}
+	}
+
+	// Create new pairing history records
+	var historyRecords []*domain.SwissPairingHistory
+	for _, p := range pairings {
+		if !p.IsBye {
+			historyRecords = append(historyRecords, &domain.SwissPairingHistory{
+				TournamentID:   tournamentID,
+				Participant1ID: p.Participant1ID,
+				Participant2ID: p.Participant2ID,
+				Round:          round,
+			})
+		}
+	}
+	if err := s.swissRepo.CreatePairings(ctx, historyRecords); err != nil {
+		return nil, fmt.Errorf("failed to create pairing history: %w", err)
+	}
+
+	// Create new matches
+	matches := engine.PairingsToMatches(tournamentID, round, pairings)
+	if err := s.matchRepo.CreateBatch(ctx, matches); err != nil {
+		return nil, fmt.Errorf("failed to create matches: %w", err)
+	}
+
+	// Update standings for BYE matches
+	for _, p := range pairings {
+		if p.IsBye {
+			standing, err := s.swissRepo.GetStandingByParticipant(ctx, tournamentID, p.Participant1ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get standing for BYE participant: %w", err)
+			}
+			standing.Wins++
+			standing.HasBye = true
+			if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+				return nil, fmt.Errorf("failed to update BYE standing: %w", err)
+			}
+		}
+	}
+
+	return matches, nil
+}
+
+// ReseedGroupRound regenerates pairings for a specific round in a group.
+func (s *swissService) ReseedGroupRound(ctx context.Context, tournamentID, stageID, groupID uint64, round int) ([]*domain.Match, error) {
+	config, err := s.swissRepo.GetConfigByGroup(ctx, tournamentID, stageID, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate round bounds
+	if round < 1 {
+		return nil, fmt.Errorf("round must be >= 1")
+	}
+	if config.TotalRounds > 0 && round > config.TotalRounds {
+		return nil, fmt.Errorf("round %d exceeds total rounds %d", round, config.TotalRounds)
+	}
+
+	// Delete matches for rounds >= round in this group
+	if err := s.matchRepo.DeleteByRoundRangeForGroup(ctx, tournamentID, stageID, groupID, domain.BracketSwiss, round); err != nil {
+		return nil, fmt.Errorf("failed to delete matches: %w", err)
+	}
+
+	// Delete pairing history for rounds >= round in this group
+	if err := s.swissRepo.DeletePairingsByRoundRangeForGroup(ctx, tournamentID, stageID, groupID, round); err != nil {
+		return nil, fmt.Errorf("failed to delete pairing history: %w", err)
+	}
+
+	// Reset standings for this group
+	if err := s.swissRepo.ResetStandingsForGroup(ctx, tournamentID, stageID, groupID); err != nil {
+		return nil, fmt.Errorf("failed to reset standings: %w", err)
+	}
+
+	// Replay completed matches from rounds < round to rebuild standings
+	if round > 1 {
+		if err := s.replayMatchesForStandings(ctx, tournamentID, stageID, groupID, round); err != nil {
+			return nil, fmt.Errorf("failed to replay matches: %w", err)
+		}
+	}
+
+	// Update config
+	config.CurrentRound = round
+	config.IsComplete = false
+	config.HasTiebreakers = false
+	config.TiebreakersComplete = false
+	if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+		return nil, fmt.Errorf("failed to update config: %w", err)
+	}
+
+	// Update opponent wins before pairing
+	if err := s.swissRepo.UpdateOpponentWinsByGroup(ctx, tournamentID, stageID, groupID); err != nil {
+		return nil, fmt.Errorf("failed to update opponent wins: %w", err)
+	}
+
+	// Get standings for this group
+	standings, err := s.swissRepo.GetStandingsByGroup(ctx, tournamentID, stageID, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get pairing history for this group
+	history, err := s.swissRepo.GetPairingHistoryByGroup(ctx, tournamentID, stageID, groupID)
+	if err != nil {
+		return nil, err
+	}
+	playedPairs := engine.BuildPlayedPairsMap(history)
+
+	// Generate pairings
+	var pairings []domain.Pairing
+	if round == 1 {
+		pairings = engine.GenerateRound1Pairings(standings)
+	} else {
+		pairings, err = engine.GenerateSwissPairings(standings, playedPairs, round)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate pairings: %w", err)
+		}
+	}
+
+	// Create new pairing history records
+	var historyRecords []*domain.SwissPairingHistory
+	for _, p := range pairings {
+		if !p.IsBye {
+			historyRecords = append(historyRecords, &domain.SwissPairingHistory{
+				TournamentID:   tournamentID,
+				StageID:        stageID,
+				GroupID:        groupID,
+				Participant1ID: p.Participant1ID,
+				Participant2ID: p.Participant2ID,
+				Round:          round,
+			})
+		}
+	}
+	if err := s.swissRepo.CreatePairings(ctx, historyRecords); err != nil {
+		return nil, fmt.Errorf("failed to create pairing history: %w", err)
+	}
+
+	// Create new matches with stage and group IDs
+	matches := engine.PairingsToMatches(tournamentID, round, pairings)
+	for _, m := range matches {
+		m.StageID = &stageID
+		m.GroupID = &groupID
+	}
+	if err := s.matchRepo.CreateBatch(ctx, matches); err != nil {
+		return nil, fmt.Errorf("failed to create matches: %w", err)
+	}
+
+	// Update standings for BYE matches
+	for _, p := range pairings {
+		if p.IsBye {
+			standing, err := s.swissRepo.GetStandingByParticipantInGroup(ctx, tournamentID, stageID, groupID, p.Participant1ID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get standing for BYE participant: %w", err)
+			}
+			standing.Wins++
+			standing.HasBye = true
+			if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+				return nil, fmt.Errorf("failed to update BYE standing: %w", err)
+			}
+		}
+	}
+
+	return matches, nil
+}
+
+// replayMatchesForStandings replays completed matches to rebuild standings.
+// If stageID and groupID are 0, it replays tournament-level matches.
+func (s *swissService) replayMatchesForStandings(ctx context.Context, tournamentID, stageID, groupID uint64, beforeRound int) error {
+	// Get all matches
+	var allMatches []*domain.Match
+	var err error
+
+	if stageID > 0 && groupID > 0 {
+		allMatches, err = s.matchRepo.GetByTournamentStageGroup(ctx, tournamentID, stageID, groupID)
+	} else {
+		allMatches, err = s.matchRepo.GetByTournament(ctx, tournamentID)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Filter to completed Swiss matches in rounds < beforeRound
+	var matchesToReplay []*domain.Match
+	var matchIDs []uint64
+	for _, m := range allMatches {
+		if m.BracketType == domain.BracketSwiss && m.Round < beforeRound && m.Status == domain.MatchCompleted && m.WinnerID != nil {
+			matchesToReplay = append(matchesToReplay, m)
+			matchIDs = append(matchIDs, m.ID)
+		}
+	}
+
+	if len(matchesToReplay) == 0 {
+		return nil
+	}
+
+	// Get all sets for these matches
+	var setsMap map[uint64][]domain.Set
+	if s.setRepo != nil && len(matchIDs) > 0 {
+		setsMap, err = s.setRepo.GetByMatchIDs(ctx, matchIDs)
+		if err != nil {
+			return fmt.Errorf("failed to get sets: %w", err)
+		}
+	}
+
+	// Get config for threshold mode checking
+	var config *domain.SwissConfig
+	if stageID > 0 && groupID > 0 {
+		config, err = s.swissRepo.GetConfigByGroup(ctx, tournamentID, stageID, groupID)
+	} else {
+		config, err = s.swissRepo.GetConfig(ctx, tournamentID)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Replay each match
+	for _, m := range matchesToReplay {
+		winnerID := *m.WinnerID
+		var loserID uint64
+		if m.Participant1ID != nil && m.Participant2ID != nil {
+			if *m.Participant1ID == winnerID {
+				loserID = *m.Participant2ID
+			} else {
+				loserID = *m.Participant1ID
+			}
+		}
+
+		// Calculate game wins/losses from sets
+		var winnerGameWins, loserGameWins int
+		if setsMap != nil {
+			sets := setsMap[m.ID]
+			for _, set := range sets {
+				if m.Participant1ID != nil && *m.Participant1ID == winnerID {
+					winnerGameWins += set.Participant1Score
+					loserGameWins += set.Participant2Score
+				} else {
+					winnerGameWins += set.Participant2Score
+					loserGameWins += set.Participant1Score
+				}
+			}
+		}
+
+		// Update winner's standing
+		var winnerStanding *domain.SwissStanding
+		if stageID > 0 && groupID > 0 {
+			winnerStanding, err = s.swissRepo.GetStandingByParticipantInGroup(ctx, tournamentID, stageID, groupID, winnerID)
+		} else {
+			winnerStanding, err = s.swissRepo.GetStandingByParticipant(ctx, tournamentID, winnerID)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get winner standing: %w", err)
+		}
+		winnerStanding.Wins++
+		winnerStanding.MatchWins++
+		winnerStanding.GameWins += winnerGameWins
+		winnerStanding.GameLosses += loserGameWins
+
+		// Check if winner should advance (threshold mode)
+		if config.WinsToAdvance != nil && winnerStanding.MatchWins >= *config.WinsToAdvance {
+			winnerStanding.Status = domain.SwissStatusAdvanced
+		}
+
+		if err := s.swissRepo.UpdateStanding(ctx, winnerStanding); err != nil {
+			return fmt.Errorf("failed to update winner standing: %w", err)
+		}
+
+		// Update loser's standing
+		if loserID != 0 {
+			var loserStanding *domain.SwissStanding
+			if stageID > 0 && groupID > 0 {
+				loserStanding, err = s.swissRepo.GetStandingByParticipantInGroup(ctx, tournamentID, stageID, groupID, loserID)
+			} else {
+				loserStanding, err = s.swissRepo.GetStandingByParticipant(ctx, tournamentID, loserID)
+			}
+			if err != nil {
+				return fmt.Errorf("failed to get loser standing: %w", err)
+			}
+			loserStanding.Losses++
+			loserStanding.GameWins += loserGameWins
+			loserStanding.GameLosses += winnerGameWins
+
+			// Check if loser should be eliminated (threshold mode)
+			if config.LossesToEliminate != nil && loserStanding.Losses >= *config.LossesToEliminate {
+				loserStanding.Status = domain.SwissStatusEliminated
+			}
+
+			if err := s.swissRepo.UpdateStanding(ctx, loserStanding); err != nil {
+				return fmt.Errorf("failed to update loser standing: %w", err)
+			}
+		}
+	}
+
+	// Also replay BYE matches
+	for _, m := range allMatches {
+		if m.BracketType == domain.BracketSwiss && m.Round < beforeRound && m.Status == domain.MatchCompleted {
+			// Check if this is a BYE match (participant2 is nil or name is "BYE")
+			if m.Participant2ID == nil && m.WinnerID != nil {
+				var standing *domain.SwissStanding
+				if stageID > 0 && groupID > 0 {
+					standing, err = s.swissRepo.GetStandingByParticipantInGroup(ctx, tournamentID, stageID, groupID, *m.WinnerID)
+				} else {
+					standing, err = s.swissRepo.GetStandingByParticipant(ctx, tournamentID, *m.WinnerID)
+				}
+				if err != nil {
+					return fmt.Errorf("failed to get BYE standing: %w", err)
+				}
+				standing.Wins++
+				standing.HasBye = true
+				// Note: MatchWins NOT incremented for BYEs
+				if err := s.swissRepo.UpdateStanding(ctx, standing); err != nil {
+					return fmt.Errorf("failed to update BYE standing: %w", err)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // stringPtr returns a pointer to the string, or nil if empty

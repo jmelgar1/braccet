@@ -1,13 +1,14 @@
 import { Component, output, inject, signal, effect, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DecimalPipe } from '@angular/common';
 import { Router } from '@angular/router';
-import { Tournament, UpdateTournamentRequest, TournamentStage, UpdateStageRequest, RankingCriterion, StageFormat } from '../../../../models/tournament.model';
+import { Tournament, UpdateTournamentRequest, TournamentStage, UpdateStageRequest, RankingCriterion, StageFormat, TournamentClass, PlacementTier, PrizeDistributionMode } from '../../../../models/tournament.model';
 import { TournamentService } from '../../../../services/tournament.service';
 import { TournamentUIService } from '../../../../services/tournament-ui.service';
 
 @Component({
   selector: 'app-settings-tab',
-  imports: [FormsModule],
+  imports: [FormsModule, DecimalPipe],
   templateUrl: './settings-tab.html'
 })
 export class SettingsTab {
@@ -30,6 +31,14 @@ export class SettingsTab {
   startsAt = signal('');
   startsAtTentative = signal(false);
   registrationOpen = signal(false);
+  tournamentClass = signal<TournamentClass | null>(null);
+  prizePoolUsd = signal<number | null>(null);
+
+  // Prize distribution state
+  prizeDistributionMode = signal<PrizeDistributionMode>('percentage');
+  prizeTiers = signal<PlacementTier[]>([]);
+  showPrizeDistribution = signal(false);
+  loadingTiers = signal(false);
 
   // Stage editing state
   editingStageId = signal<number | null>(null);
@@ -53,6 +62,24 @@ export class SettingsTab {
   // Computed
   isLocked = computed(() => this.tournament().status !== 'registration');
   isMultiStage = computed(() => this.tournament().format === 'multi_stage');
+  hasCommunity = computed(() => !!this.tournament().community_id);
+
+  // Prize distribution computed
+  totalPrize = computed(() => this.prizePoolUsd() || 0);
+  prizeDistributionSum = computed(() =>
+    this.prizeTiers().reduce((acc, t) => acc + t.value, 0)
+  );
+  prizeDistributionValid = computed(() => {
+    const tiers = this.prizeTiers();
+    if (tiers.length === 0) return true;
+
+    const sum = this.prizeDistributionSum();
+    if (this.prizeDistributionMode() === 'percentage') {
+      return Math.abs(sum - 100) < 0.01;
+    } else {
+      return sum <= this.totalPrize();
+    }
+  });
 
   // For bracket formats (single/double elim), rankings are determined by bracket placement
   stageUseBracketRanking = computed(() => {
@@ -89,6 +116,18 @@ export class SettingsTab {
       this.maxParticipants.set(t.max_participants || null);
       this.startsAtTentative.set(t.starts_at_tentative);
       this.registrationOpen.set(t.registration_open);
+      this.tournamentClass.set(t.tournament_class || null);
+      this.prizePoolUsd.set(t.prize_pool_usd || null);
+
+      // Initialize prize distribution from tournament
+      if (t.prize_distribution) {
+        this.showPrizeDistribution.set(true);
+        this.prizeDistributionMode.set(t.prize_distribution.mode);
+        this.prizeTiers.set(t.prize_distribution.tiers);
+      } else {
+        this.showPrizeDistribution.set(false);
+        this.prizeTiers.set([]);
+      }
 
       // Convert ISO date to datetime-local format
       if (t.starts_at) {
@@ -118,7 +157,13 @@ export class SettingsTab {
       max_participants: this.maxParticipants() || undefined,
       starts_at: this.startsAt() ? new Date(this.startsAt()).toISOString() : undefined,
       starts_at_tentative: this.startsAtTentative(),
-      registration_open: this.registrationOpen()
+      registration_open: this.registrationOpen(),
+      tournament_class: this.tournamentClass() || undefined,
+      prize_pool_usd: this.prizePoolUsd() || undefined,
+      prize_distribution: this.showPrizeDistribution() && this.prizeTiers().length > 0 ? {
+        mode: this.prizeDistributionMode(),
+        tiers: this.prizeTiers()
+      } : undefined
     };
 
     this.tournamentService.updateTournament(t.slug, request).subscribe({
@@ -288,5 +333,61 @@ export class SettingsTab {
         this.savingStage.set(false);
       }
     });
+  }
+
+  // Prize distribution methods
+
+  generateSuggestedTiers(): void {
+    this.loadingTiers.set(true);
+    const participants = this.tournament().max_participants || this.tournament().participant_count || 8;
+
+    this.tournamentService.getSuggestedPrizeTiers(this.tournament().slug, participants)
+      .subscribe({
+        next: (response) => {
+          // Initialize with default percentage values (halving pattern: 50, 25, 12.5...)
+          const tiers = response.tiers.map((t, i) => ({
+            ...t,
+            value: this.getDefaultPercentage(i, response.tiers.length)
+          }));
+          this.prizeTiers.set(tiers);
+          this.loadingTiers.set(false);
+        },
+        error: (err) => {
+          console.error('Failed to load prize tiers:', err);
+          this.loadingTiers.set(false);
+          this.error.set('Failed to load prize tiers');
+        }
+      });
+  }
+
+  private getDefaultPercentage(index: number, total: number): number {
+    // Standard prize distribution: halving pattern
+    const defaultDistribution = [50, 25, 12.5, 6.25, 3.125, 1.5625, 0.78125];
+    if (index < defaultDistribution.length) {
+      return defaultDistribution[index];
+    }
+    return 0;
+  }
+
+  updateTierValue(index: number, value: number): void {
+    const tiers = [...this.prizeTiers()];
+    tiers[index] = { ...tiers[index], value };
+    this.prizeTiers.set(tiers);
+  }
+
+  removeTier(index: number): void {
+    this.prizeTiers.set(this.prizeTiers().filter((_, i) => i !== index));
+  }
+
+  clearPrizeDistribution(): void {
+    this.prizeTiers.set([]);
+    this.showPrizeDistribution.set(false);
+  }
+
+  computeTierAmount(tier: PlacementTier): number {
+    if (this.prizeDistributionMode() === 'percentage') {
+      return (this.totalPrize() * tier.value) / 100;
+    }
+    return tier.value;
   }
 }

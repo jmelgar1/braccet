@@ -19,6 +19,7 @@ type CommunityClient interface {
 	GetBulkMemberIcons(ctx context.Context, memberIDs []uint64) (map[uint64]string, error)
 	GetBulkMemberData(ctx context.Context, memberIDs []uint64) (map[uint64]MemberDataResponse, error)
 	SearchMembers(ctx context.Context, communityID uint64, query string, excludeIDs []uint64) ([]MemberSearchResult, error)
+	GetTopMembersByRegion(ctx context.Context, communityID uint64, region string, excludeIDs []uint64, limit int) ([]TopRegionMember, error)
 }
 
 // MemberDataResponse holds icon and region data from bulk fetch
@@ -46,6 +47,13 @@ type MemberResponse struct {
 type MemberSearchResult struct {
 	ID          uint64 `json:"id"`
 	DisplayName string `json:"display_name"`
+}
+
+type TopRegionMember struct {
+	ID          uint64  `json:"id"`
+	DisplayName string  `json:"display_name"`
+	EloRating   *int    `json:"elo_rating,omitempty"`
+	IconURL     *string `json:"icon_url,omitempty"`
 }
 
 type communityClient struct {
@@ -422,4 +430,42 @@ func (c *communityClient) SearchMembers(ctx context.Context, communityID uint64,
 	}
 
 	return results, nil
+}
+
+// GetTopMembersByRegion fetches top N members by ELO from a region, excluding specified IDs
+func (c *communityClient) GetTopMembersByRegion(ctx context.Context, communityID uint64, region string, excludeIDs []uint64, limit int) ([]TopRegionMember, error) {
+	url := fmt.Sprintf("%s/internal/communities/%d/members/top-by-region", c.baseURL, communityID)
+
+	reqBody := map[string]any{
+		"region":      region,
+		"exclude_ids": excludeIDs,
+		"limit":       limit,
+	}
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call community service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("community service returned status %d", resp.StatusCode)
+	}
+
+	var members []TopRegionMember
+	if err := json.NewDecoder(resp.Body).Decode(&members); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return members, nil
 }

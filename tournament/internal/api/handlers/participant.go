@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
@@ -18,17 +19,118 @@ import (
 type ParticipantHandler struct {
 	participantRepo repository.ParticipantRepository
 	tournamentRepo  repository.TournamentRepository
+	stageRepo       repository.StageRepository
+	eventRepo       repository.EventRepository
 	bracketClient   client.BracketClient
 	communityClient client.CommunityClient
 }
 
-func NewParticipantHandler(participantRepo repository.ParticipantRepository, tournamentRepo repository.TournamentRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *ParticipantHandler {
+func NewParticipantHandler(participantRepo repository.ParticipantRepository, tournamentRepo repository.TournamentRepository, stageRepo repository.StageRepository, eventRepo repository.EventRepository, bracketClient client.BracketClient, communityClient client.CommunityClient) *ParticipantHandler {
 	return &ParticipantHandler{
 		participantRepo: participantRepo,
 		tournamentRepo:  tournamentRepo,
+		stageRepo:       stageRepo,
+		eventRepo:       eventRepo,
 		bracketClient:   bracketClient,
 		communityClient: communityClient,
 	}
+}
+
+// getExcludedMemberIDs returns community_member_ids that should be excluded when searching/inviting for a tournament.
+// This includes members already in the tournament AND members in any "downstream" (later) tournaments in the same event.
+func (h *ParticipantHandler) getExcludedMemberIDs(ctx context.Context, tournament *domain.Tournament) ([]uint64, error) {
+	// Get participants already in this tournament
+	participants, err := h.participantRepo.GetByTournament(ctx, tournament.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect community_member_ids from current tournament
+	excludeSet := make(map[uint64]bool)
+	for _, p := range participants {
+		if p.CommunityMemberID != nil {
+			excludeSet[*p.CommunityMemberID] = true
+		}
+	}
+
+	// Get downstream tournament IDs (if this tournament is part of an event)
+	downstreamIDs, err := h.eventRepo.GetDownstreamTournamentIDs(ctx, tournament.ID)
+	if err != nil {
+		log.Printf("Error getting downstream tournament IDs: %v", err)
+		// Don't fail, just skip event-based exclusion
+	} else if len(downstreamIDs) > 0 {
+		// Get community_member_ids from downstream tournaments
+		downstreamMemberIDs, err := h.participantRepo.GetCommunityMemberIDsFromTournaments(ctx, downstreamIDs)
+		if err != nil {
+			log.Printf("Error getting downstream member IDs: %v", err)
+			// Don't fail, just skip
+		} else {
+			for _, id := range downstreamMemberIDs {
+				excludeSet[id] = true
+			}
+		}
+	}
+
+	// Convert set to slice
+	excludeIDs := make([]uint64, 0, len(excludeSet))
+	for id := range excludeSet {
+		excludeIDs = append(excludeIDs, id)
+	}
+
+	return excludeIDs, nil
+}
+
+// allowsLateParticipantAddition checks if a tournament allows adding participants after it's in_progress.
+// This is allowed for multi-stage tournaments that are part of an event with qualifiers,
+// as long as the first group stage hasn't started (no groups created yet).
+func (h *ParticipantHandler) allowsLateParticipantAddition(ctx context.Context, tournament *domain.Tournament) bool {
+	// Must be a multi-stage tournament
+	if tournament.Format != domain.FormatMultiStage {
+		return false
+	}
+
+	// Must be part of an event
+	if tournament.EventID == nil {
+		return false
+	}
+
+	// Must be the main event (has qualifiers pointing to it)
+	et, err := h.eventRepo.GetEventTournamentByTournamentID(ctx, tournament.ID)
+	if err != nil {
+		return false
+	}
+	if et.Role != domain.EventRoleMain {
+		return false
+	}
+
+	// Check that the first group stage hasn't started (no groups created)
+	stages, err := h.stageRepo.GetStagesByTournament(ctx, tournament.ID)
+	if err != nil || len(stages) == 0 {
+		return false
+	}
+
+	// Find the first group stage (lowest stage_order > 0)
+	var firstGroupStage *domain.TournamentStage
+	for _, s := range stages {
+		if s.StageOrder > 0 && s.StageType == domain.StageTypeGroup {
+			if firstGroupStage == nil || s.StageOrder < firstGroupStage.StageOrder {
+				firstGroupStage = s
+			}
+		}
+	}
+
+	if firstGroupStage == nil {
+		return false
+	}
+
+	// Check if groups have been created for the first stage
+	groups, err := h.stageRepo.GetGroupsByStage(ctx, firstGroupStage.ID)
+	if err != nil {
+		return false
+	}
+
+	// Allow late addition only if no groups exist yet
+	return len(groups) == 0
 }
 
 // Request/Response types
@@ -207,13 +309,20 @@ func (h *ParticipantHandler) Add(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Only allow adding participants during registration phase
-	if tournament.Status != domain.StatusRegistration {
-		writeError(w, http.StatusBadRequest, "participants can only be added during registration")
-		return
-	}
-
 	isOrganizer := tournament.OrganizerID == userID
+
+	// Check if participant addition is allowed based on tournament status
+	// - During registration: always allowed
+	// - During in_progress: only allowed for multi-stage event tournaments with qualifiers
+	//   where the first group stage hasn't started yet (organizer invites only)
+	if tournament.Status != domain.StatusRegistration {
+		if tournament.Status == domain.StatusInProgress && isOrganizer && h.allowsLateParticipantAddition(r.Context(), tournament) {
+			// Allow organizer to add invites to main event before first stage starts
+		} else {
+			writeError(w, http.StatusBadRequest, "participants can only be added during registration")
+			return
+		}
+	}
 
 	var req AddParticipantRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -745,18 +854,12 @@ func (h *ParticipantHandler) SearchAvailableMembers(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Get existing participant community_member_ids
-	participants, err := h.participantRepo.GetByTournament(r.Context(), tournament.ID)
+	// Get excluded member IDs (current tournament + downstream event tournaments)
+	excludeIDs, err := h.getExcludedMemberIDs(r.Context(), tournament)
 	if err != nil {
+		log.Printf("Error getting excluded member IDs: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to fetch participants")
 		return
-	}
-
-	excludeIDs := make([]uint64, 0, len(participants))
-	for _, p := range participants {
-		if p.CommunityMemberID != nil {
-			excludeIDs = append(excludeIDs, *p.CommunityMemberID)
-		}
 	}
 
 	// Search community members
@@ -772,6 +875,97 @@ func (h *ParticipantHandler) SearchAvailableMembers(w http.ResponseWriter, r *ht
 		response[i] = SearchMemberResponse{
 			ID:          m.ID,
 			DisplayName: m.DisplayName,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}
+
+// TopRegionMemberResponse is the response for bulk invite by region
+type TopRegionMemberResponse struct {
+	ID          uint64  `json:"id"`
+	DisplayName string  `json:"display_name"`
+	EloRating   *int    `json:"elo_rating,omitempty"`
+	IconURL     *string `json:"icon_url,omitempty"`
+}
+
+// GetTopMembersForRegionInvite returns top N members by ELO from a region
+// GET /tournaments/{slug}/participants/invite-by-region?region=XX&count=N
+func (h *ParticipantHandler) GetTopMembersForRegionInvite(w http.ResponseWriter, r *http.Request) {
+	userID, ok := middleware.GetUserID(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
+		return
+	}
+
+	region := r.URL.Query().Get("region")
+	if region == "" {
+		writeError(w, http.StatusBadRequest, "region is required")
+		return
+	}
+
+	// Parse count with default of 10, max of 50
+	count := 10
+	if countStr := r.URL.Query().Get("count"); countStr != "" {
+		if c, err := strconv.Atoi(countStr); err == nil && c > 0 {
+			count = c
+		}
+	}
+	if count > 50 {
+		count = 50
+	}
+
+	tournament, err := h.tournamentRepo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrTournamentNotFound) {
+			writeError(w, http.StatusNotFound, "tournament not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournament")
+		return
+	}
+
+	// Only organizer can invite by region
+	if tournament.OrganizerID != userID {
+		writeError(w, http.StatusForbidden, "only organizer can invite by region")
+		return
+	}
+
+	// Must be a community tournament
+	if tournament.CommunityID == nil {
+		writeError(w, http.StatusBadRequest, "region invite only available for community tournaments")
+		return
+	}
+
+	// Get excluded member IDs (current tournament + downstream event tournaments)
+	excludeIDs, err := h.getExcludedMemberIDs(r.Context(), tournament)
+	if err != nil {
+		log.Printf("Error getting excluded member IDs: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch participants")
+		return
+	}
+
+	// Get top members by region from community service
+	members, err := h.communityClient.GetTopMembersByRegion(r.Context(), *tournament.CommunityID, region, excludeIDs, count)
+	if err != nil {
+		log.Printf("Error fetching top members by region: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch members")
+		return
+	}
+
+	response := make([]TopRegionMemberResponse, len(members))
+	for i, m := range members {
+		response[i] = TopRegionMemberResponse{
+			ID:          m.ID,
+			DisplayName: m.DisplayName,
+			EloRating:   m.EloRating,
+			IconURL:     m.IconURL,
 		}
 	}
 

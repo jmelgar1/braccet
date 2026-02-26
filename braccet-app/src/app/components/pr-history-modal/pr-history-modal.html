@@ -1,0 +1,116 @@
+<div class="modal-backdrop" (click)="onBackdropClick($event)">
+  <div class="modal-content">
+    <div class="modal-header">
+      <div>
+        <h3>Power Ranking Details - {{ member().member_name }}</h3>
+        <div class="header-stats">
+          <span class="total-points">{{ member().total_points | number:'1.0-0' }} pts</span>
+          @if (member().rank) {
+            <span class="rank-badge">Rank #{{ member().rank }}</span>
+          }
+        </div>
+      </div>
+      <button class="close-btn" (click)="close.emit()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Score Breakdown Section -->
+      <div class="section">
+        <h4>Score Breakdown</h4>
+        <div class="score-grid">
+          <div class="score-item">
+            <span class="score-label">Achievements</span>
+            <span class="score-value">{{ member().achievements_score | number:'1.0-0' }}</span>
+          </div>
+          <div class="score-item">
+            <span class="score-label">Form</span>
+            <span class="score-value">{{ member().form_score | number:'1.0-0' }}</span>
+          </div>
+          <div class="score-item">
+            <span class="score-label">LAN</span>
+            <span class="score-value">{{ member().lan_score | number:'1.0-0' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Form Stats Section -->
+      <div class="section">
+        <h4>Form Stats</h4>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-label">Wins</span>
+            <span class="stat-value">{{ member().form_wins }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Sets</span>
+            <span class="stat-value">{{ member().form_set_wins }}-{{ member().form_set_losses }}</span>
+          </div>
+          @if (member().form_avg_opponent_rating) {
+            <div class="stat-item">
+              <span class="stat-label">Avg Opp Rating</span>
+              <span class="stat-value">{{ member().form_avg_opponent_rating }}</span>
+            </div>
+          }
+          @if (member().form_best_win_rating) {
+            <div class="stat-item">
+              <span class="stat-label">Best Win</span>
+              <span class="stat-value">{{ member().form_best_win_rating }}</span>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Placements Section -->
+      <div class="section">
+        <h4>Tournament Placements <span class="lan-count">({{ member().lan_placements_count }} LAN)</span></h4>
+
+        @if (error()) {
+          <div class="error-message">{{ error() }}</div>
+        }
+
+        @if (loading()) {
+          <div class="loading-state">Loading placements...</div>
+        } @else if (placements().length === 0) {
+          <div class="empty-state">No tournament placements recorded</div>
+        } @else {
+          <div class="table-wrapper">
+            <table class="placements-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Placement</th>
+                  <th>Class</th>
+                  <th class="text-right">Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (placement of placements(); track placement.id) {
+                  <tr>
+                    <td class="date-cell">{{ placement.completed_at | date:'MMM d, y' }}</td>
+                    <td>
+                      <span class="placement-badge">{{ getPlacementDisplay(placement.placement) }}</span>
+                      <span class="participant-count">/ {{ placement.participant_count }}</span>
+                    </td>
+                    <td>
+                      <span [class]="getTournamentClassBadgeClass(placement.tournament_class)">
+                        {{ getTournamentClassLabel(placement.tournament_class) }}
+                      </span>
+                      @if (placement.is_lan) {
+                        <span class="lan-badge">LAN</span>
+                      }
+                    </td>
+                    <td class="text-right points-cell">{{ placement.raw_points }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+</div>

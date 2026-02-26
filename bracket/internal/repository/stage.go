@@ -15,8 +15,9 @@ type StageRepository interface {
 	Upsert(ctx context.Context, stage *domain.BracketStage) error
 	UpsertForGroup(ctx context.Context, stage *domain.BracketStage) error
 	CreateDefaultStages(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, totalRounds int, isDoubleElim bool) error
-	CreateDefaultStagesForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, bracketType domain.BracketType, totalRounds int) error
+	CreateDefaultStagesForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, bracketType domain.BracketType, totalRounds int, isDoubleElim bool) error
 	DeleteByTournament(ctx context.Context, tournamentID uint64) error
+	DeleteByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) error
 }
 
 type stageRepository struct {
@@ -82,23 +83,23 @@ func (r *stageRepository) GetByRound(ctx context.Context, tournamentID uint64, b
 
 func (r *stageRepository) Upsert(ctx context.Context, stage *domain.BracketStage) error {
 	query := `
-		INSERT INTO bracket_stages (tournament_id, bracket_type, round, stage_name, best_of)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (tournament_id, bracket_type, round)
-		DO UPDATE SET stage_name = $4, best_of = $5, updated_at = CURRENT_TIMESTAMP
+		INSERT INTO bracket_stages (tournament_id, stage_id, group_id, bracket_type, round, stage_name, best_of)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (tournament_id, COALESCE(stage_id, 0::bigint), COALESCE(group_id, 0::bigint), bracket_type, round)
+		DO UPDATE SET stage_name = $6, best_of = $7, updated_at = CURRENT_TIMESTAMP
 		RETURNING id, created_at, updated_at
 	`
 	return r.db.QueryRowContext(ctx, query,
-		stage.TournamentID, stage.BracketType, stage.Round,
+		stage.TournamentID, stage.StageID, stage.GroupID, stage.BracketType, stage.Round,
 		stage.StageName, stage.BestOf,
 	).Scan(&stage.ID, &stage.CreatedAt, &stage.UpdatedAt)
 }
 
 func (r *stageRepository) CreateDefaultStages(ctx context.Context, tournamentID uint64, bracketType domain.BracketType, totalRounds int, isDoubleElim bool) error {
 	query := `
-		INSERT INTO bracket_stages (tournament_id, bracket_type, round, stage_name, best_of)
-		VALUES ($1, $2, $3, $4, $5)
-		ON CONFLICT (tournament_id, bracket_type, round) DO NOTHING
+		INSERT INTO bracket_stages (tournament_id, stage_id, group_id, bracket_type, round, stage_name, best_of)
+		VALUES ($1, NULL, NULL, $2, $3, $4, $5)
+		ON CONFLICT (tournament_id, COALESCE(stage_id, 0::bigint), COALESCE(group_id, 0::bigint), bracket_type, round) DO NOTHING
 	`
 	stmt, err := r.db.PrepareContext(ctx, query)
 	if err != nil {
@@ -186,7 +187,7 @@ func (r *stageRepository) UpsertForGroup(ctx context.Context, stage *domain.Brac
 	query := `
 		INSERT INTO bracket_stages (tournament_id, stage_id, group_id, bracket_type, round, stage_name, best_of)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (tournament_id, COALESCE(stage_id, 0), COALESCE(group_id, 0), bracket_type, round)
+		ON CONFLICT (tournament_id, COALESCE(stage_id, 0::bigint), COALESCE(group_id, 0::bigint), bracket_type, round)
 		DO UPDATE SET stage_name = $6, best_of = $7, updated_at = CURRENT_TIMESTAMP
 		RETURNING id, created_at, updated_at
 	`
@@ -196,11 +197,11 @@ func (r *stageRepository) UpsertForGroup(ctx context.Context, stage *domain.Brac
 	).Scan(&stage.ID, &stage.CreatedAt, &stage.UpdatedAt)
 }
 
-func (r *stageRepository) CreateDefaultStagesForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, bracketType domain.BracketType, totalRounds int) error {
+func (r *stageRepository) CreateDefaultStagesForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, bracketType domain.BracketType, totalRounds int, isDoubleElim bool) error {
 	query := `
 		INSERT INTO bracket_stages (tournament_id, stage_id, group_id, bracket_type, round, stage_name, best_of)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (tournament_id, COALESCE(stage_id, 0), COALESCE(group_id, 0), bracket_type, round) DO NOTHING
+		ON CONFLICT (tournament_id, COALESCE(stage_id, 0::bigint), COALESCE(group_id, 0::bigint), bracket_type, round) DO NOTHING
 	`
 	stmt, err := r.db.PrepareContext(ctx, query)
 	if err != nil {
@@ -209,8 +210,18 @@ func (r *stageRepository) CreateDefaultStagesForGroup(ctx context.Context, tourn
 	defer stmt.Close()
 
 	for round := 1; round <= totalRounds; round++ {
-		// For Swiss brackets in groups, use simple round names
-		defaultName := domain.DefaultSwissStageName(round, totalRounds)
+		var defaultName string
+		if bracketType == domain.BracketSwiss {
+			defaultName = domain.DefaultSwissStageName(round, totalRounds)
+		} else {
+			// For single elimination, use empty bracket type to get simple names
+			// For double elimination, use the actual bracket type to get prefixed names
+			namingType := bracketType
+			if !isDoubleElim {
+				namingType = ""
+			}
+			defaultName = domain.DefaultStageName(namingType, round, totalRounds)
+		}
 		_, err := stmt.ExecContext(ctx, tournamentID, stageID, groupID, bracketType, round, defaultName, 1)
 		if err != nil {
 			return err
@@ -218,4 +229,12 @@ func (r *stageRepository) CreateDefaultStagesForGroup(ctx context.Context, tourn
 	}
 
 	return nil
+}
+
+// DeleteByTournamentStageGroup deletes all bracket stages for a specific stage and group.
+// For finals brackets, groupID is 0.
+func (r *stageRepository) DeleteByTournamentStageGroup(ctx context.Context, tournamentID, stageID, groupID uint64) error {
+	query := `DELETE FROM bracket_stages WHERE tournament_id = $1 AND stage_id = $2 AND group_id = $3`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, stageID, groupID)
+	return err
 }

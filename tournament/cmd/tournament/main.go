@@ -9,6 +9,7 @@ import (
 	"github.com/braccet/tournament/internal/client"
 	"github.com/braccet/tournament/internal/config"
 	"github.com/braccet/tournament/internal/repository"
+	"github.com/braccet/tournament/internal/service"
 )
 
 func main() {
@@ -24,6 +25,7 @@ func main() {
 	tournamentRepo := repository.NewTournamentRepository(db)
 	participantRepo := repository.NewParticipantRepository(db)
 	stageRepo := repository.NewStageRepository(db)
+	eventRepo := repository.NewEventRepository(db)
 
 	// Initialize bracket service client
 	bracketServiceURL := os.Getenv("BRACKET_SERVICE_URL")
@@ -39,8 +41,15 @@ func main() {
 	}
 	communityClient := client.NewCommunityClient(communityServiceURL)
 
+	// Initialize R2 storage service
+	r2Config := config.LoadR2Config()
+	storageService, err := service.NewStorageService(r2Config)
+	if err != nil {
+		log.Printf("Warning: failed to initialize storage service: %v", err)
+	}
+
 	// Create router
-	router := api.NewRouter(tournamentRepo, participantRepo, stageRepo, bracketClient, communityClient)
+	router := api.NewRouter(tournamentRepo, participantRepo, stageRepo, eventRepo, bracketClient, communityClient, storageService)
 
 	// Get port from environment
 	port := os.Getenv("PORT")

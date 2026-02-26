@@ -35,6 +35,7 @@ type StageRepository interface {
 	CreateAssignments(ctx context.Context, assignments []*domain.GroupAssignment) error
 	GetAssignmentsByGroup(ctx context.Context, groupID uint64) ([]*domain.GroupAssignment, error)
 	GetAssignmentsByStage(ctx context.Context, stageID uint64) ([]*domain.GroupAssignment, error)
+	ReplaceAssignmentsByStage(ctx context.Context, stageID, tournamentID uint64, assignments []*domain.GroupAssignment) error
 	DeleteAssignmentsByStage(ctx context.Context, stageID uint64) error
 	DeleteAssignmentsByTournament(ctx context.Context, tournamentID uint64) error
 
@@ -381,6 +382,45 @@ func (r *stageRepository) GetAssignmentsByStage(ctx context.Context, stageID uin
 	}
 
 	return assignments, rows.Err()
+}
+
+func (r *stageRepository) ReplaceAssignmentsByStage(ctx context.Context, stageID, tournamentID uint64, assignments []*domain.GroupAssignment) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Delete existing assignments for this stage
+	_, err = tx.ExecContext(ctx, `DELETE FROM group_assignments WHERE stage_id = $1`, stageID)
+	if err != nil {
+		return err
+	}
+
+	// Insert new assignments if any
+	if len(assignments) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO group_assignments (tournament_id, stage_id, group_id, participant_id, seed_in_group)
+			VALUES ($1, $2, $3, $4, $5)
+			RETURNING id, created_at
+		`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		for _, a := range assignments {
+			a.TournamentID = tournamentID
+			a.StageID = stageID
+			if err := stmt.QueryRowContext(ctx,
+				a.TournamentID, a.StageID, a.GroupID, a.ParticipantID, a.SeedInGroup,
+			).Scan(&a.ID, &a.CreatedAt); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (r *stageRepository) DeleteAssignmentsByStage(ctx context.Context, stageID uint64) error {

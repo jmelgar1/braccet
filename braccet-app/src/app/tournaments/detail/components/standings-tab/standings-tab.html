@@ -3,7 +3,7 @@
   <div class="standings-header">
     <h3 class="standings-title">Standings</h3>
     <div class="standings-info">
-      @if (isSwissFormat() && swissBracketState()) {
+      @if ((isSwissFormat() || (isMultiStageFormat() && isGroupStage())) && swissBracketState()) {
         @if (isThresholdMode()) {
           <span class="threshold-info">
             @if (winsToAdvance()) { {{ winsToAdvance() }}W to advance }
@@ -22,6 +22,41 @@
     </div>
   </div>
 
+  <!-- Multi-stage tabs -->
+  @if (isMultiStageFormat() && stages().length > 0) {
+    <div class="stage-tabs">
+      @for (stage of stages(); track stage.id; let i = $index) {
+        <button
+          class="stage-tab"
+          [class.active]="activeStageIndex() === i"
+          (click)="selectStage(i)"
+        >
+          {{ getStageName(stage) }}
+          @if (stage.is_complete) {
+            <span class="tab-complete-badge">Done</span>
+          } @else if (stage.is_active) {
+            <span class="tab-active-badge">Active</span>
+          }
+        </button>
+      }
+    </div>
+
+    <!-- Group tabs (for group stages) -->
+    @if (isGroupStage() && groups().length > 0) {
+      <div class="group-tabs">
+        @for (group of groups(); track group.id; let i = $index) {
+          <button
+            class="group-tab"
+            [class.active]="activeGroupIndex() === i"
+            (click)="selectGroup(i)"
+          >
+            {{ group.group_name }}
+          </button>
+        }
+      </div>
+    }
+  }
+
   <!-- Error -->
   @if (error()) {
     <div class="error-message">
@@ -34,7 +69,7 @@
     <div class="loading-state">
       <p>Loading standings...</p>
     </div>
-  } @else if (isSwissFormat() && swissStandings().length > 0) {
+  } @else if ((isSwissFormat() || (isMultiStageFormat() && isGroupStage())) && swissStandings().length > 0) {
     <!-- Swiss Standings Table -->
     <div class="table-container">
       <table class="standings-table">
@@ -139,7 +174,7 @@
         <span class="legend-label">Buch.:</span> Buchholz tiebreaker (total opponent wins)
       </div>
     </div>
-  } @else if ((isEliminationFormat() || isMultiStageFormat()) && elimStandings().length > 0) {
+  } @else if (isEliminationFormat() && elimStandings().length > 0) {
     <!-- Elimination Standings Table -->
     <div class="table-container">
       <table class="standings-table">
@@ -212,10 +247,23 @@
         <span class="legend-label">+/-:</span> Game differential
       </div>
     </div>
+  } @else if (isMultiStageFormat() && isFinalStage() && elimStandings().length === 0) {
+    <!-- Finals stage with no standings yet -->
+    <div class="no-standings">
+      <p>Finals standings will appear once matches are played.</p>
+      <p class="text-sm text-gray-500">View the bracket tab to see the current bracket.</p>
+    </div>
   } @else if (!loading()) {
     <div class="no-standings">
-      <p>No standings available yet.</p>
-      <p class="text-sm text-gray-500">Standings will appear once the tournament starts.</p>
+      @if (isMultiStageFormat() && isGroupStage() && groups().length === 0) {
+        <p>This stage has not started yet.</p>
+        <p class="text-sm text-gray-500">Standings will appear once the stage begins.</p>
+      } @else if (isMultiStageFormat() && stages().length === 0) {
+        <p>No stages configured yet.</p>
+      } @else {
+        <p>No standings available yet.</p>
+        <p class="text-sm text-gray-500">Standings will appear once the tournament starts.</p>
+      }
     </div>
   }
 </div>

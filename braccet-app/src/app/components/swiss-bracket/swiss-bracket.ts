@@ -26,6 +26,7 @@ export class SwissBracket implements AfterViewInit, OnDestroy {
   matchReopened = output<Match>();
   matchEditClicked = output<Match>();
   stageClicked = output<{ round: number; stage: BracketStage }>();
+  reseedRoundClicked = output<{ round: number }>();
 
   // Current selected round (1-indexed)
   selectedRound = signal(1);
@@ -227,17 +228,39 @@ export class SwissBracket implements AfterViewInit, OnDestroy {
     // Only allow editing by organizers and not in preview mode
     if (!this.isOrganizer() || this.isPreview()) return;
 
-    // Find the stage for this round
-    const stage = this.stages().find(s => s.round === round);
-    if (stage) {
-      event.stopPropagation();
-      this.stageClicked.emit({ round, stage });
+    event.stopPropagation();
+
+    // Find the stage for this round, or create a default one
+    let stage = this.stages().find(s => s.round === round);
+
+    // If no stage exists yet, create a default one so the modal can be opened
+    // to preset configuration before matches are populated
+    if (!stage) {
+      stage = {
+        tournament_id: this.bracketState().tournament_id,
+        bracket_type: 'swiss',
+        round: round,
+        stage_name: `Round ${round}`,
+        best_of: 1
+      };
     }
+
+    this.stageClicked.emit({ round, stage });
+  }
+
+  // Handle reseed button click
+  onReseedRound(round: number, event: MouseEvent): void {
+    // Only allow reseeding by organizers and not in preview mode
+    if (!this.isOrganizer() || this.isPreview()) return;
+
+    event.stopPropagation();
+    this.reseedRoundClicked.emit({ round });
   }
 
   // Check if stage tab should show edit indicator
+  // Allow clicking even if no stages exist yet - organizers can preset configuration
   canEditStage(): boolean {
-    return this.isOrganizer() && !this.isPreview() && this.stages().length > 0;
+    return this.isOrganizer() && !this.isPreview();
   }
 
   // Get best_of for current round
@@ -264,6 +287,23 @@ export class SwissBracket implements AfterViewInit, OnDestroy {
 
   getIconURL2(match: Match): string | null {
     return match.participant2_icon_url || null;
+  }
+
+  // Get first letter for fallback icon when no logo is available
+  getParticipant1Initial(match: Match): string {
+    const name = this.getParticipant1Display(match);
+    if (!name || name === 'TBD' || name === 'BYE' || name.startsWith('Seed ')) {
+      return '';
+    }
+    return name.charAt(0).toUpperCase();
+  }
+
+  getParticipant2Initial(match: Match): string {
+    const name = this.getParticipant2Display(match);
+    if (!name || name === 'TBD' || name === 'BYE' || name.startsWith('Seed ')) {
+      return '';
+    }
+    return name.charAt(0).toUpperCase();
   }
 
   getSeed1(match: Match): number | null {

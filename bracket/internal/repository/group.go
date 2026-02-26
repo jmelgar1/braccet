@@ -25,6 +25,7 @@ type GroupRepository interface {
 	CreateStageStandings(ctx context.Context, standings []*domain.StageStanding) error
 	GetStageStandings(ctx context.Context, stageID uint64) ([]*domain.StageStanding, error)
 	GetAdvancingParticipants(ctx context.Context, stageID uint64) ([]*domain.StageStanding, error)
+	GetAdvancingParticipantsByTournament(ctx context.Context, tournamentID uint64) ([]*domain.StageStanding, error)
 	UpdateStageStanding(ctx context.Context, standing *domain.StageStanding) error
 	DeleteStageStandingsByStage(ctx context.Context, stageID uint64) error
 	DeleteStageStandingsByTournament(ctx context.Context, tournamentID uint64) error
@@ -254,6 +255,39 @@ func (r *groupRepository) GetAdvancingParticipants(ctx context.Context, stageID 
 		ORDER BY COALESCE(stage_rank, 999) ASC
 	`
 	rows, err := r.db.QueryContext(ctx, query, stageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var standings []*domain.StageStanding
+	for rows.Next() {
+		s := &domain.StageStanding{}
+		if err := rows.Scan(
+			&s.ID, &s.TournamentID, &s.StageID, &s.ParticipantID, &s.GroupID, &s.GroupRank,
+			&s.MatchWins, &s.MatchLosses, &s.SetWins, &s.SetLosses, &s.PointsScored, &s.PointsAgainst, &s.StageRank, &s.Advances,
+			&s.CreatedAt, &s.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		standings = append(standings, s)
+	}
+
+	return standings, rows.Err()
+}
+
+// GetAdvancingParticipantsByTournament returns all advancing participants for a tournament.
+// This is useful for reseeding finals brackets where we need participants that advanced from the previous stage.
+func (r *groupRepository) GetAdvancingParticipantsByTournament(ctx context.Context, tournamentID uint64) ([]*domain.StageStanding, error) {
+	query := `
+		SELECT id, tournament_id, stage_id, participant_id, group_id, group_rank,
+		       match_wins, match_losses, set_wins, set_losses, points_scored, points_against, stage_rank, advances,
+		       created_at, updated_at
+		FROM stage_standings
+		WHERE tournament_id = $1 AND advances = true
+		ORDER BY COALESCE(stage_rank, 999) ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, tournamentID)
 	if err != nil {
 		return nil, err
 	}

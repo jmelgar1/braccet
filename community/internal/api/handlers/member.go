@@ -893,3 +893,64 @@ func (h *MemberHandler) GetRegions(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, regions)
 }
+
+// GetTopMembersByRegion returns top N members by ELO from a region, excluding specified IDs
+// POST /internal/communities/{id}/members/top-by-region
+func (h *MemberHandler) GetTopMembersByRegion(w http.ResponseWriter, r *http.Request) {
+	communityIDStr := chi.URLParam(r, "id")
+	communityID, err := strconv.ParseUint(communityIDStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid community id")
+		return
+	}
+
+	var req struct {
+		Region     string   `json:"region"`
+		ExcludeIDs []uint64 `json:"exclude_ids"`
+		Limit      int      `json:"limit"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Region == "" {
+		writeError(w, http.StatusBadRequest, "region is required")
+		return
+	}
+
+	// Default and cap limit
+	if req.Limit <= 0 {
+		req.Limit = 10
+	}
+	if req.Limit > 50 {
+		req.Limit = 50
+	}
+
+	members, err := h.memberRepo.GetTopByRegionExcluding(r.Context(), communityID, req.Region, req.ExcludeIDs, req.Limit)
+	if err != nil {
+		log.Printf("Error fetching top members by region for community %d: %v", communityID, err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch members")
+		return
+	}
+
+	// Return simplified response
+	type TopMemberResponse struct {
+		ID          uint64  `json:"id"`
+		DisplayName string  `json:"display_name"`
+		EloRating   *int    `json:"elo_rating,omitempty"`
+		IconURL     *string `json:"icon_url,omitempty"`
+	}
+
+	response := make([]TopMemberResponse, len(members))
+	for i, m := range members {
+		response[i] = TopMemberResponse{
+			ID:          m.ID,
+			DisplayName: m.DisplayName,
+			EloRating:   m.EloRating,
+			IconURL:     m.IconURL,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
+}

@@ -1,0 +1,274 @@
+<div class="min-h-[calc(100vh-4rem)] bg-gray-100 p-6">
+  <app-breadcrumb [items]="breadcrumbs" />
+
+  <div class="w-3/4 mx-auto">
+    @if (loading()) {
+      <div class="flex justify-center items-center py-12">
+        <div class="text-gray-500">Loading event...</div>
+      </div>
+    } @else if (error()) {
+      <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-6 text-sm">
+        {{ error() }}
+      </div>
+    } @else if (event()) {
+      <!-- Event Info Card -->
+      <div class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-6">
+        <!-- Header: Logo, Name, Status, Actions -->
+        <div class="flex justify-between items-start mb-4">
+          <div class="flex items-center gap-4">
+            <!-- Logo -->
+            <div class="relative">
+              @if (event()!.logo_url) {
+                <img
+                  [src]="event()!.logo_url"
+                  alt="Event logo"
+                  class="w-16 h-16 rounded-lg object-cover border border-gray-200"
+                />
+              } @else {
+                <div class="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center border border-gray-200">
+                  <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                  </svg>
+                </div>
+              }
+              @if (isOrganizer()) {
+                <label class="absolute -bottom-1 -right-1 w-6 h-6 bg-blue-400 rounded-full flex items-center justify-center cursor-pointer hover:bg-blue-500 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                    (change)="onLogoFileSelected($event)"
+                    class="hidden"
+                    [disabled]="uploadingLogo()"
+                  />
+                  @if (uploadingLogo()) {
+                    <svg class="w-3 h-3 text-white animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                  } @else {
+                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                  }
+                </label>
+              }
+            </div>
+            <div class="flex items-center gap-3">
+              <h1 class="text-2xl font-bold text-gray-900">{{ event()!.name }}</h1>
+              <span [class]="'px-2 py-0.5 rounded-full text-xs font-medium ' + getStatusColor(event()!.status)">
+                {{ getStatusLabel(event()!.status) }}
+              </span>
+            </div>
+          </div>
+          @if (isOrganizer()) {
+            <div class="flex items-center gap-2">
+              <button
+                (click)="deleteEvent()"
+                class="px-3 py-1.5 text-red-500 hover:text-red-600 text-sm font-medium">
+                Delete
+              </button>
+            </div>
+          }
+        </div>
+
+        <!-- Event Details -->
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm mb-4">
+          @if (event()!.game) {
+            <div class="flex items-center gap-2">
+              <span class="text-gray-500">Game:</span>
+              <span class="font-medium text-gray-900">{{ event()!.game }}</span>
+            </div>
+          }
+
+          @if (event()!.starts_at) {
+            <div class="flex items-center gap-2">
+              <span class="text-gray-500">Starts:</span>
+              <span class="font-medium text-gray-900">{{ event()!.starts_at | date:'medium' }}</span>
+            </div>
+          }
+
+          <div class="flex items-center gap-2">
+            <span class="text-gray-500">Created:</span>
+            <span class="text-gray-600">{{ event()!.created_at | date:'mediumDate' }}</span>
+          </div>
+        </div>
+
+        @if (event()!.description) {
+          <p class="text-gray-700 text-sm pt-4 border-t border-gray-200">{{ event()!.description }}</p>
+        }
+      </div>
+
+      <!-- Tournaments Section -->
+      <div class="bg-white rounded-lg shadow border border-gray-200 p-6">
+        <div class="flex justify-between items-center mb-4">
+          <div class="flex items-center gap-4">
+            <h2 class="text-lg font-semibold text-gray-900">Tournaments</h2>
+
+            <!-- View toggle -->
+            @if (event()!.tournaments && event()!.tournaments!.length > 1) {
+              <div class="flex items-center bg-gray-100 rounded-lg p-1">
+                <button
+                  (click)="setViewMode('list')"
+                  [class]="'px-3 py-1 text-sm font-medium rounded-md transition-colors ' + (viewMode() === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900')">
+                  List
+                </button>
+                <button
+                  (click)="setViewMode('dag')"
+                  [class]="'px-3 py-1 text-sm font-medium rounded-md transition-colors ' + (viewMode() === 'dag' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900')">
+                  Visual
+                </button>
+              </div>
+            }
+          </div>
+
+          @if (isOrganizer()) {
+            <div class="relative add-tournament-dropdown">
+              <button
+                (click)="toggleAddTournamentDropdown()"
+                class="flex items-center gap-1 px-3 py-1.5 bg-blue-400 text-gray-900 rounded-lg hover:bg-blue-500 text-sm font-medium">
+                @if (hasMainEvent()) {
+                  Add Qualifier
+                } @else {
+                  Add Main Event
+                }
+                <svg class="w-4 h-4 transition-transform" [class.rotate-180]="addTournamentDropdownOpen()" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </button>
+
+              @if (addTournamentDropdownOpen()) {
+                <div class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                  <button
+                    (click)="onExistingTournament()"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                    Existing Tournament
+                  </button>
+                  <button
+                    (click)="onNewTournament()"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+                    New Tournament
+                  </button>
+                </div>
+              }
+            </div>
+          }
+        </div>
+
+        @if (!event()!.tournaments || event()!.tournaments!.length === 0) {
+          <div class="text-center py-8">
+            <p class="text-gray-500 mb-2">No tournaments in this event yet</p>
+            @if (isOrganizer()) {
+              <p class="text-gray-400 text-sm">Start by adding a main event tournament</p>
+            }
+          </div>
+        } @else if (viewMode() === 'list') {
+          <!-- List View -->
+          <div class="space-y-3">
+            @for (tournament of event()!.tournaments; track tournament.id) {
+              <div
+                class="border border-gray-200 rounded-lg p-4 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
+                (click)="onTournamentClick(tournament)">
+                <div class="flex justify-between items-start">
+                  <div class="flex-grow">
+                    <div class="flex items-center gap-2 mb-1">
+                      <span class="font-medium text-gray-900">{{ tournament.tournament_name }}</span>
+                      <span [class]="'px-2 py-0.5 rounded-full text-xs font-medium ' + getRoleColor(tournament.role)">
+                        {{ getRoleLabel(tournament.role) }}
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-4 text-sm text-gray-500">
+                      <span [class]="getTournamentStatusColor(tournament.tournament_status)">
+                        {{ tournament.tournament_status | titlecase }}
+                      </span>
+                      <span>{{ tournament.participant_count }} participants</span>
+                    </div>
+                    @if (tournament.role === 'qualifier' && isOrganizer()) {
+                      <div class="flex items-center gap-2 mt-2" (click)="onAdvancingInputClick($event)">
+                        <span class="text-sm text-gray-600">Advancing:</span>
+                        <input
+                          type="number"
+                          [value]="tournament.advancing_count || ''"
+                          (change)="updateAdvancingCount(tournament, $any($event.target).value)"
+                          (click)="onAdvancingInputClick($event)"
+                          min="1"
+                          placeholder="--"
+                          class="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
+                        />
+                        <span class="text-sm text-gray-500">to main event</span>
+                      </div>
+                    } @else if (tournament.role === 'qualifier' && tournament.advancing_count) {
+                      <div class="mt-2 text-sm text-gray-500">
+                        Top {{ tournament.advancing_count }} advance to main event
+                      </div>
+                    }
+                  </div>
+                  <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <!-- DAG Visual View -->
+          @if (loadingGraph()) {
+            <div class="text-center py-8">
+              <p class="text-gray-500">Loading visual editor...</p>
+            </div>
+          } @else {
+            <app-qualifier-dag-editor
+              [graph]="eventGraph()"
+              [isOrganizer]="isOrganizer()"
+              (connectionCreated)="onConnectionCreated($event)"
+              (connectionRemoved)="onConnectionRemoved($event)"
+              (advancingCountChanged)="onAdvancingCountChanged($event)"
+              (positionsChanged)="onPositionsChanged($event)"
+            />
+          }
+        }
+      </div>
+    }
+  </div>
+</div>
+
+<!-- Select Tournament Dialog -->
+@if (showSelectTournamentDialog()) {
+  <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+       (click)="closeSelectTournamentDialog()">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 max-h-[80vh] overflow-y-auto"
+         (click)="$event.stopPropagation()">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Select Tournament</h3>
+
+      @if (loadingTournaments()) {
+        <div class="text-center py-4 text-gray-500">Loading available tournaments...</div>
+      } @else if (availableTournaments().length === 0) {
+        <div class="text-center py-4 text-gray-500">
+          <p class="mb-2">No available tournaments found.</p>
+          <p class="text-sm">All tournaments in this community are already assigned to events.</p>
+        </div>
+      } @else if (addingTournament()) {
+        <div class="text-center py-4 text-gray-500">Adding tournament...</div>
+      } @else {
+        <div class="space-y-2">
+          @for (tournament of availableTournaments(); track tournament.id) {
+            <button
+              (click)="onSelectTournament(tournament)"
+              class="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors">
+              <div class="font-medium text-gray-900">{{ tournament.name }}</div>
+              <div class="text-sm text-gray-500">{{ getFormatLabel(tournament.format) }} - {{ tournament.status | titlecase }}</div>
+            </button>
+          }
+        </div>
+      }
+
+      <div class="mt-4 flex justify-end">
+        <button
+          (click)="closeSelectTournamentDialog()"
+          class="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
+          Cancel
+        </button>
+      </div>
+    </div>
+  </div>
+}
+

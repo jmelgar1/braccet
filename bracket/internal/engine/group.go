@@ -365,13 +365,90 @@ func AggregateStageStandings(
 		return false
 	})
 
-	// Assign stage ranks
-	for i, ss := range allStandings {
-		rank := i + 1
-		ss.StageRank = &rank
-	}
+	// Apply cross-group seeding for bracket half distribution
+	applyCrossGroupSeeding(allStandings)
 
 	return allStandings
+}
+
+// applyCrossGroupSeeding reorders stage standings to ensure cross-group distribution
+// across bracket halves. Uses serpentine seeding at the rank-tier level.
+//
+// The standard bracket seeding maps seeds to halves like this (for 8-team bracket):
+// - Top half: seeds 1, 4, 5, 8
+// - Bottom half: seeds 2, 3, 6, 7
+//
+// To achieve cross-seeding (participants from same group on opposite halves), we apply
+// serpentine ordering every 2 tiers (super-tiers):
+// - Super-tier 0 (tiers 0-1): normal group order
+// - Super-tier 1 (tiers 2-3): reversed group order
+// - Alternates for subsequent super-tiers
+//
+// This ensures that 2nd/3rd place finishers are on opposite bracket halves from their
+// own group's 1st place finisher, minimizing early rematches.
+func applyCrossGroupSeeding(standings []*domain.StageStanding) {
+	if len(standings) == 0 {
+		return
+	}
+
+	// Count unique groups
+	groupSet := make(map[uint64]bool)
+	for _, s := range standings {
+		groupSet[s.GroupID] = true
+	}
+	numGroups := len(groupSet)
+
+	if numGroups < 2 {
+		// No cross-seeding needed for single group, just assign ranks
+		for i, ss := range standings {
+			rank := i + 1
+			ss.StageRank = &rank
+		}
+		return
+	}
+
+	// Group standings by rank tier (group rank)
+	tiers := make(map[int][]*domain.StageStanding)
+	for _, s := range standings {
+		tiers[s.GroupRank] = append(tiers[s.GroupRank], s)
+	}
+
+	// Get sorted tier numbers
+	tierNums := make([]int, 0, len(tiers))
+	for t := range tiers {
+		tierNums = append(tierNums, t)
+	}
+	sort.Ints(tierNums)
+
+	// Rebuild standings with serpentine ordering
+	result := make([]*domain.StageStanding, 0, len(standings))
+
+	for i, tierNum := range tierNums {
+		tier := tiers[tierNum]
+
+		// Sort tier by group ID to get consistent ordering
+		sort.SliceStable(tier, func(a, b int) bool {
+			return tier[a].GroupID < tier[b].GroupID
+		})
+
+		// Apply serpentine: reverse order for odd super-tiers (every 2 tiers)
+		superTier := i / 2
+		if superTier%2 == 1 {
+			// Reverse the tier
+			for left, right := 0, len(tier)-1; left < right; left, right = left+1, right-1 {
+				tier[left], tier[right] = tier[right], tier[left]
+			}
+		}
+
+		result = append(result, tier...)
+	}
+
+	// Copy back to original slice and reassign stage ranks
+	for i, s := range result {
+		standings[i] = s
+		rank := i + 1
+		standings[i].StageRank = &rank
+	}
 }
 
 // InitializeGroupStandings creates initial standings for a group

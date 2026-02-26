@@ -1,0 +1,129 @@
+<div class="min-h-[calc(100vh-4rem)] bg-gray-100 p-6 pb-12">
+  <app-breadcrumb [items]="breadcrumbs" />
+
+  <div class="w-3/4 mx-auto">
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">New Event</h1>
+
+  @if (error()) {
+    <div class="bg-red-100 border border-red-400 text-red-400 px-4 py-3 rounded mb-6 text-sm">
+      {{ error() }}
+    </div>
+  }
+
+  <form (ngSubmit)="onSubmit()">
+    <!-- Basic Information Card -->
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-6 mb-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Basic Information</h2>
+
+      <div class="space-y-4">
+        <!-- Name -->
+        <div>
+          <label for="name" class="block text-sm font-medium text-gray-700 mb-1">
+            Event Name <span class="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            id="name"
+            name="name"
+            [ngModel]="name()"
+            (ngModelChange)="name.set($event)"
+            (blur)="nameTouched.set(true)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="Enter event name"
+            maxlength="200"
+          />
+          @if (nameError()) {
+            <p class="text-red-400 text-sm mt-1">{{ nameError() }}</p>
+          }
+        </div>
+
+        <!-- Community -->
+        <div>
+          <label for="community" class="block text-sm font-medium text-gray-700 mb-1">
+            Community <span class="text-red-500">*</span>
+          </label>
+          <select
+            id="community"
+            name="community"
+            [ngModel]="communityId()"
+            (ngModelChange)="communityId.set($event)"
+            (blur)="communityTouched.set(true)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            [disabled]="loadingCommunities()"
+          >
+            <option [ngValue]="null">Select a community</option>
+            @for (community of communities(); track community.id) {
+              <option [ngValue]="community.id">{{ community.name }}</option>
+            }
+          </select>
+          @if (communityError()) {
+            <p class="text-red-400 text-sm mt-1">{{ communityError() }}</p>
+          }
+          <p class="text-sm text-gray-500 mt-1">Events must belong to a community</p>
+        </div>
+
+        <!-- Game -->
+        <div>
+          <label for="game" class="block text-sm font-medium text-gray-700 mb-1">
+            Game
+          </label>
+          <input
+            type="text"
+            id="game"
+            name="game"
+            [ngModel]="game()"
+            (ngModelChange)="game.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="e.g., Super Smash Bros, League of Legends"
+            maxlength="100"
+          />
+        </div>
+
+        <!-- Description -->
+        <div>
+          <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
+            Description
+          </label>
+          <textarea
+            id="description"
+            name="description"
+            [ngModel]="description()"
+            (ngModelChange)="description.set($event)"
+            rows="3"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            placeholder="Describe your event..."
+          ></textarea>
+        </div>
+
+        <!-- Starts At -->
+        <div>
+          <label for="startsAt" class="block text-sm font-medium text-gray-700 mb-1">
+            Start Date & Time
+          </label>
+          <input
+            type="datetime-local"
+            id="startsAt"
+            name="startsAt"
+            [ngModel]="startsAt()"
+            (ngModelChange)="startsAt.set($event)"
+            class="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+      </div>
+    </div>
+
+    <!-- Submit Button -->
+    <button
+      type="submit"
+      [disabled]="loading()"
+      class="w-full bg-blue-400 text-gray-900 py-3 rounded-lg font-semibold hover:bg-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      @if (loading()) {
+        Creating...
+      } @else {
+        Create Event
+      }
+    </button>
+  </form>
+  </div>
+</div>

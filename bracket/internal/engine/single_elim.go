@@ -49,6 +49,9 @@ func SingleEliminationWithOptions(tournamentID uint64, participants []domain.Par
 	var matches []*domain.Match
 
 	// Round 1 matches
+	// pair[0] (lower seed number) is Participant1 (top cell)
+	// pair[1] (higher seed number) is Participant2 (bottom cell)
+	// With our seeding: underdogs have lower numbers (top), favorites have higher numbers (bottom)
 	round1Matches := make([]*domain.Match, len(pairings))
 	for i, pair := range pairings {
 		match := createMatch(tournamentID, 1, i+1, seedMap[pair[0]], seedMap[pair[1]])

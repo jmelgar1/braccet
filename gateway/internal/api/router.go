@@ -48,6 +48,13 @@ func NewRouter(cfg config.Config) chi.Router {
 		r.HandleFunc("/*", bracketProxy) // Handles /api/brackets/*
 	})
 
+	// Event routes (part of tournament service)
+	r.Route("/api/events", func(r chi.Router) {
+		eventProxy := proxy.NewServiceProxy(cfg.TournamentServiceURL, "/api")
+		r.HandleFunc("/", eventProxy)  // Handles /api/events
+		r.HandleFunc("/*", eventProxy) // Handles /api/events/*
+	})
+
 	// Community service routes
 	r.Route("/api/communities", func(r chi.Router) {
 		communityProxy := proxy.NewServiceProxy(cfg.CommunityServiceURL, "/api")

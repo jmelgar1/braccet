@@ -33,6 +33,7 @@ export class MultiStageBracketComponent {
   stages = input.required<TournamentStage[]>();
   isOrganizer = input(false);
   refreshKey = input(0);
+  selectedGroupIdx = input<number | null>(null); // External group selection
 
   // Outputs
   matchClicked = output<Match>();
@@ -40,10 +41,15 @@ export class MultiStageBracketComponent {
   matchReopened = output<Match>();
   stageClicked = output<{ round: number; stage: BracketStage; bracketType?: BracketType; stageId?: number; groupId?: number }>();
   swissStageClicked = output<{ round: number; stage: BracketStage; stageId?: number; groupId?: number }>();
+  swissReseedClicked = output<{ round: number; stageId?: number; groupId?: number }>();
+  finalsReseedClicked = output<{ stageId: number; format: string }>();
+  stageReseedClicked = output<{ stageId: number; format: string }>();
   advanceStageClicked = output<void>();
   startStageClicked = output<void>();
   currentStagesChanged = output<BracketStage[]>();
   finalsCompleteChanged = output<boolean>();
+  activeStageChanged = output<{ stageId: number; format: string; stageType: string }>();
+  groupsChanged = output<{ groups: StageGroup[]; selectedIndex: number; stats: Map<number, { completed: number; total: number; isComplete: boolean }> }>();
 
   // State
   activeStage = signal<TournamentStage | null>(null);
@@ -317,6 +323,38 @@ export class MultiStageBracketComponent {
       const isComplete = this.finalsComplete();
       this.finalsCompleteChanged.emit(isComplete);
     });
+
+    // Emit active stage info whenever it changes
+    effect(() => {
+      const stage = this.activeStage();
+      if (stage) {
+        this.activeStageChanged.emit({
+          stageId: stage.id,
+          format: stage.format,
+          stageType: stage.stage_type
+        });
+      }
+    });
+
+    // Emit groups data whenever groups or selection changes
+    effect(() => {
+      const groupList = this.groups();
+      const selectedIdx = this.selectedGroupIndex();
+      const stats = this.groupCompletionStats();
+      this.groupsChanged.emit({
+        groups: groupList,
+        selectedIndex: selectedIdx,
+        stats: stats
+      });
+    });
+
+    // Watch for external group selection
+    effect(() => {
+      const externalIdx = this.selectedGroupIdx();
+      if (externalIdx !== null && externalIdx !== this.selectedGroupIndex()) {
+        this.selectGroup(externalIdx);
+      }
+    });
   }
 
   selectStage(stage: TournamentStage): void {
@@ -482,6 +520,37 @@ export class MultiStageBracketComponent {
       stageId: stage?.id,
       groupId: group?.id
     });
+  }
+
+  onSwissReseedClicked(event: { round: number }): void {
+    // Include stageId and groupId from active context if in a group bracket
+    const stage = this.activeStage();
+    const group = this.activeGroup();
+    this.swissReseedClicked.emit({
+      ...event,
+      stageId: stage?.id,
+      groupId: group?.id
+    });
+  }
+
+  onFinalsReseedClicked(): void {
+    const stage = this.activeStage();
+    if (stage?.stage_type === 'final') {
+      this.finalsReseedClicked.emit({
+        stageId: stage.id,
+        format: stage.format
+      });
+    }
+  }
+
+  onStageReseedClicked(): void {
+    const stage = this.activeStage();
+    if (stage) {
+      this.stageReseedClicked.emit({
+        stageId: stage.id,
+        format: stage.format
+      });
+    }
   }
 
   onAdvanceStage(): void {

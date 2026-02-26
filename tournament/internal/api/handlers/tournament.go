@@ -40,49 +40,85 @@ func NewTournamentHandler(repo repository.TournamentRepository, participantRepo 
 // Request/Response types
 
 type CreateTournamentRequest struct {
-	Name            string  `json:"name"`
-	Description     *string `json:"description,omitempty"`
-	Game            *string `json:"game,omitempty"`
-	Format          string  `json:"format"`
-	MaxParticipants *uint   `json:"max_participants,omitempty"`
-	SwissRounds     *int    `json:"swiss_rounds,omitempty"`
-	StartsAt        *string `json:"starts_at,omitempty"`
-	CommunityID     *uint64 `json:"community_id,omitempty"`
-	EloSystemID     *uint64 `json:"elo_system_id,omitempty"`
+	Name            string   `json:"name"`
+	Description     *string  `json:"description,omitempty"`
+	Game            *string  `json:"game,omitempty"`
+	Format          string   `json:"format"`
+	MaxParticipants *uint    `json:"max_participants,omitempty"`
+	SwissRounds     *int     `json:"swiss_rounds,omitempty"`
+	StartsAt        *string  `json:"starts_at,omitempty"`
+	CommunityID     *uint64  `json:"community_id,omitempty"`
+	EloSystemID     *uint64  `json:"elo_system_id,omitempty"`
+	PRSystemID      *uint64  `json:"pr_system_id,omitempty"`
+	TournamentClass *string  `json:"tournament_class,omitempty"`
+	PrizePoolUSD    *float64 `json:"prize_pool_usd,omitempty"`
 }
 
 type UpdateTournamentRequest struct {
-	Name             *string `json:"name,omitempty"`
-	Description      *string `json:"description,omitempty"`
-	Game             *string `json:"game,omitempty"`
-	Format           *string `json:"format,omitempty"`
-	Status           *string `json:"status,omitempty"`
-	MaxParticipants  *uint   `json:"max_participants,omitempty"`
-	SwissRounds      *int    `json:"swiss_rounds,omitempty"`
-	RegistrationOpen *bool   `json:"registration_open,omitempty"`
-	StartsAt         *string `json:"starts_at,omitempty"`
-	CommunityID      *uint64 `json:"community_id,omitempty"`
-	EloSystemID      *uint64 `json:"elo_system_id,omitempty"`
+	Name              *string                    `json:"name,omitempty"`
+	Description       *string                    `json:"description,omitempty"`
+	Game              *string                    `json:"game,omitempty"`
+	Format            *string                    `json:"format,omitempty"`
+	Status            *string                    `json:"status,omitempty"`
+	MaxParticipants   *uint                      `json:"max_participants,omitempty"`
+	SwissRounds       *int                       `json:"swiss_rounds,omitempty"`
+	RegistrationOpen  *bool                      `json:"registration_open,omitempty"`
+	StartsAt          *string                    `json:"starts_at,omitempty"`
+	CommunityID       *uint64                    `json:"community_id,omitempty"`
+	EloSystemID       *uint64                    `json:"elo_system_id,omitempty"`
+	PRSystemID        *uint64                    `json:"pr_system_id,omitempty"`
+	TournamentClass   *string                    `json:"tournament_class,omitempty"`
+	PrizePoolUSD      *float64                   `json:"prize_pool_usd,omitempty"`
+	PrizeDistribution *PrizeDistributionRequest  `json:"prize_distribution,omitempty"`
+}
+
+// PrizeDistributionRequest is the request format for prize distribution
+type PrizeDistributionRequest struct {
+	Mode  string                   `json:"mode"` // "percentage" or "amount"
+	Tiers []PlacementTierRequest   `json:"tiers"`
+}
+
+// PlacementTierRequest is a single tier in the prize distribution request
+type PlacementTierRequest struct {
+	Placement string  `json:"placement"`
+	Low       int     `json:"low"`
+	High      int     `json:"high"`
+	Value     float64 `json:"value"`
 }
 
 type TournamentResponse struct {
-	ID               uint64  `json:"id"`
-	Slug             string  `json:"slug"`
-	OrganizerID      uint64  `json:"organizer_id"`
-	CommunityID      *uint64 `json:"community_id,omitempty"`
-	EloSystemID      *uint64 `json:"elo_system_id,omitempty"`
-	Name             string  `json:"name"`
-	Description      *string `json:"description,omitempty"`
-	Game             *string `json:"game,omitempty"`
-	Format           string  `json:"format"`
-	Status           string  `json:"status"`
-	MaxParticipants  *uint   `json:"max_participants,omitempty"`
-	SwissRounds      *int    `json:"swiss_rounds,omitempty"`
-	ParticipantCount *int    `json:"participant_count,omitempty"`
-	RegistrationOpen bool    `json:"registration_open"`
-	StartsAt         *string `json:"starts_at,omitempty"`
-	CreatedAt        string  `json:"created_at"`
-	UpdatedAt        string  `json:"updated_at"`
+	ID                uint64                     `json:"id"`
+	Slug              string                     `json:"slug"`
+	OrganizerID       uint64                     `json:"organizer_id"`
+	CommunityID       *uint64                    `json:"community_id,omitempty"`
+	EloSystemID       *uint64                    `json:"elo_system_id,omitempty"`
+	PRSystemID        *uint64                    `json:"pr_system_id,omitempty"`
+	Name              string                     `json:"name"`
+	Description       *string                    `json:"description,omitempty"`
+	Game              *string                    `json:"game,omitempty"`
+	Format            string                     `json:"format"`
+	Status            string                     `json:"status"`
+	MaxParticipants   *uint                      `json:"max_participants,omitempty"`
+	SwissRounds       *int                       `json:"swiss_rounds,omitempty"`
+	ParticipantCount  *int                       `json:"participant_count,omitempty"`
+	ParticipantIcons  []string                   `json:"participant_icons,omitempty"` // First N participant icon URLs for preview
+	RegistrationOpen  bool                       `json:"registration_open"`
+	LogoURL           *string                    `json:"logo_url,omitempty"`
+	StartsAt          *string                    `json:"starts_at,omitempty"`
+	TournamentClass   *string                    `json:"tournament_class,omitempty"`
+	PrizePoolUSD      *float64                   `json:"prize_pool_usd,omitempty"`
+	PrizeDistribution *PrizeDistributionResponse `json:"prize_distribution,omitempty"`
+	EventID           *uint64                    `json:"event_id,omitempty"`
+	EventRole         *string                    `json:"event_role,omitempty"` // "qualifier" or "main"
+	CreatedAt         string                     `json:"created_at"`
+	UpdatedAt         string                     `json:"updated_at"`
+}
+
+// PrizeDistributionResponse is the response format for prize distribution
+type PrizeDistributionResponse struct {
+	Mode            string             `json:"mode"`
+	Tiers           []PlacementTierRequest `json:"tiers"`
+	ComputedAmounts map[string]float64 `json:"computed_amounts,omitempty"` // Placement -> USD amount (for percentage mode)
 }
 
 type ErrorResponse struct {
@@ -101,6 +137,26 @@ func writeError(w http.ResponseWriter, status int, message string) {
 
 const slugChars = "abcdefghijklmnopqrstuvwxyz0123456789"
 
+// validTournamentClasses defines the allowed tournament class values
+var validTournamentClasses = map[string]domain.TournamentClass{
+	"major":       domain.TournamentClassMajor,
+	"world_lan":   domain.TournamentClassWorldLAN,
+	"continental": domain.TournamentClassContinental,
+	"regional":    domain.TournamentClassRegional,
+	"online":      domain.TournamentClassOnline,
+}
+
+// parseTournamentClass validates and converts a string to TournamentClass
+func parseTournamentClass(s string) (*domain.TournamentClass, bool) {
+	if s == "" {
+		return nil, true
+	}
+	if class, ok := validTournamentClasses[s]; ok {
+		return &class, true
+	}
+	return nil, false
+}
+
 func generateSlug() string {
 	b := make([]byte, 8)
 	rand.Read(b)
@@ -118,6 +174,7 @@ func toTournamentResponse(t *domain.Tournament) TournamentResponse {
 		OrganizerID:      t.OrganizerID,
 		CommunityID:      t.CommunityID,
 		EloSystemID:      t.EloSystemID,
+		PRSystemID:       t.PRSystemID,
 		Name:             t.Name,
 		Description:      t.Description,
 		Game:             t.Game,
@@ -126,6 +183,10 @@ func toTournamentResponse(t *domain.Tournament) TournamentResponse {
 		MaxParticipants:  t.MaxParticipants,
 		SwissRounds:      t.SwissRounds,
 		RegistrationOpen: t.RegistrationOpen,
+		LogoURL:          t.LogoURL,
+		PrizePoolUSD:     t.PrizePoolUSD,
+		EventID:          t.EventID,
+		EventRole:        t.EventRole,
 		CreatedAt:        t.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:        t.UpdatedAt.Format(time.RFC3339),
 	}
@@ -133,7 +194,114 @@ func toTournamentResponse(t *domain.Tournament) TournamentResponse {
 		startsAt := t.StartsAt.Format(time.RFC3339)
 		resp.StartsAt = &startsAt
 	}
+	if t.TournamentClass != nil {
+		class := string(*t.TournamentClass)
+		resp.TournamentClass = &class
+	}
+
+	// Parse prize distribution from settings
+	if len(t.Settings) > 0 && string(t.Settings) != "{}" {
+		var settings domain.TournamentSettings
+		if err := json.Unmarshal(t.Settings, &settings); err == nil && settings.PrizeDistribution != nil {
+			pd := settings.PrizeDistribution
+			prizeResp := &PrizeDistributionResponse{
+				Mode:  string(pd.Mode),
+				Tiers: make([]PlacementTierRequest, len(pd.Tiers)),
+			}
+			for i, tier := range pd.Tiers {
+				prizeResp.Tiers[i] = PlacementTierRequest{
+					Placement: tier.Placement,
+					Low:       tier.Low,
+					High:      tier.High,
+					Value:     tier.Value,
+				}
+			}
+			// Compute actual amounts if in percentage mode
+			if pd.Mode == domain.PrizeDistModePercentage && t.PrizePoolUSD != nil {
+				prizeResp.ComputedAmounts = make(map[string]float64)
+				for _, tier := range pd.Tiers {
+					amount := (*t.PrizePoolUSD * tier.Value) / 100.0
+					prizeResp.ComputedAmounts[tier.Placement] = amount
+				}
+			}
+			resp.PrizeDistribution = prizeResp
+		}
+	}
+
 	return resp
+}
+
+const maxParticipantIconsPreview = 8
+
+// buildTournamentListResponse builds the tournament list response with participant counts and icons.
+func (h *TournamentHandler) buildTournamentListResponse(ctx context.Context, tournaments []*domain.Tournament) []TournamentResponse {
+	if len(tournaments) == 0 {
+		return []TournamentResponse{}
+	}
+
+	// Collect tournament IDs
+	tournamentIDs := make([]uint64, len(tournaments))
+	for i, t := range tournaments {
+		tournamentIDs[i] = t.ID
+	}
+
+	// Get community member IDs for all tournaments (limited to preview count)
+	memberIDsByTournament, err := h.participantRepo.GetCommunityMemberIDsByTournaments(ctx, tournamentIDs, maxParticipantIconsPreview)
+	if err != nil {
+		log.Printf("Warning: failed to fetch participant member IDs: %v", err)
+		memberIDsByTournament = make(map[uint64][]uint64)
+	}
+
+	// Collect all unique member IDs to fetch icons
+	memberIDSet := make(map[uint64]bool)
+	for _, memberIDs := range memberIDsByTournament {
+		for _, id := range memberIDs {
+			memberIDSet[id] = true
+		}
+	}
+	allMemberIDs := make([]uint64, 0, len(memberIDSet))
+	for id := range memberIDSet {
+		allMemberIDs = append(allMemberIDs, id)
+	}
+
+	// Fetch icon URLs for all members
+	var memberData map[uint64]client.MemberDataResponse
+	if len(allMemberIDs) > 0 {
+		memberData, err = h.communityClient.GetBulkMemberData(ctx, allMemberIDs)
+		if err != nil {
+			log.Printf("Warning: failed to fetch member icons: %v", err)
+			memberData = make(map[uint64]client.MemberDataResponse)
+		}
+	}
+
+	// Build response with counts and icons
+	response := make([]TournamentResponse, len(tournaments))
+	for i, t := range tournaments {
+		resp := toTournamentResponse(t)
+
+		// Fetch participant count
+		count, err := h.participantRepo.CountByTournament(ctx, t.ID)
+		if err == nil {
+			resp.ParticipantCount = &count
+		}
+
+		// Build icon list for this tournament
+		if memberIDs, ok := memberIDsByTournament[t.ID]; ok && len(memberIDs) > 0 {
+			icons := make([]string, 0, len(memberIDs))
+			for _, memberID := range memberIDs {
+				if data, ok := memberData[memberID]; ok && data.IconURL != nil && *data.IconURL != "" {
+					icons = append(icons, *data.IconURL)
+				}
+			}
+			if len(icons) > 0 {
+				resp.ParticipantIcons = icons
+			}
+		}
+
+		response[i] = resp
+	}
+
+	return response
 }
 
 // List returns all tournaments for the authenticated user
@@ -151,17 +319,7 @@ func (h *TournamentHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := make([]TournamentResponse, len(tournaments))
-	for i, t := range tournaments {
-		resp := toTournamentResponse(t)
-		// Fetch participant count for each tournament
-		count, err := h.participantRepo.CountByTournament(r.Context(), t.ID)
-		if err == nil {
-			resp.ParticipantCount = &count
-		}
-		response[i] = resp
-	}
-
+	response := h.buildTournamentListResponse(r.Context(), tournaments)
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -181,17 +339,7 @@ func (h *TournamentHandler) ListByCommunity(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	response := make([]TournamentResponse, len(tournaments))
-	for i, t := range tournaments {
-		resp := toTournamentResponse(t)
-		// Fetch participant count for each tournament
-		count, err := h.participantRepo.CountByTournament(r.Context(), t.ID)
-		if err == nil {
-			resp.ParticipantCount = &count
-		}
-		response[i] = resp
-	}
-
+	response := h.buildTournamentListResponse(r.Context(), tournaments)
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -220,11 +368,23 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate tournament class if provided
+	var tournamentClass *domain.TournamentClass
+	if req.TournamentClass != nil {
+		var valid bool
+		tournamentClass, valid = parseTournamentClass(*req.TournamentClass)
+		if !valid {
+			writeError(w, http.StatusBadRequest, "tournament_class must be one of: major, world_lan, continental, regional, online")
+			return
+		}
+	}
+
 	tournament := &domain.Tournament{
 		Slug:             generateSlug(),
 		OrganizerID:      userID,
 		CommunityID:      req.CommunityID,
 		EloSystemID:      req.EloSystemID,
+		PRSystemID:       req.PRSystemID,
 		Name:             req.Name,
 		Description:      req.Description,
 		Game:             req.Game,
@@ -234,6 +394,8 @@ func (h *TournamentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		SwissRounds:      req.SwissRounds,
 		RegistrationOpen: true,
 		Settings:         json.RawMessage(`{}`),
+		TournamentClass:  tournamentClass,
+		PrizePoolUSD:     req.PrizePoolUSD,
 	}
 
 	if req.StartsAt != nil {
@@ -472,6 +634,70 @@ func (h *TournamentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if req.EloSystemID != nil {
 		tournament.EloSystemID = req.EloSystemID
 	}
+	if req.PRSystemID != nil {
+		tournament.PRSystemID = req.PRSystemID
+	}
+	if req.TournamentClass != nil {
+		// Only allow updating tournament class before tournament starts
+		if tournament.Status != domain.StatusRegistration {
+			writeError(w, http.StatusBadRequest, "cannot change tournament class after tournament has started")
+			return
+		}
+		tournamentClass, valid := parseTournamentClass(*req.TournamentClass)
+		if !valid {
+			writeError(w, http.StatusBadRequest, "tournament_class must be one of: major, world_lan, continental, regional, online")
+			return
+		}
+		tournament.TournamentClass = tournamentClass
+	}
+	if req.PrizePoolUSD != nil {
+		// Only allow updating prize pool before tournament starts
+		if tournament.Status != domain.StatusRegistration {
+			writeError(w, http.StatusBadRequest, "cannot change prize pool after tournament has started")
+			return
+		}
+		tournament.PrizePoolUSD = req.PrizePoolUSD
+	}
+	if req.PrizeDistribution != nil {
+		// Only allow updating prize distribution before tournament starts
+		if tournament.Status != domain.StatusRegistration {
+			writeError(w, http.StatusBadRequest, "cannot change prize distribution after tournament has started")
+			return
+		}
+
+		// Determine the effective prize pool (could be updated in same request)
+		effectivePrizePool := tournament.PrizePoolUSD
+		if req.PrizePoolUSD != nil {
+			effectivePrizePool = req.PrizePoolUSD
+		}
+
+		if err := validatePrizeDistribution(req.PrizeDistribution, effectivePrizePool); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		// Convert request to domain model and store in settings
+		pd := &domain.PrizeDistribution{
+			Mode:  domain.PrizeDistributionMode(req.PrizeDistribution.Mode),
+			Tiers: make([]domain.PlacementTier, len(req.PrizeDistribution.Tiers)),
+		}
+		for i, t := range req.PrizeDistribution.Tiers {
+			pd.Tiers[i] = domain.PlacementTier{
+				Placement: t.Placement,
+				Low:       t.Low,
+				High:      t.High,
+				Value:     t.Value,
+			}
+		}
+
+		settings := domain.TournamentSettings{PrizeDistribution: pd}
+		settingsJSON, err := json.Marshal(settings)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to serialize prize distribution")
+			return
+		}
+		tournament.Settings = settingsJSON
+	}
 
 	if err := h.repo.Update(r.Context(), tournament); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update tournament")
@@ -645,4 +871,104 @@ func (h *TournamentHandler) generateSingleStageBracket(ctx context.Context, tour
 		return fmt.Errorf("bracket service: %w", err)
 	}
 	return nil
+}
+
+// validatePrizeDistribution validates the prize distribution request
+func validatePrizeDistribution(pd *PrizeDistributionRequest, totalPrizeUSD *float64) error {
+	if pd == nil {
+		return nil
+	}
+
+	if pd.Mode != "percentage" && pd.Mode != "amount" {
+		return fmt.Errorf("mode must be 'percentage' or 'amount'")
+	}
+
+	if len(pd.Tiers) == 0 {
+		return fmt.Errorf("at least one tier is required")
+	}
+
+	// Validate tier values are non-negative and bounds are valid
+	for _, tier := range pd.Tiers {
+		if tier.Value < 0 {
+			return fmt.Errorf("tier values must be non-negative")
+		}
+		if tier.Low > tier.High {
+			return fmt.Errorf("tier low bound cannot exceed high bound")
+		}
+		if tier.Low < 1 {
+			return fmt.Errorf("tier low bound must be at least 1")
+		}
+	}
+
+	if pd.Mode == "percentage" {
+		var sum float64
+		for _, tier := range pd.Tiers {
+			sum += tier.Value
+		}
+		// Allow small floating point tolerance
+		if sum < 99.99 || sum > 100.01 {
+			return fmt.Errorf("percentages must sum to 100%%, got %.2f%%", sum)
+		}
+	} else { // amount mode
+		if totalPrizeUSD == nil {
+			return fmt.Errorf("total prize pool required when using amount mode")
+		}
+		var sum float64
+		for _, tier := range pd.Tiers {
+			sum += tier.Value
+		}
+		if sum > *totalPrizeUSD {
+			return fmt.Errorf("tier amounts ($%.2f) exceed total prize pool ($%.2f)", sum, *totalPrizeUSD)
+		}
+	}
+
+	return nil
+}
+
+// SuggestedPrizeTiersResponse is the response for the prize tiers endpoint
+type SuggestedPrizeTiersResponse struct {
+	ParticipantCount int                    `json:"participant_count"`
+	Tiers            []domain.PlacementTier `json:"tiers"`
+}
+
+// GetSuggestedPrizeTiers returns suggested prize tiers for a tournament based on participant count
+func (h *TournamentHandler) GetSuggestedPrizeTiers(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "invalid tournament slug")
+		return
+	}
+
+	tournament, err := h.repo.GetBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, repository.ErrTournamentNotFound) {
+			writeError(w, http.StatusNotFound, "tournament not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to fetch tournament")
+		return
+	}
+
+	// Determine participant count
+	count := 8 // default
+	if participantsStr := r.URL.Query().Get("participants"); participantsStr != "" {
+		if parsed, err := strconv.Atoi(participantsStr); err == nil && parsed >= 2 {
+			count = parsed
+		}
+	} else {
+		// Fall back to actual participant count or max_participants
+		actualCount, err := h.participantRepo.CountByTournament(r.Context(), tournament.ID)
+		if err == nil && actualCount >= 2 {
+			count = actualCount
+		} else if tournament.MaxParticipants != nil && int(*tournament.MaxParticipants) >= 2 {
+			count = int(*tournament.MaxParticipants)
+		}
+	}
+
+	tiers := domain.GeneratePlacementTiers(count)
+
+	writeJSON(w, http.StatusOK, SuggestedPrizeTiersResponse{
+		ParticipantCount: count,
+		Tiers:            tiers,
+	})
 }

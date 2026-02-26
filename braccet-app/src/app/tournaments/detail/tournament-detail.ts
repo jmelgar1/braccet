@@ -7,6 +7,7 @@ import { BracketService } from '../../services/bracket.service';
 import { AuthService } from '../../services/auth.service';
 import { CommunityService } from '../../services/community.service';
 import { EloService } from '../../services/elo.service';
+import { UploadService } from '../../services/upload.service';
 import { TournamentUIService } from '../../services/tournament-ui.service';
 import { Tournament, Participant, TournamentStage, StagePoolEntry } from '../../models/tournament.model';
 import { CreateBracketRequest } from '../../models/bracket.model';
@@ -28,6 +29,7 @@ export class TournamentDetail implements OnInit, OnDestroy {
   private bracketService = inject(BracketService);
   private communityService = inject(CommunityService);
   private eloService = inject(EloService);
+  private uploadService = inject(UploadService);
   authService = inject(AuthService);
   tournamentUI = inject(TournamentUIService);
 
@@ -52,6 +54,9 @@ export class TournamentDetail implements OnInit, OnDestroy {
   activeSeedPopoverStage = signal<TournamentStage | null>(null);
   stagePool = signal<StagePoolEntry[]>([]);
   stagePoolLoaded = signal(false);
+
+  // Logo upload state
+  uploadingLogo = signal(false);
 
   // Computed properties
   isOrganizer = computed(() => {
@@ -441,5 +446,64 @@ export class TournamentDetail implements OnInit, OnDestroy {
     return this.canSeedStage(stage) ||
            t.status === 'in_progress' ||
            t.status === 'completed';
+  }
+
+  // Logo upload methods
+  onLogoFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+
+    const file = input.files[0];
+    const t = this.tournament();
+    if (!t) return;
+
+    // Validate file
+    const validation = this.uploadService.validateImageFile(file);
+    if (!validation.valid) {
+      this.error.set(validation.error || 'Invalid file');
+      return;
+    }
+
+    this.uploadLogo(t.slug, file);
+  }
+
+  private uploadLogo(slug: string, file: File): void {
+    this.uploadingLogo.set(true);
+    this.error.set('');
+
+    // Step 1: Get presigned upload URL
+    this.tournamentService.getLogoUploadUrl(slug, file.type).subscribe({
+      next: (response) => {
+        // Step 2: Upload file directly to presigned URL
+        this.uploadService.uploadToPresignedUrl(response.upload_url, file).subscribe({
+          next: () => {
+            // Step 3: Update tournament with new logo URL
+            this.tournamentService.updateLogoUrl(slug, response.logo_url).subscribe({
+              next: () => {
+                // Update local state
+                const t = this.tournament();
+                if (t) {
+                  this.tournament.set({ ...t, logo_url: response.logo_url });
+                  this.tournamentUI.setTournament({ ...t, logo_url: response.logo_url });
+                }
+                this.uploadingLogo.set(false);
+              },
+              error: (err) => {
+                this.error.set(err.error?.error || 'Failed to update logo URL');
+                this.uploadingLogo.set(false);
+              }
+            });
+          },
+          error: () => {
+            this.error.set('Failed to upload logo');
+            this.uploadingLogo.set(false);
+          }
+        });
+      },
+      error: (err) => {
+        this.error.set(err.error?.error || 'Failed to get upload URL');
+        this.uploadingLogo.set(false);
+      }
+    });
   }
 }

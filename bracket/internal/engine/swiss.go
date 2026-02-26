@@ -203,6 +203,7 @@ func groupByScore(sorted []*domain.SwissStanding, paired map[uint64]bool) [][]*d
 }
 
 // pairScoreGroup pairs players within a score group, avoiding rematches.
+// Uses "top vs bottom" pairing: highest-ranked plays lowest-ranked in the group.
 // Returns the pairings and any leftover player who couldn't be paired.
 func pairScoreGroup(group []*domain.SwissStanding, playedPairs map[uint64]map[uint64]bool, paired map[uint64]bool) ([]domain.Pairing, *domain.SwissStanding) {
 	if len(group) == 0 {
@@ -212,22 +213,21 @@ func pairScoreGroup(group []*domain.SwissStanding, playedPairs map[uint64]map[ui
 		return nil, group[0] // Single player floats down
 	}
 
-	// Try to find a valid pairing using backtracking
 	var pairings []domain.Pairing
 	remaining := make([]*domain.SwissStanding, len(group))
 	copy(remaining, group)
 
-	// Greedy approach with fallback
+	// Top vs bottom pairing within score group
 	for len(remaining) >= 2 {
 		p1 := remaining[0]
 		remaining = remaining[1:]
 
-		// Find best opponent (first valid one in sorted order)
+		// Find opponent from bottom of the group (opposite seeding)
 		var opponent *domain.SwissStanding
 		var opponentIdx int = -1
-		for i, p2 := range remaining {
-			if !havePlayed(playedPairs, p1.ParticipantID, p2.ParticipantID) {
-				opponent = p2
+		for i := len(remaining) - 1; i >= 0; i-- {
+			if !havePlayed(playedPairs, p1.ParticipantID, remaining[i].ParticipantID) {
+				opponent = remaining[i]
 				opponentIdx = i
 				break
 			}
@@ -251,49 +251,27 @@ func pairScoreGroup(group []*domain.SwissStanding, playedPairs map[uint64]map[ui
 			// Remove opponent from remaining
 			remaining = append(remaining[:opponentIdx], remaining[opponentIdx+1:]...)
 		} else {
-			// No valid opponent in this group - p1 floats down
-			// But first, try to pair with another unpaired player using backtracking
+			// No valid opponent - all have played p1. Try rematch as last resort.
 			if len(remaining) > 0 {
-				// Try swapping with next player
-				swapped := false
-				for i := 0; i < len(remaining); i++ {
-					// Check if remaining[i] can pair with someone else in remaining
-					for j := i + 1; j < len(remaining); j++ {
-						if !havePlayed(playedPairs, remaining[i].ParticipantID, remaining[j].ParticipantID) {
-							// remaining[i] can pair with remaining[j], so p1 can pair with... no one
-							// This means p1 should float
-							break
-						}
-					}
-					// Try p1 with remaining[i] even if they've played (rematch within group)
-					if i == len(remaining)-1 {
-						// Last chance: allow rematch
-						opponent = remaining[i]
-						opponentIdx = i
-						pairings = append(pairings, domain.Pairing{
-							Participant1ID:      p1.ParticipantID,
-							Participant1Name:    p1.ParticipantName,
-							Participant1IconURL: p1.ParticipantIconURL,
-							Participant1Seed:    p1.Seed,
-							Participant2ID:      opponent.ParticipantID,
-							Participant2Name:    opponent.ParticipantName,
-							Participant2IconURL: opponent.ParticipantIconURL,
-							Participant2Seed:    opponent.Seed,
-							IsBye:               false,
-						})
-						paired[p1.ParticipantID] = true
-						paired[opponent.ParticipantID] = true
-						remaining = append(remaining[:opponentIdx], remaining[opponentIdx+1:]...)
-						swapped = true
-						break
-					}
-				}
-				if !swapped {
-					// p1 floats down - put them back at the end
-					return pairings, p1
-				}
+				// Allow rematch with bottom player
+				opponent = remaining[len(remaining)-1]
+				opponentIdx = len(remaining) - 1
+				pairings = append(pairings, domain.Pairing{
+					Participant1ID:      p1.ParticipantID,
+					Participant1Name:    p1.ParticipantName,
+					Participant1IconURL: p1.ParticipantIconURL,
+					Participant1Seed:    p1.Seed,
+					Participant2ID:      opponent.ParticipantID,
+					Participant2Name:    opponent.ParticipantName,
+					Participant2IconURL: opponent.ParticipantIconURL,
+					Participant2Seed:    opponent.Seed,
+					IsBye:               false,
+				})
+				paired[p1.ParticipantID] = true
+				paired[opponent.ParticipantID] = true
+				remaining = append(remaining[:opponentIdx], remaining[opponentIdx+1:]...)
 			} else {
-				// p1 is alone, they float
+				// p1 is alone, they float down
 				return pairings, p1
 			}
 		}
@@ -363,25 +341,62 @@ func BuildPlayedPairsMap(history []*domain.SwissPairingHistory) map[uint64]map[u
 	return played
 }
 
+// statusOrder returns the sort order for a Swiss status (lower = better/higher rank)
+func statusOrder(status domain.SwissParticipantStatus) int {
+	switch status {
+	case domain.SwissStatusAdvanced:
+		return 0
+	case domain.SwissStatusActive:
+		return 1
+	case domain.SwissStatusEliminated:
+		return 2
+	default:
+		return 1 // Treat unknown as active
+	}
+}
+
 // sortStandings sorts standings by Swiss ranking criteria.
+// In threshold mode: advanced (by losses ASC) > active (by wins DESC) > eliminated (by wins ASC)
 func sortStandings(standings []*domain.SwissStanding) {
 	sort.Slice(standings, func(i, j int) bool {
-		// Primary: wins (descending)
-		if standings[i].Wins != standings[j].Wins {
-			return standings[i].Wins > standings[j].Wins
+		si, sj := standings[i], standings[j]
+
+		// Primary: status order (advanced > active > eliminated)
+		orderI, orderJ := statusOrder(si.Status), statusOrder(sj.Status)
+		if orderI != orderJ {
+			return orderI < orderJ
 		}
-		// Secondary: game differential (descending)
-		diffI := standings[i].GameWins - standings[i].GameLosses
-		diffJ := standings[j].GameWins - standings[j].GameLosses
+
+		// Within advanced: fewer losses = better (3-0 > 3-1 > 3-2)
+		if si.Status == domain.SwissStatusAdvanced {
+			if si.Losses != sj.Losses {
+				return si.Losses < sj.Losses
+			}
+		}
+
+		// Within eliminated: fewer wins = worse (0-3 < 1-3 < 2-3)
+		if si.Status == domain.SwissStatusEliminated {
+			if si.Wins != sj.Wins {
+				return si.Wins > sj.Wins // Higher wins = better rank among eliminated
+			}
+		}
+
+		// Standard tiebreakers: wins (descending)
+		if si.Wins != sj.Wins {
+			return si.Wins > sj.Wins
+		}
+		// Game differential (descending)
+		diffI := si.GameWins - si.GameLosses
+		diffJ := sj.GameWins - sj.GameLosses
 		if diffI != diffJ {
 			return diffI > diffJ
 		}
-		// Tertiary: opponent wins / Buchholz (descending)
-		if standings[i].OpponentWins != standings[j].OpponentWins {
-			return standings[i].OpponentWins > standings[j].OpponentWins
+		// Opponent wins / Buchholz (descending)
+		if si.OpponentWins != sj.OpponentWins {
+			return si.OpponentWins > sj.OpponentWins
 		}
-		// Quaternary: original seed (ascending - lower is better)
-		return standings[i].Seed < standings[j].Seed
+		// Original seed (ascending - lower is better)
+		return si.Seed < sj.Seed
 	})
 }
 

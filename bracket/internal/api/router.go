@@ -20,6 +20,7 @@ func NewRouter(
 	groupRepo repository.GroupRepository,
 	tournamentClient client.TournamentClient,
 	communityClient client.CommunityClient,
+	prClient client.PowerRankingClient,
 ) chi.Router {
 	r := chi.NewRouter()
 
@@ -30,12 +31,12 @@ func NewRouter(
 
 	// Create services
 	bracketSvc := service.NewBracketServiceFull(repo, stageRepo, swissRepo, groupRepo, communityClient)
-	matchSvc := service.NewMatchServiceWithTiebreakers(repo, setRepo, swissRepo, tiebreakerRepo, tournamentClient, communityClient)
-	swissSvc := service.NewSwissServiceWithTiebreakers(swissRepo, repo, stageRepo, tiebreakerRepo)
+	matchSvc := service.NewMatchServiceWithTiebreakers(repo, setRepo, swissRepo, tiebreakerRepo, tournamentClient, communityClient, prClient)
+	swissSvc := service.NewSwissServiceFull(swissRepo, repo, stageRepo, tiebreakerRepo, setRepo)
 	tiebreakerSvc := service.NewTiebreakerService(tiebreakerRepo, swissRepo, repo)
 	forfeitSvc := service.NewForfeitService(repo)
 	stageSvc := service.NewStageService(stageRepo)
-	multiStageSvc := service.NewMultiStageService(repo, setRepo, groupRepo)
+	multiStageSvc := service.NewMultiStageServiceFull(repo, setRepo, groupRepo, stageRepo, bracketSvc, swissRepo, tournamentClient)
 
 	// Create handlers
 	bracketHandler := handlers.NewBracketHandlerWithTiebreakers(bracketSvc, matchSvc, swissSvc, tiebreakerSvc, repo, setRepo, stageRepo, swissRepo)
@@ -65,6 +66,15 @@ func NewRouter(
 	r.Post("/brackets/{tournamentId}/advance-round", bracketHandler.AdvanceSwissRound)
 	r.Post("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}/advance-round", bracketHandler.AdvanceGroupSwissRound)
 
+	// Swiss reseed routes (protected)
+	r.Group(func(r chi.Router) {
+		r.Use(authmw.Auth)
+		r.Post("/brackets/{tournamentId}/reseed-round", bracketHandler.ReseedSwissRound)
+		r.Post("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}/reseed-round", bracketHandler.ReseedGroupSwissRound)
+		// Group bracket reseed (for elimination brackets in group stages)
+		r.Post("/brackets/{tournamentId}/stages/{stageId}/groups/{groupId}/reseed", bracketHandler.ReseedGroupBracket)
+	})
+
 	// Match routes (nested under /brackets)
 	r.Get("/brackets/matches/{id}", matchHandler.Get)
 	r.Post("/brackets/matches/{id}/result", matchHandler.ReportResult)
@@ -89,6 +99,11 @@ func NewRouter(
 	// Multi-stage tournament routes
 	r.Post("/brackets/{tournamentId}/stages/{stageId}/complete", multiStageHandler.CompleteStage)
 	r.Get("/brackets/{tournamentId}/stages/{stageId}/advancing", multiStageHandler.GetStageAdvancingParticipants)
+	r.Group(func(r chi.Router) {
+		r.Use(authmw.Auth)
+		r.Post("/brackets/{tournamentId}/stages/{stageId}/reseed", multiStageHandler.ReseedFinalBracket)
+		r.Post("/brackets/{tournamentId}/stages/{stageId}/reseed-stage", multiStageHandler.ReseedStage)
+	})
 
 	// Forfeit route (internal, called by tournament service)
 	r.Post("/brackets/forfeit-participant", forfeitHandler.ForfeitParticipant)

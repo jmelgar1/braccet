@@ -530,7 +530,7 @@ func (h *BracketHandler) GetGroupBracket(w http.ResponseWriter, r *http.Request)
 
 					// Create stages for all existing rounds
 					if numRounds > 0 {
-						_ = h.stageRepo.CreateDefaultStagesForGroup(r.Context(), tournamentID, stageID, groupID, domain.BracketSwiss, numRounds)
+						_ = h.stageRepo.CreateDefaultStagesForGroup(r.Context(), tournamentID, stageID, groupID, domain.BracketSwiss, numRounds, false)
 						// Reload stages after creation
 						stages, _ = h.stageRepo.GetByTournamentStageGroup(r.Context(), tournamentID, stageID, groupID)
 					}
@@ -1433,6 +1433,155 @@ func (h *BracketHandler) AdvanceGroupSwissRound(w http.ResponseWriter, r *http.R
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"matches": matchResponses,
 	})
+}
+
+// ReseedSwissRoundRequest is the request body for reseeding a Swiss round
+type ReseedSwissRoundRequest struct {
+	Round int `json:"round"`
+}
+
+// ReseedSwissRound regenerates pairings for a specific Swiss round.
+// If the round is before current_round, cascades and deletes subsequent rounds.
+func (h *BracketHandler) ReseedSwissRound(w http.ResponseWriter, r *http.Request) {
+	if h.swissSvc == nil {
+		writeError(w, http.StatusInternalServerError, "swiss format not configured")
+		return
+	}
+
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	var req ReseedSwissRoundRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Round < 1 {
+		writeError(w, http.StatusBadRequest, "round must be >= 1")
+		return
+	}
+
+	matches, err := h.swissSvc.ReseedRound(r.Context(), tournamentID, req.Round)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Return the new matches
+	matchResponses := make([]*MatchResponse, len(matches))
+	for i, m := range matches {
+		matchResponses[i] = toMatchResponse(m)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"matches": matchResponses,
+	})
+}
+
+// ReseedGroupSwissRound regenerates pairings for a specific round in a Swiss group.
+func (h *BracketHandler) ReseedGroupSwissRound(w http.ResponseWriter, r *http.Request) {
+	if h.swissSvc == nil {
+		writeError(w, http.StatusInternalServerError, "swiss format not configured")
+		return
+	}
+
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	stageID, err := strconv.ParseUint(chi.URLParam(r, "stageId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid stage ID")
+		return
+	}
+
+	groupID, err := strconv.ParseUint(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid group ID")
+		return
+	}
+
+	var req ReseedSwissRoundRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Round < 1 {
+		writeError(w, http.StatusBadRequest, "round must be >= 1")
+		return
+	}
+
+	matches, err := h.swissSvc.ReseedGroupRound(r.Context(), tournamentID, stageID, groupID, req.Round)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Return the new matches
+	matchResponses := make([]*MatchResponse, len(matches))
+	for i, m := range matches {
+		matchResponses[i] = toMatchResponse(m)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"matches": matchResponses,
+	})
+}
+
+// ReseedGroupBracketRequest is the HTTP request body for reseeding a group bracket
+type ReseedGroupBracketRequest struct {
+	Format string `json:"format"` // "single_elimination" or "double_elimination"
+}
+
+// ReseedGroupBracket deletes and regenerates the bracket for a specific group.
+// POST /brackets/{tournamentId}/stages/{stageId}/groups/{groupId}/reseed
+func (h *BracketHandler) ReseedGroupBracket(w http.ResponseWriter, r *http.Request) {
+	tournamentID, err := strconv.ParseUint(chi.URLParam(r, "tournamentId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tournament ID")
+		return
+	}
+
+	stageID, err := strconv.ParseUint(chi.URLParam(r, "stageId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid stage ID")
+		return
+	}
+
+	groupID, err := strconv.ParseUint(chi.URLParam(r, "groupId"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid group ID")
+		return
+	}
+
+	var req ReseedGroupBracketRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Default to single elimination if not specified
+	if req.Format == "" {
+		req.Format = "single_elimination"
+	}
+
+	err = h.bracketSvc.ReseedGroupBracket(r.Context(), tournamentID, stageID, groupID, req.Format)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
 // GetEliminationStandings returns standings for single/double elimination brackets

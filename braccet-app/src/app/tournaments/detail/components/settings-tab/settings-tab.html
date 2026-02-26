@@ -150,6 +150,206 @@
           </label>
           <p class="text-xs text-gray-500 mt-1 ml-6">Allow new participants to join</p>
         </div>
+
+        <!-- Power Ranking Settings (only if has community) -->
+        @if (hasCommunity()) {
+          <div class="pt-4 border-t border-gray-200">
+            <h4 class="text-sm font-medium text-gray-700 mb-3">Power Rankings</h4>
+
+            <!-- Tournament Class -->
+            <div class="mb-3">
+              <label for="tournamentClass" class="block text-sm font-medium text-gray-700 mb-1">
+                Tournament Class
+              </label>
+              <select
+                id="tournamentClass"
+                name="tournamentClass"
+                [ngModel]="tournamentClass()"
+                (ngModelChange)="tournamentClass.set($event)"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+                [disabled]="isLocked()"
+              >
+                <option [ngValue]="null">Not classified</option>
+                <option value="major">Major (Premier events)</option>
+                <option value="world_lan">World LAN</option>
+                <option value="continental">Continental (Regional majors)</option>
+                <option value="regional">Regional (Local events)</option>
+                <option value="online">Online</option>
+              </select>
+              @if (isLocked()) {
+                <p class="text-xs text-amber-600 mt-1">Cannot change after tournament starts</p>
+              } @else {
+                <p class="text-xs text-gray-500 mt-1">Affects Power Ranking point weighting</p>
+              }
+            </div>
+
+            <!-- Prize Pool -->
+            <div>
+              <label for="prizePoolUsd" class="block text-sm font-medium text-gray-700 mb-1">
+                Prize Pool (USD)
+              </label>
+              <input
+                type="number"
+                id="prizePoolUsd"
+                name="prizePoolUsd"
+                [ngModel]="prizePoolUsd()"
+                (ngModelChange)="prizePoolUsd.set($event)"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+                placeholder="Optional"
+                min="0"
+                [disabled]="isLocked()"
+              />
+              @if (isLocked()) {
+                <p class="text-xs text-amber-600 mt-1">Cannot change after tournament starts</p>
+              } @else {
+                <p class="text-xs text-gray-500 mt-1">Optional - provides bonus to Power Ranking points</p>
+              }
+            </div>
+
+            <!-- Prize Distribution Section -->
+            @if (prizePoolUsd()) {
+              <div class="pt-4 border-t border-gray-200">
+                <div class="flex items-center justify-between mb-3">
+                  <h4 class="text-sm font-medium text-gray-700">Prize Distribution</h4>
+                  @if (!showPrizeDistribution()) {
+                    <button
+                      type="button"
+                      (click)="showPrizeDistribution.set(true); generateSuggestedTiers()"
+                      [disabled]="isLocked()"
+                      class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      + Configure Distribution
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      (click)="clearPrizeDistribution()"
+                      [disabled]="isLocked()"
+                      class="text-xs text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Clear
+                    </button>
+                  }
+                </div>
+
+                @if (showPrizeDistribution()) {
+                  <!-- Mode Toggle -->
+                  <div class="mb-3">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Distribution Mode</label>
+                    <div class="flex gap-2">
+                      <button
+                        type="button"
+                        (click)="prizeDistributionMode.set('percentage')"
+                        [class]="'px-3 py-1.5 text-xs rounded border ' +
+                          (prizeDistributionMode() === 'percentage'
+                            ? 'bg-blue-100 border-blue-400 text-blue-700'
+                            : 'border-gray-300 text-gray-600 hover:bg-gray-50')"
+                        [disabled]="isLocked()"
+                      >
+                        Percentage
+                      </button>
+                      <button
+                        type="button"
+                        (click)="prizeDistributionMode.set('amount')"
+                        [class]="'px-3 py-1.5 text-xs rounded border ' +
+                          (prizeDistributionMode() === 'amount'
+                            ? 'bg-blue-100 border-blue-400 text-blue-700'
+                            : 'border-gray-300 text-gray-600 hover:bg-gray-50')"
+                        [disabled]="isLocked()"
+                      >
+                        Fixed Amount
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Tiers List -->
+                  @if (loadingTiers()) {
+                    <div class="text-center py-4 text-gray-500 text-sm">Loading tiers...</div>
+                  } @else {
+                    <div class="space-y-2 mb-3">
+                      @for (tier of prizeTiers(); track tier.placement; let i = $index) {
+                        <div class="flex items-center gap-2">
+                          <span class="w-20 text-xs text-gray-600 font-medium">{{ tier.placement }}</span>
+                          <div class="flex-1 flex items-center gap-1">
+                            @if (prizeDistributionMode() === 'percentage') {
+                              <input
+                                type="number"
+                                [value]="tier.value"
+                                (input)="updateTierValue(i, +$any($event.target).value)"
+                                min="0"
+                                max="100"
+                                step="0.01"
+                                class="w-20 border border-gray-300 rounded px-2 py-1 text-sm disabled:bg-gray-100"
+                                [disabled]="isLocked()"
+                              />
+                              <span class="text-xs text-gray-500">%</span>
+                              <span class="text-xs text-gray-400 ml-2">
+                                (${{ computeTierAmount(tier) | number:'1.2-2' }})
+                              </span>
+                            } @else {
+                              <span class="text-xs text-gray-500">$</span>
+                              <input
+                                type="number"
+                                [value]="tier.value"
+                                (input)="updateTierValue(i, +$any($event.target).value)"
+                                min="0"
+                                step="0.01"
+                                class="w-24 border border-gray-300 rounded px-2 py-1 text-sm disabled:bg-gray-100"
+                                [disabled]="isLocked()"
+                              />
+                            }
+                          </div>
+                          <button
+                            type="button"
+                            (click)="removeTier(i)"
+                            class="text-red-400 hover:text-red-600 text-xs disabled:opacity-50"
+                            [disabled]="isLocked()"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      }
+                    </div>
+
+                    <!-- Validation Summary -->
+                    @if (prizeTiers().length > 0) {
+                      <div class="text-xs mb-2">
+                        @if (prizeDistributionMode() === 'percentage') {
+                          <span [class]="prizeDistributionValid() ? 'text-green-600' : 'text-red-600'">
+                            Total: {{ prizeDistributionSum() | number:'1.2-2' }}%
+                            @if (!prizeDistributionValid()) {
+                              (must equal 100%)
+                            }
+                          </span>
+                        } @else {
+                          <span [class]="prizeDistributionValid() ? 'text-green-600' : 'text-red-600'">
+                            Total: ${{ prizeDistributionSum() | number:'1.2-2' }} of ${{ totalPrize() | number:'1.2-2' }}
+                            @if (!prizeDistributionValid()) {
+                              (exceeds prize pool)
+                            }
+                          </span>
+                        }
+                      </div>
+                    }
+
+                    <button
+                      type="button"
+                      (click)="generateSuggestedTiers()"
+                      class="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      [disabled]="isLocked()"
+                    >
+                      Regenerate from participant count
+                    </button>
+                  }
+
+                  @if (isLocked()) {
+                    <p class="text-xs text-amber-600 mt-2">Cannot change after tournament starts</p>
+                  }
+                }
+              </div>
+            }
+          </div>
+        }
       </div>
 
       <!-- Save Button -->

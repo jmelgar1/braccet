@@ -119,6 +119,28 @@ export class BracketService {
   }
 
   /**
+   * Reseed a Swiss round with new pairings.
+   * If the round is before current_round, cascades and deletes subsequent rounds.
+   */
+  reseedSwissRound(tournamentId: number, round: number): Observable<{ matches: Match[] }> {
+    return this.http.post<{ matches: Match[] }>(
+      `${this.apiUrl}/${tournamentId}/reseed-round`,
+      { round }
+    );
+  }
+
+  /**
+   * Reseed a Swiss round in a group with new pairings.
+   * If the round is before current_round, cascades and deletes subsequent rounds.
+   */
+  reseedGroupSwissRound(tournamentId: number, stageId: number, groupId: number, round: number): Observable<{ matches: Match[] }> {
+    return this.http.post<{ matches: Match[] }>(
+      `${this.apiUrl}/${tournamentId}/stages/${stageId}/groups/${groupId}/reseed-round`,
+      { round }
+    );
+  }
+
+  /**
    * Get bracket preview without persisting to database.
    * Uses same backend engine as actual bracket generation, ensuring identical BYE logic.
    */
@@ -214,5 +236,39 @@ export class BracketService {
    */
   completeStage(tournamentId: number, stageId: number): Observable<StageStanding[]> {
     return this.http.post<StageStanding[]>(`${this.apiUrl}/${tournamentId}/stages/${stageId}/complete`, {});
+  }
+
+  /**
+   * Reseed (regenerate) the final bracket from advancing participants.
+   * This deletes all matches in the final bracket and creates a new bracket.
+   */
+  reseedFinalBracket(tournamentId: number, stageId: number, format: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(
+      `${this.apiUrl}/${tournamentId}/stages/${stageId}/reseed`,
+      { format }
+    );
+  }
+
+  /**
+   * Reseed (regenerate) a group bracket.
+   * This deletes all matches in the group bracket and creates a new bracket.
+   */
+  reseedGroupBracket(tournamentId: number, stageId: number, groupId: number, format: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(
+      `${this.apiUrl}/${tournamentId}/stages/${stageId}/groups/${groupId}/reseed`,
+      { format }
+    );
+  }
+
+  /**
+   * Reseed all groups in a stage with proper cross-group distribution.
+   * This deletes all matches in all groups, redistributes participants using
+   * serpentine seeding (1,4,5,8 vs 2,3,6,7 pattern), and regenerates brackets.
+   */
+  reseedStage(tournamentId: number, stageId: number, format: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(
+      `${this.apiUrl}/${tournamentId}/stages/${stageId}/reseed-stage`,
+      { format }
+    );
   }
 }

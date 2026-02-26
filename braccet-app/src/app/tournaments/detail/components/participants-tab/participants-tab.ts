@@ -1,12 +1,13 @@
 import { Component, input, output, inject, signal, computed, OnInit, OnDestroy, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
-import { Subject, of } from 'rxjs';
-import { debounceTime, distinctUntilChanged, switchMap, takeUntil, catchError } from 'rxjs/operators';
-import { Participant, MemberSearchResult } from '../../../../models/tournament.model';
+import { Subject, of, forkJoin, from } from 'rxjs';
+import { debounceTime, distinctUntilChanged, switchMap, takeUntil, catchError, concatMap, toArray } from 'rxjs/operators';
+import { Participant, MemberSearchResult, RegionInviteMember } from '../../../../models/tournament.model';
 import { CommunityMember } from '../../../../models/community.model';
 import { TournamentService } from '../../../../services/tournament.service';
 import { TournamentUIService } from '../../../../services/tournament-ui.service';
+import { CommunityService } from '../../../../services/community.service';
 import { AuthService } from '../../../../services/auth.service';
 import { EditMemberModal } from '../../../../components/edit-member-modal/edit-member-modal';
 
@@ -17,6 +18,7 @@ import { EditMemberModal } from '../../../../components/edit-member-modal/edit-m
 })
 export class ParticipantsTab implements OnInit, OnDestroy {
   private tournamentService = inject(TournamentService);
+  private communityService = inject(CommunityService);
   private tournamentUI = inject(TournamentUIService);
   authService = inject(AuthService);
 
@@ -53,6 +55,17 @@ export class ParticipantsTab implements OnInit, OnDestroy {
   showDropdown = signal(false);
   selectedMember = signal<MemberSearchResult | null>(null);
   isSearching = signal(false);
+
+  // Bulk invite by region state
+  showRegionInviteModal = signal(false);
+  availableRegions = signal<string[]>([]);
+  selectedRegion = signal<string | null>(null);
+  inviteCount = signal(10);
+  regionMembers = signal<RegionInviteMember[]>([]);
+  selectedMemberIds = signal<Set<number>>(new Set());
+  loadingRegions = signal(false);
+  loadingRegionMembers = signal(false);
+  bulkInviting = signal(false);
 
   private searchSubject = new Subject<string>();
   private destroy$ = new Subject<void>();
@@ -364,6 +377,143 @@ export class ParticipantsTab implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.error.set(err.error?.error || 'Failed to promote participant');
+      }
+    });
+  }
+
+  // Bulk invite by region methods
+
+  openRegionInviteModal(): void {
+    this.showRegionInviteModal.set(true);
+    this.loadRegions();
+  }
+
+  closeRegionInviteModal(): void {
+    this.showRegionInviteModal.set(false);
+    this.selectedRegion.set(null);
+    this.regionMembers.set([]);
+    this.selectedMemberIds.set(new Set());
+    this.inviteCount.set(10);
+  }
+
+  private loadRegions(): void {
+    const slug = this.communitySlug();
+    if (!slug) return;
+
+    this.loadingRegions.set(true);
+    this.communityService.getRegions(slug).subscribe({
+      next: (regions) => {
+        this.availableRegions.set(regions);
+        this.loadingRegions.set(false);
+      },
+      error: () => {
+        this.error.set('Failed to load regions');
+        this.loadingRegions.set(false);
+      }
+    });
+  }
+
+  onRegionSelected(region: string): void {
+    this.selectedRegion.set(region || null);
+    if (region) {
+      this.loadRegionMembers();
+    } else {
+      this.regionMembers.set([]);
+    }
+  }
+
+  onInviteCountChanged(count: number): void {
+    this.inviteCount.set(count);
+    if (this.selectedRegion()) {
+      this.loadRegionMembers();
+    }
+  }
+
+  private loadRegionMembers(): void {
+    const region = this.selectedRegion();
+    if (!region) return;
+
+    this.loadingRegionMembers.set(true);
+    this.tournamentService.getTopMembersForRegionInvite(
+      this.tournament().slug,
+      region,
+      this.inviteCount()
+    ).subscribe({
+      next: (members) => {
+        this.regionMembers.set(members);
+        // Select all members by default
+        this.selectedMemberIds.set(new Set(members.map(m => m.id)));
+        this.loadingRegionMembers.set(false);
+      },
+      error: () => {
+        this.error.set('Failed to load members');
+        this.loadingRegionMembers.set(false);
+      }
+    });
+  }
+
+  toggleMemberSelection(memberId: number): void {
+    const current = this.selectedMemberIds();
+    const updated = new Set(current);
+    if (updated.has(memberId)) {
+      updated.delete(memberId);
+    } else {
+      updated.add(memberId);
+    }
+    this.selectedMemberIds.set(updated);
+  }
+
+  toggleSelectAll(): void {
+    const members = this.regionMembers();
+    const selected = this.selectedMemberIds();
+    if (selected.size === members.length) {
+      // Deselect all
+      this.selectedMemberIds.set(new Set());
+    } else {
+      // Select all
+      this.selectedMemberIds.set(new Set(members.map(m => m.id)));
+    }
+  }
+
+  isMemberSelected(memberId: number): boolean {
+    return this.selectedMemberIds().has(memberId);
+  }
+
+  get selectedCount(): number {
+    return this.selectedMemberIds().size;
+  }
+
+  bulkInviteRegionMembers(): void {
+    const allMembers = this.regionMembers();
+    const selectedIds = this.selectedMemberIds();
+    const membersToInvite = allMembers.filter(m => selectedIds.has(m.id));
+
+    if (membersToInvite.length === 0) return;
+
+    this.bulkInviting.set(true);
+    this.error.set('');
+
+    // Add members sequentially to avoid race conditions
+    from(membersToInvite).pipe(
+      concatMap(member =>
+        this.tournamentService.addParticipant(this.tournament().slug, {
+          display_name: member.display_name,
+          community_member_id: member.id
+        }).pipe(
+          catchError(() => of(null)) // Continue on individual failures
+        )
+      ),
+      toArray()
+    ).subscribe({
+      next: (results) => {
+        const added = results.filter((p): p is Participant => p !== null);
+        added.forEach(p => this.participantAdded.emit(p));
+        this.bulkInviting.set(false);
+        this.closeRegionInviteModal();
+      },
+      error: () => {
+        this.error.set('Failed to invite members');
+        this.bulkInviting.set(false);
       }
     });
   }

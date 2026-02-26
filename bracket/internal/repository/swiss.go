@@ -51,6 +51,12 @@ type SwissRepository interface {
 
 	// Cleanup
 	DeleteByTournament(ctx context.Context, tournamentID uint64) error
+
+	// Reseed operations
+	DeletePairingsByRoundRange(ctx context.Context, tournamentID uint64, fromRound int) error
+	DeletePairingsByRoundRangeForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, fromRound int) error
+	ResetStandings(ctx context.Context, tournamentID uint64) error
+	ResetStandingsForGroup(ctx context.Context, tournamentID, stageID, groupID uint64) error
 }
 
 type swissRepository struct {
@@ -230,7 +236,18 @@ func (r *swissRepository) GetStandings(ctx context.Context, tournamentID uint64)
 		       COALESCE(status, 'active'), created_at, updated_at
 		FROM swiss_standings
 		WHERE tournament_id = $1
-		ORDER BY wins DESC, (game_wins - game_losses) DESC, opponent_wins DESC, seed ASC
+		ORDER BY
+			CASE COALESCE(status, 'active')
+				WHEN 'advanced' THEN 0
+				WHEN 'active' THEN 1
+				WHEN 'eliminated' THEN 2
+			END,
+			CASE WHEN COALESCE(status, 'active') = 'advanced' THEN losses END ASC,
+			CASE WHEN COALESCE(status, 'active') = 'eliminated' THEN wins END DESC,
+			wins DESC,
+			(game_wins - game_losses) DESC,
+			opponent_wins DESC,
+			seed ASC
 	`
 	rows, err := r.db.QueryContext(ctx, query, tournamentID)
 	if err != nil {
@@ -264,7 +281,18 @@ func (r *swissRepository) GetStandingsByGroup(ctx context.Context, tournamentID,
 		       COALESCE(status, 'active'), created_at, updated_at
 		FROM swiss_standings
 		WHERE tournament_id = $1 AND stage_id = $2 AND group_id = $3
-		ORDER BY wins DESC, (game_wins - game_losses) DESC, opponent_wins DESC, seed ASC
+		ORDER BY
+			CASE COALESCE(status, 'active')
+				WHEN 'advanced' THEN 0
+				WHEN 'active' THEN 1
+				WHEN 'eliminated' THEN 2
+			END,
+			CASE WHEN COALESCE(status, 'active') = 'advanced' THEN losses END ASC,
+			CASE WHEN COALESCE(status, 'active') = 'eliminated' THEN wins END DESC,
+			wins DESC,
+			(game_wins - game_losses) DESC,
+			opponent_wins DESC,
+			seed ASC
 	`
 	rows, err := r.db.QueryContext(ctx, query, tournamentID, stageID, groupID)
 	if err != nil {
@@ -366,7 +394,7 @@ func (r *swissRepository) GetAdvancedStandings(ctx context.Context, tournamentID
 		       COALESCE(status, 'active'), created_at, updated_at
 		FROM swiss_standings
 		WHERE tournament_id = $1 AND status = 'advanced'
-		ORDER BY wins DESC, (game_wins - game_losses) DESC, opponent_wins DESC, seed ASC
+		ORDER BY losses ASC, wins DESC, (game_wins - game_losses) DESC, opponent_wins DESC, seed ASC
 	`
 	rows, err := r.db.QueryContext(ctx, query, tournamentID)
 	if err != nil {
@@ -741,4 +769,40 @@ func (r *swissRepository) DeleteByTournament(ctx context.Context, tournamentID u
 	}
 
 	return tx.Commit()
+}
+
+// Reseed operations
+
+func (r *swissRepository) DeletePairingsByRoundRange(ctx context.Context, tournamentID uint64, fromRound int) error {
+	query := `DELETE FROM swiss_pairing_history WHERE tournament_id = $1 AND round >= $2`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, fromRound)
+	return err
+}
+
+func (r *swissRepository) DeletePairingsByRoundRangeForGroup(ctx context.Context, tournamentID, stageID, groupID uint64, fromRound int) error {
+	query := `DELETE FROM swiss_pairing_history WHERE tournament_id = $1 AND stage_id = $2 AND group_id = $3 AND round >= $4`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, stageID, groupID, fromRound)
+	return err
+}
+
+func (r *swissRepository) ResetStandings(ctx context.Context, tournamentID uint64) error {
+	query := `
+		UPDATE swiss_standings
+		SET wins = 0, losses = 0, match_wins = 0, game_wins = 0, game_losses = 0,
+		    opponent_wins = 0, has_bye = false, status = 'active'
+		WHERE tournament_id = $1
+	`
+	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
+}
+
+func (r *swissRepository) ResetStandingsForGroup(ctx context.Context, tournamentID, stageID, groupID uint64) error {
+	query := `
+		UPDATE swiss_standings
+		SET wins = 0, losses = 0, match_wins = 0, game_wins = 0, game_losses = 0,
+		    opponent_wins = 0, has_bye = false, status = 'active'
+		WHERE tournament_id = $1 AND stage_id = $2 AND group_id = $3
+	`
+	_, err := r.db.ExecContext(ctx, query, tournamentID, stageID, groupID)
+	return err
 }

@@ -1,11 +1,13 @@
 import { Component, signal, computed, inject, OnInit, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { Breadcrumb, BreadcrumbItem } from '../../components/breadcrumb/breadcrumb';
 import { TournamentService } from '../../services/tournament.service';
 import { CommunityService } from '../../services/community.service';
 import { EloService } from '../../services/elo.service';
-import { CreateTournamentRequest, CreateMultiStageTournamentRequest, StageConfigRequest, RankingCriterion, StageFormat, TournamentFormat } from '../../models/tournament.model';
+import { EventService } from '../../services/event.service';
+import { CreateTournamentRequest, CreateMultiStageTournamentRequest, StageConfigRequest, RankingCriterion, StageFormat, TournamentFormat, TournamentClass, VenueType } from '../../models/tournament.model';
+import { Event } from '../../models/event.model';
 import { Community } from '../../models/community.model';
 import { EloSystem } from '../../models/elo.model';
 
@@ -17,9 +19,11 @@ import { EloSystem } from '../../models/elo.model';
 })
 export class TournamentNew implements OnInit {
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
   private tournamentService = inject(TournamentService);
   private communityService = inject(CommunityService);
   private eloService = inject(EloService);
+  private eventService = inject(EventService);
 
   breadcrumbs: BreadcrumbItem[] = [
     { label: 'Tournaments', route: '/tournaments' },
@@ -34,6 +38,10 @@ export class TournamentNew implements OnInit {
   eloSystems = signal<EloSystem[]>([]);
   loadingEloSystems = signal(false);
 
+  // Event context (when creating for an event)
+  eventSlug = signal<string | null>(null);
+  eventDetails = signal<Event | null>(null);
+
   // Form fields
   name = signal('');
   game = signal('');
@@ -45,6 +53,10 @@ export class TournamentNew implements OnInit {
   startsAtTentative = signal(false);
   communityId = signal<number | null>(null);
   eloSystemId = signal<number | null>(null);
+
+  // Power Ranking fields
+  tournamentClass = signal<TournamentClass | null>(null);
+  prizePoolUsd = signal<number | null>(null);
 
   // Swiss format settings
   swissRounds = signal<number>(3);
@@ -74,6 +86,7 @@ export class TournamentNew implements OnInit {
   stagePlacementMatches = signal(false);
   stagePlacementDepth = signal(1);
   stageSkipFinals = signal(false);
+  stageVenueType = signal<VenueType>('online');
 
   // For bracket formats (single/double elim), rankings are determined by bracket placement
   // Ranking criteria only applies to Swiss format or as an optional override for elim formats
@@ -126,6 +139,42 @@ export class TournamentNew implements OnInit {
 
   ngOnInit(): void {
     this.loadCommunities();
+
+    // Check for event query param
+    const eventParam = this.route.snapshot.queryParamMap.get('event');
+    if (eventParam) {
+      this.eventSlug.set(eventParam);
+      this.loadEventDetails(eventParam);
+    }
+  }
+
+  loadEventDetails(slug: string): void {
+    this.eventService.getEvent(slug).subscribe({
+      next: (event) => {
+        this.eventDetails.set(event);
+        // Auto-select the event's community
+        this.communityId.set(event.community_id);
+        // Update breadcrumbs to show event context
+        this.breadcrumbs = [
+          { label: 'Events', route: '/events' },
+          { label: event.name, route: `/events/${event.slug}` },
+          { label: 'New Tournament' }
+        ];
+      },
+      error: () => {
+        // Event not found, clear the param
+        this.eventSlug.set(null);
+      }
+    });
+  }
+
+  clearEventContext(): void {
+    this.eventSlug.set(null);
+    this.eventDetails.set(null);
+    this.breadcrumbs = [
+      { label: 'Tournaments', route: '/tournaments' },
+      { label: 'New Tournament' }
+    ];
   }
 
   loadCommunities(): void {
@@ -266,6 +315,7 @@ export class TournamentNew implements OnInit {
     this.stageWinsToAdvance.set(stage.wins_to_advance ?? null);
     this.stageLossesToEliminate.set(stage.losses_to_eliminate ?? null);
     this.stageSkipFinals.set(stage.skip_finals || false);
+    this.stageVenueType.set(stage.venue_type || 'online');
     // For elim formats, empty criteria means use bracket ranking (which is the default)
     // For swiss, if no criteria set, use sensible defaults
     const defaultCriteria = (stage.format === 'swiss' && (!stage.ranking_criteria || stage.ranking_criteria.length === 0))
@@ -288,7 +338,8 @@ export class TournamentNew implements OnInit {
       skip_finals: this.stageSkipFinals(),
       ranking_criteria: this.stageRankingCriteria(),
       placement_matches: this.stagePlacementMatches(),
-      placement_depth: this.stagePlacementDepth()
+      placement_depth: this.stagePlacementDepth(),
+      venue_type: this.stageVenueType()
     };
 
     if (this.stageFormat() === 'swiss') {
@@ -450,10 +501,22 @@ export class TournamentNew implements OnInit {
     if (this.eloSystemId()) {
       request.elo_system_id = this.eloSystemId()!;
     }
+    if (this.tournamentClass()) {
+      request.tournament_class = this.tournamentClass()!;
+    }
+    if (this.prizePoolUsd()) {
+      request.prize_pool_usd = this.prizePoolUsd()!;
+    }
 
     this.tournamentService.createTournament(request).subscribe({
       next: (tournament) => {
-        this.router.navigate(['/tournaments', tournament.slug]);
+        // If creating for an event, navigate back to event with tournament ID
+        const eventSlug = this.eventSlug();
+        if (eventSlug) {
+          this.router.navigate(['/events', eventSlug], { queryParams: { addTournament: tournament.id } });
+        } else {
+          this.router.navigate(['/tournaments', tournament.slug]);
+        }
       },
       error: (err) => {
         this.loading.set(false);
@@ -490,13 +553,25 @@ export class TournamentNew implements OnInit {
     if (this.eloSystemId()) {
       request.elo_system_id = this.eloSystemId()!;
     }
+    if (this.tournamentClass()) {
+      request.tournament_class = this.tournamentClass()!;
+    }
+    if (this.prizePoolUsd()) {
+      request.prize_pool_usd = this.prizePoolUsd()!;
+    }
     if (this.finalStage()) {
       request.final_stage = this.finalStage()!;
     }
 
     this.tournamentService.createMultiStageTournament(request).subscribe({
       next: (tournament) => {
-        this.router.navigate(['/tournaments', tournament.slug]);
+        // If creating for an event, navigate back to event with tournament ID
+        const eventSlug = this.eventSlug();
+        if (eventSlug) {
+          this.router.navigate(['/events', eventSlug], { queryParams: { addTournament: tournament.id } });
+        } else {
+          this.router.navigate(['/tournaments', tournament.slug]);
+        }
       },
       error: (err) => {
         this.loading.set(false);

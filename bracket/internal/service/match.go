@@ -51,6 +51,7 @@ type matchService struct {
 	tiebreakerRepo    repository.TiebreakerRepository
 	tournamentClient  client.TournamentClient
 	communityClient   client.CommunityClient
+	prClient          client.PowerRankingClient
 }
 
 func NewMatchService(
@@ -58,12 +59,14 @@ func NewMatchService(
 	setRepo repository.SetRepository,
 	tournamentClient client.TournamentClient,
 	communityClient client.CommunityClient,
+	prClient client.PowerRankingClient,
 ) MatchService {
 	return &matchService{
 		repo:             repo,
 		setRepo:          setRepo,
 		tournamentClient: tournamentClient,
 		communityClient:  communityClient,
+		prClient:         prClient,
 	}
 }
 
@@ -74,6 +77,7 @@ func NewMatchServiceWithSwiss(
 	swissRepo repository.SwissRepository,
 	tournamentClient client.TournamentClient,
 	communityClient client.CommunityClient,
+	prClient client.PowerRankingClient,
 ) MatchService {
 	return &matchService{
 		repo:             repo,
@@ -81,6 +85,7 @@ func NewMatchServiceWithSwiss(
 		swissRepo:        swissRepo,
 		tournamentClient: tournamentClient,
 		communityClient:  communityClient,
+		prClient:         prClient,
 	}
 }
 
@@ -92,6 +97,7 @@ func NewMatchServiceWithTiebreakers(
 	tiebreakerRepo repository.TiebreakerRepository,
 	tournamentClient client.TournamentClient,
 	communityClient client.CommunityClient,
+	prClient client.PowerRankingClient,
 ) MatchService {
 	return &matchService{
 		repo:             repo,
@@ -100,6 +106,7 @@ func NewMatchServiceWithTiebreakers(
 		tiebreakerRepo:   tiebreakerRepo,
 		tournamentClient: tournamentClient,
 		communityClient:  communityClient,
+		prClient:         prClient,
 	}
 }
 
@@ -173,6 +180,9 @@ func (s *matchService) ReportResult(ctx context.Context, matchID uint64, result 
 
 	// Process ELO update asynchronously (don't fail the match if ELO fails)
 	go s.processEloUpdate(context.Background(), match, winnerID)
+
+	// Check if tournament just completed and record placements
+	s.checkAndProcessTournamentCompletion(ctx, match.TournamentID)
 
 	return nil
 }
@@ -680,6 +690,119 @@ func (s *matchService) revertMatchElo(ctx context.Context, matchID uint64) {
 	log.Printf("ELO: match %d reverted", matchID)
 }
 
+// checkAndProcessTournamentCompletion checks if the tournament just completed
+// and triggers placement recording if so.
+func (s *matchService) checkAndProcessTournamentCompletion(ctx context.Context, tournamentID uint64) {
+	// Check bracket state
+	state, err := s.GetBracketState(ctx, tournamentID)
+	if err != nil {
+		return
+	}
+
+	// Only proceed if tournament just completed
+	if !state.IsComplete {
+		return
+	}
+
+	// Process placements asynchronously
+	go s.processTournamentPlacements(context.Background(), tournamentID)
+
+	// Trigger automatic advancement if this tournament is part of an event
+	go s.triggerAutomaticAdvancement(context.Background(), tournamentID)
+}
+
+// triggerAutomaticAdvancement triggers advancement for a qualifier tournament when it completes
+func (s *matchService) triggerAutomaticAdvancement(ctx context.Context, tournamentID uint64) {
+	if s.tournamentClient == nil {
+		return
+	}
+
+	if err := s.tournamentClient.TriggerAdvancement(ctx, tournamentID); err != nil {
+		log.Printf("Auto-advancement failed for tournament %d: %v", tournamentID, err)
+	} else {
+		log.Printf("Auto-advancement triggered for tournament %d", tournamentID)
+	}
+}
+
+// processTournamentPlacements records all placements for a completed tournament.
+// This runs asynchronously and logs errors rather than failing.
+func (s *matchService) processTournamentPlacements(ctx context.Context, tournamentID uint64) {
+	if s.prClient == nil || s.tournamentClient == nil {
+		return
+	}
+
+	// Get tournament metadata
+	tournament, err := s.tournamentClient.GetTournament(ctx, tournamentID)
+	if err != nil {
+		log.Printf("PR: failed to get tournament %d: %v", tournamentID, err)
+		return
+	}
+
+	// Skip if no PR system configured
+	if tournament.PRSystemID == nil {
+		log.Printf("PR: tournament %d has no PR system configured, skipping placements", tournamentID)
+		return
+	}
+
+	// Get standings
+	standings, err := s.GetEliminationStandings(ctx, tournamentID)
+	if err != nil {
+		log.Printf("PR: failed to get standings for tournament %d: %v", tournamentID, err)
+		return
+	}
+
+	if len(standings) == 0 {
+		log.Printf("PR: no standings for tournament %d", tournamentID)
+		return
+	}
+
+	log.Printf("PR: tournament %d completed with %d placements, recording to PR system %d",
+		tournamentID, len(standings), *tournament.PRSystemID)
+
+	// Record each placement
+	for _, standing := range standings {
+		// Skip if no placement assigned yet (still competing)
+		if standing.Placement == "" {
+			continue
+		}
+
+		// Get participant to find community_member_id
+		participant, err := s.tournamentClient.GetParticipant(ctx, standing.ParticipantID)
+		if err != nil {
+			log.Printf("PR: failed to get participant %d: %v", standing.ParticipantID, err)
+			continue
+		}
+
+		// Skip participants without a community member link
+		if participant.CommunityMemberID == nil {
+			log.Printf("PR: participant %d (%s) has no community_member_id, skipping",
+				standing.ParticipantID, standing.ParticipantName)
+			continue
+		}
+
+		// Record the placement
+		req := client.RecordPlacementRequest{
+			PRSystemID:       *tournament.PRSystemID,
+			TournamentID:     tournamentID,
+			MemberID:         *participant.CommunityMemberID,
+			Placement:        standing.Rank,
+			ParticipantCount: len(standings),
+			// Tournament class and other metadata would need to be added to TournamentResponse
+			// For now, use defaults
+			CompletedAt: "",
+		}
+
+		if err := s.prClient.RecordPlacement(ctx, req); err != nil {
+			log.Printf("PR: failed to record placement for member %d (rank %d): %v",
+				*participant.CommunityMemberID, standing.Rank, err)
+			continue
+		}
+
+		log.Printf("PR: recorded placement - member %d (%s): rank %d",
+			*participant.CommunityMemberID, standing.ParticipantName, standing.Rank)
+	}
+}
+
 // ReopenMatch reopens a completed match, clearing its result and cascading
 // the changes to all downstream matches that were affected.
 func (s *matchService) ReopenMatch(ctx context.Context, matchID uint64) ([]*domain.Match, error) {
@@ -793,6 +916,14 @@ func (s *matchService) reopenMatchCascade(ctx context.Context, match *domain.Mat
 					return err
 				}
 			}
+		}
+	}
+
+	// Revert Swiss standings before deleting sets (need set data for game wins/losses)
+	if match.BracketType == domain.BracketSwiss && s.swissRepo != nil {
+		if err := s.revertSwissStandings(ctx, match); err != nil {
+			log.Printf("Warning: failed to revert Swiss standings for match %d: %v", match.ID, err)
+			// Continue with reopen - standings can be recalculated if needed
 		}
 	}
 
@@ -915,9 +1046,130 @@ func (s *matchService) handleSwissMatchComplete(ctx context.Context, match *doma
 		}
 	}
 
-	// Round advancement is manual - organizer clicks "Advance Round" button
-	// which calls SwissService.AdvanceRound()
+	// For threshold mode: check if all participants are now resolved
+	// This handles the case where the last match completes and all participants
+	// have either advanced or been eliminated - no need to wait for manual round advance
+	if config.IsThresholdMode() && !config.IsComplete {
+		var activeStandings []*domain.SwissStanding
+		var err error
+		if match.StageID != nil && match.GroupID != nil {
+			activeStandings, err = s.swissRepo.GetActiveStandingsByGroup(ctx, match.TournamentID, *match.StageID, *match.GroupID)
+		} else {
+			activeStandings, err = s.swissRepo.GetActiveStandings(ctx, match.TournamentID)
+		}
+		if err != nil {
+			return err
+		}
 
+		// All participants resolved - mark as complete
+		if len(activeStandings) == 0 {
+			config.IsComplete = true
+			if err := s.swissRepo.UpdateConfig(ctx, config); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// revertSwissStandings reverses the standings changes made when a match was completed.
+// This is the inverse of handleSwissMatchComplete.
+func (s *matchService) revertSwissStandings(ctx context.Context, match *domain.Match) error {
+	if match.WinnerID == nil {
+		return nil // No winner, nothing to revert
+	}
+
+	winnerID := *match.WinnerID
+	loserID := s.getLoserID(match, winnerID)
+
+	// Get sets before they're deleted to calculate game wins/losses
+	sets, err := s.setRepo.GetByMatchID(ctx, match.ID)
+	if err != nil {
+		return err
+	}
+
+	// Calculate game wins/losses from sets
+	var winnerGameWins, loserGameWins int
+	for _, set := range sets {
+		if match.Participant1ID != nil && *match.Participant1ID == winnerID {
+			winnerGameWins += set.Participant1Score
+			loserGameWins += set.Participant2Score
+		} else {
+			winnerGameWins += set.Participant2Score
+			loserGameWins += set.Participant1Score
+		}
+	}
+
+	// Get config to check for threshold mode
+	var config *domain.SwissConfig
+	if match.StageID != nil && match.GroupID != nil {
+		config, err = s.swissRepo.GetConfigByGroup(ctx, match.TournamentID, *match.StageID, *match.GroupID)
+	} else {
+		config, err = s.swissRepo.GetConfig(ctx, match.TournamentID)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Revert winner's standing
+	var winnerStanding *domain.SwissStanding
+	if match.StageID != nil && match.GroupID != nil {
+		winnerStanding, err = s.swissRepo.GetStandingByParticipantInGroup(ctx, match.TournamentID, *match.StageID, *match.GroupID, winnerID)
+	} else {
+		winnerStanding, err = s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, winnerID)
+	}
+	if err != nil {
+		return err
+	}
+
+	winnerStanding.Wins--
+	winnerStanding.MatchWins--
+	winnerStanding.GameWins -= winnerGameWins
+	winnerStanding.GameLosses -= loserGameWins
+
+	// Reset status if winner was marked as advanced due to this match
+	if config.WinsToAdvance != nil && winnerStanding.Status == domain.SwissStatusAdvanced {
+		// If they no longer meet the threshold, reset to active
+		if winnerStanding.MatchWins < *config.WinsToAdvance {
+			winnerStanding.Status = domain.SwissStatusActive
+		}
+	}
+
+	if err := s.swissRepo.UpdateStanding(ctx, winnerStanding); err != nil {
+		return err
+	}
+
+	// Revert loser's standing (if not a BYE match)
+	if loserID != 0 {
+		var loserStanding *domain.SwissStanding
+		if match.StageID != nil && match.GroupID != nil {
+			loserStanding, err = s.swissRepo.GetStandingByParticipantInGroup(ctx, match.TournamentID, *match.StageID, *match.GroupID, loserID)
+		} else {
+			loserStanding, err = s.swissRepo.GetStandingByParticipant(ctx, match.TournamentID, loserID)
+		}
+		if err != nil {
+			return err
+		}
+
+		loserStanding.Losses--
+		loserStanding.GameWins -= loserGameWins
+		loserStanding.GameLosses -= winnerGameWins
+
+		// Reset status if loser was marked as eliminated due to this match
+		if config.LossesToEliminate != nil && loserStanding.Status == domain.SwissStatusEliminated {
+			// If they no longer meet the threshold, reset to active
+			if loserStanding.Losses < *config.LossesToEliminate {
+				loserStanding.Status = domain.SwissStatusActive
+			}
+		}
+
+		if err := s.swissRepo.UpdateStanding(ctx, loserStanding); err != nil {
+			return err
+		}
+	}
+
+	log.Printf("Swiss standings reverted for match %d (winner: %d, loser: %d)", match.ID, winnerID, loserID)
 	return nil
 }
 
@@ -1011,7 +1263,14 @@ type participantStats struct {
 
 // GetEliminationStandings calculates standings for single/double elimination brackets.
 // Rankings are based on: how far each participant advanced in the bracket.
-func (s *matchService) GetEliminationStandings(ctx context.Context, tournamentID uint64) ([]*domain.EliminationStanding, error) {
+func (s *matchService) GetEliminationStandings(ctx context.Context, tournamentID uint64) (standings []*domain.EliminationStanding, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC in GetEliminationStandings for tournament %d: %v", tournamentID, r)
+			err = fmt.Errorf("internal error calculating standings: %v", r)
+		}
+	}()
+
 	matches, err := s.repo.GetByTournament(ctx, tournamentID)
 	if err != nil {
 		return nil, err
@@ -1166,14 +1425,17 @@ func (s *matchService) GetEliminationStandings(ctx context.Context, tournamentID
 			championStats.isChampion = true
 		}
 		// Runner-up is the loser of grand final
-		var runnerUpID uint64
-		if *grandFinalMatch.WinnerID == *grandFinalMatch.Participant1ID {
-			runnerUpID = *grandFinalMatch.Participant2ID
-		} else {
-			runnerUpID = *grandFinalMatch.Participant1ID
-		}
-		if runnerUpStats := stats[runnerUpID]; runnerUpStats != nil {
-			runnerUpStats.isRunnerUp = true
+		// Only compute runner-up if both participants are set
+		if grandFinalMatch.Participant1ID != nil && grandFinalMatch.Participant2ID != nil {
+			var runnerUpID uint64
+			if *grandFinalMatch.WinnerID == *grandFinalMatch.Participant1ID {
+				runnerUpID = *grandFinalMatch.Participant2ID
+			} else {
+				runnerUpID = *grandFinalMatch.Participant1ID
+			}
+			if runnerUpStats := stats[runnerUpID]; runnerUpStats != nil {
+				runnerUpStats.isRunnerUp = true
+			}
 		}
 	}
 
@@ -1193,7 +1455,7 @@ func (s *matchService) GetEliminationStandings(ctx context.Context, tournamentID
 	participantCount := len(stats)
 
 	// Convert to standings with placements
-	standings := make([]*domain.EliminationStanding, 0, len(stats))
+	standings = make([]*domain.EliminationStanding, 0, len(stats))
 	for _, ps := range stats {
 		standing := &domain.EliminationStanding{
 			ParticipantID:   ps.id,
@@ -1274,6 +1536,11 @@ func calculatePlacement(ps *participantStats, isDoubleElim bool, totalWinnersRou
 // roundsFromFinal: 0 = lost in final (2nd), 1 = lost in semis (3rd-4th), etc.
 // participantCount: actual number of participants to cap the placement range.
 func placementFromRoundsEliminated(roundsFromFinal, participantCount int) string {
+	// Guard against negative values (can happen with Swiss or unexpected data)
+	if roundsFromFinal < 0 {
+		return ""
+	}
+
 	// Calculate the standard placement range based on round
 	var low, high int
 	switch roundsFromFinal {
@@ -1308,6 +1575,11 @@ func placementFromRoundsEliminated(roundsFromFinal, participantCount int) string
 
 // placementFromLosersRound calculates placement for double elimination losers bracket.
 func placementFromLosersRound(roundsFromFinal, totalLosersRounds, participantCount int) string {
+	// Guard against negative values (can happen with Swiss or unexpected data)
+	if roundsFromFinal < 0 {
+		return ""
+	}
+
 	// In double elim losers bracket:
 	// - Loser of losers final = 3rd
 	// - Each earlier round has increasing placement

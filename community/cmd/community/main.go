@@ -33,15 +33,22 @@ func main() {
 	memberEloRatingRepo := repository.NewMemberEloRatingRepository(db)
 	eloHistoryRepo := repository.NewEloHistoryRepository(db)
 
+	// Power ranking repositories
+	prSystemRepo := repository.NewPowerRankingSystemRepository(db)
+	placementRepo := repository.NewTournamentPlacementRepository(db)
+	rankingRepo := repository.NewMemberPowerRankingRepository(db)
+	matchCacheRepo := repository.NewPowerRankingMatchCacheRepository(db)
+
 	// Initialize services
 	eloService := service.NewEloService(eloSystemRepo, memberEloRatingRepo, eloHistoryRepo, memberRepo)
+	prService := service.NewPowerRankingService(prSystemRepo, placementRepo, rankingRepo, matchCacheRepo, memberRepo)
 	storageService, err := service.NewStorageService(r2Config)
 	if err != nil {
 		log.Fatalf("Failed to initialize storage service: %v", err)
 	}
 
 	// Create router
-	router := api.NewRouter(communityRepo, memberRepo, eloService, storageService)
+	router := api.NewRouter(communityRepo, memberRepo, eloService, prService, storageService)
 
 	// Get port from environment
 	port := os.Getenv("PORT")
