@@ -41,6 +41,7 @@ type TournamentStage struct {
 	Format               TournamentFormat
 	ParticipantsPerGroup *int // NULL for final stage
 	AdvancingPerGroup    *int // NULL for final stage
+	ExpectedParticipants *int // Optional: expected total participants for this stage (for prize tier calculation)
 	SwissRounds          *int // Optional override for Swiss format
 	WinsToAdvance        *int // For Swiss: wins needed to advance (excluding BYEs)
 	LossesToEliminate    *int // For Swiss: losses that eliminate a participant

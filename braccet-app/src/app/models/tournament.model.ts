@@ -93,6 +93,7 @@ export interface TournamentStage {
   format: StageFormat;
   participants_per_group?: number;
   advancing_per_group?: number;
+  expected_participants?: number; // Expected total participants in this stage (for prize tier calculation)
   swiss_rounds?: number;
   wins_to_advance?: number;
   losses_to_eliminate?: number;
@@ -118,6 +119,7 @@ export interface StageConfigRequest {
   format: StageFormat;
   participants_per_group?: number;
   advancing_per_group?: number;
+  expected_participants?: number;
   swiss_rounds?: number;
   wins_to_advance?: number;
   losses_to_eliminate?: number;
@@ -201,6 +203,7 @@ export interface UpdateStageRequest {
   format?: StageFormat;
   participants_per_group?: number;
   advancing_per_group?: number;
+  expected_participants?: number;
   swiss_rounds?: number;
   wins_to_advance?: number;
   losses_to_eliminate?: number;
@@ -240,7 +243,7 @@ export interface StagePoolResponse {
 
 export interface StagePoolConfigInput {
   stage_id: number;
-  count: number;
+  participant_ids: number[];
 }
 
 export interface UpdateStagePoolRequest {

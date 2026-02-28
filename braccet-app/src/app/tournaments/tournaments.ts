@@ -1,5 +1,5 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
-import { DatePipe, TitleCasePipe } from '@angular/common';
+import { CurrencyPipe, DatePipe, TitleCasePipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { TournamentService } from '../services/tournament.service';
 import { EventService } from '../services/event.service';
@@ -9,7 +9,7 @@ import { Event as EventModel } from '../models/event.model';
 
 @Component({
   selector: 'app-tournaments',
-  imports: [DatePipe, TitleCasePipe],
+  imports: [CurrencyPipe, DatePipe, TitleCasePipe],
   templateUrl: './tournaments.html',
   styleUrl: './tournaments.css'
 })

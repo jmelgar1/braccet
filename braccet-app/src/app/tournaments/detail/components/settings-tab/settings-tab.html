@@ -418,14 +418,30 @@
                   <span class="font-medium text-sm text-gray-900">{{ getStageLabel(stage) }}</span>
                   <span class="ml-2 text-xs text-gray-500">{{ getFormatLabel(stage.format) }}</span>
                 </div>
-                @if (!isLocked() && editingStageId() !== stage.id) {
-                  <button
-                    type="button"
-                    (click)="editStage(stage)"
-                    class="text-xs text-blue-600 hover:text-blue-800"
-                  >
-                    Edit
-                  </button>
+                @if (!isLocked() && editingStageId() !== stage.id && !addingStage()) {
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      (click)="editStage(stage)"
+                      class="text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      Edit
+                    </button>
+                    @if (stage.stage_type === 'group' && groupStageCount() > 1) {
+                      <button
+                        type="button"
+                        (click)="deleteStage(stage)"
+                        [disabled]="deletingStageId() === stage.id"
+                        class="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                      >
+                        @if (deletingStageId() === stage.id) {
+                          Deleting...
+                        } @else {
+                          Delete
+                        }
+                      </button>
+                    }
+                  </div>
                 }
               </div>
 
@@ -435,6 +451,9 @@
                   @if (stage.stage_type === 'group') {
                     <div>Participants per group: {{ stage.participants_per_group }}</div>
                     <div>Advancing per group: {{ stage.advancing_per_group }}</div>
+                  }
+                  @if (stage.expected_participants) {
+                    <div>Expected participants: {{ stage.expected_participants }}</div>
                   }
                   @if (stage.format === 'swiss' && stage.swiss_rounds) {
                     <div>Swiss rounds: {{ stage.swiss_rounds }}</div>
@@ -634,6 +653,24 @@
                     </p>
                   </div>
 
+                  <!-- Expected Participants (for prize tier calculation) -->
+                  <div class="pt-2 border-t border-gray-200">
+                    <label class="block text-xs font-medium text-gray-700 mb-1">
+                      Expected Participants <span class="font-normal text-gray-500">(optional)</span>
+                    </label>
+                    <input
+                      type="number"
+                      [ngModel]="stageExpectedParticipants()"
+                      (ngModelChange)="stageExpectedParticipants.set($event)"
+                      min="2"
+                      placeholder="Auto-detect"
+                      class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p class="text-xs text-gray-500 mt-1">
+                      Used for prize tier calculation. Leave empty to auto-detect from actual participants.
+                    </p>
+                  </div>
+
                   <!-- Action buttons -->
                   <div class="flex gap-2 pt-2">
                     <button
@@ -660,6 +697,139 @@
               }
             </div>
           }
+        </div>
+      }
+
+      <!-- Add Group Stage Button -->
+      @if (!isLocked() && !addingStage() && groupStageCount() < 3) {
+        <button
+          type="button"
+          (click)="showAddStageForm()"
+          class="mt-4 w-full px-4 py-2 text-sm border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+        >
+          + Add Group Stage
+        </button>
+      }
+
+      <!-- Add Group Stage Form -->
+      @if (addingStage()) {
+        <div class="mt-4 border border-gray-200 rounded-lg overflow-hidden">
+          <div class="bg-gray-50 px-3 py-2">
+            <span class="font-medium text-sm text-gray-900">New Group Stage</span>
+          </div>
+          <div class="px-3 py-3 space-y-3 bg-white">
+            @if (stageError()) {
+              <div class="bg-red-100 border border-red-400 text-red-600 px-3 py-2 rounded text-xs">
+                {{ stageError() }}
+              </div>
+            }
+
+            <!-- Format -->
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">Format</label>
+              <select
+                [ngModel]="newStageFormat()"
+                (ngModelChange)="onNewStageFormatChange($event)"
+                class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                @for (format of availableFormats; track format.value) {
+                  <option [value]="format.value">{{ format.label }}</option>
+                }
+              </select>
+              @if (newStageUseBracketRanking()) {
+                <p class="text-xs text-gray-500 mt-1">Rankings determined by bracket placement</p>
+              }
+            </div>
+
+            <!-- Participants per group / Advancing -->
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Per Group</label>
+                <input
+                  type="number"
+                  [ngModel]="newStageParticipantsPerGroup()"
+                  (ngModelChange)="newStageParticipantsPerGroup.set($event)"
+                  min="2"
+                  class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Advancing</label>
+                <input
+                  type="number"
+                  [ngModel]="newStageAdvancingPerGroup()"
+                  (ngModelChange)="newStageAdvancingPerGroup.set($event)"
+                  min="1"
+                  class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <!-- Ranking Criteria -->
+            <div>
+              @if (newStageUseBracketRanking()) {
+                <label class="block text-xs font-medium text-gray-700 mb-1">
+                  Ranking Override <span class="font-normal text-gray-500">(optional)</span>
+                </label>
+                @if (newStageRankingCriteria().length === 0) {
+                  <p class="text-xs text-gray-500 mb-2">Using bracket placement for rankings.</p>
+                }
+              } @else {
+                <label class="block text-xs font-medium text-gray-700 mb-1">Ranking Criteria (priority order)</label>
+              }
+
+              @if (newStageRankingCriteria().length > 0) {
+                <div class="mb-2 space-y-1">
+                  @for (criterion of newStageRankingCriteria(); track criterion; let i = $index) {
+                    <div class="flex items-center gap-2 bg-blue-50 px-2 py-1 rounded text-xs">
+                      <span class="text-gray-500">{{ i + 1 }}.</span>
+                      <span class="flex-1">{{ criterion }}</span>
+                      <button type="button" (click)="moveNewStageCriterionUp(i)" [disabled]="i === 0" class="text-gray-400 hover:text-gray-600 disabled:opacity-30">↑</button>
+                      <button type="button" (click)="moveNewStageCriterionDown(i)" [disabled]="i === newStageRankingCriteria().length - 1" class="text-gray-400 hover:text-gray-600 disabled:opacity-30">↓</button>
+                      <button type="button" (click)="toggleNewStageCriterion(criterion)" class="text-red-400 hover:text-red-600">×</button>
+                    </div>
+                  }
+                </div>
+              }
+
+              <div class="flex flex-wrap gap-1">
+                @for (criterion of availableCriteria; track criterion.value) {
+                  @if (!newStageRankingCriteria().includes(criterion.value)) {
+                    <button
+                      type="button"
+                      (click)="toggleNewStageCriterion(criterion.value)"
+                      class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-100"
+                    >
+                      + {{ criterion.label }}
+                    </button>
+                  }
+                }
+              </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex gap-2 pt-2">
+              <button
+                type="button"
+                (click)="cancelAddStage()"
+                class="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                (click)="createStage()"
+                [disabled]="creatingStage()"
+                class="flex-1 px-3 py-1.5 text-sm bg-blue-400 text-gray-900 rounded hover:bg-blue-500 disabled:opacity-50"
+              >
+                @if (creatingStage()) {
+                  Creating...
+                } @else {
+                  Add Stage
+                }
+              </button>
+            </div>
+          </div>
         </div>
       }
     </div>

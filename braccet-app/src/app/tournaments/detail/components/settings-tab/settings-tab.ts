@@ -2,7 +2,7 @@ import { Component, output, inject, signal, effect, computed } from '@angular/co
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { Router } from '@angular/router';
-import { Tournament, UpdateTournamentRequest, TournamentStage, UpdateStageRequest, RankingCriterion, StageFormat, TournamentClass, PlacementTier, PrizeDistributionMode } from '../../../../models/tournament.model';
+import { Tournament, UpdateTournamentRequest, TournamentStage, UpdateStageRequest, StageConfigRequest, RankingCriterion, StageFormat, TournamentClass, PlacementTier, PrizeDistributionMode } from '../../../../models/tournament.model';
 import { TournamentService } from '../../../../services/tournament.service';
 import { TournamentUIService } from '../../../../services/tournament-ui.service';
 
@@ -39,12 +39,15 @@ export class SettingsTab {
   prizeTiers = signal<PlacementTier[]>([]);
   showPrizeDistribution = signal(false);
   loadingTiers = signal(false);
+  // Track if user manually opened prize distribution (to prevent effect from resetting)
+  private userOpenedPrizeDistribution = false;
 
   // Stage editing state
   editingStageId = signal<number | null>(null);
   stageFormat = signal<StageFormat>('single_elimination');
   stageParticipantsPerGroup = signal<number>(4);
   stageAdvancingPerGroup = signal<number>(2);
+  stageExpectedParticipants = signal<number | null>(null);
   stageSwissRounds = signal<number | null>(null);
   stageWinsToAdvance = signal<number | null>(null);
   stageLossesToEliminate = signal<number | null>(null);
@@ -53,6 +56,15 @@ export class SettingsTab {
   savingStage = signal(false);
   stageError = signal('');
   stageSuccess = signal('');
+
+  // Add new stage state
+  addingStage = signal(false);
+  newStageFormat = signal<StageFormat>('swiss');
+  newStageParticipantsPerGroup = signal<number>(4);
+  newStageAdvancingPerGroup = signal<number>(2);
+  newStageRankingCriteria = signal<RankingCriterion[]>(['match_wins', 'set_differential']);
+  creatingStage = signal(false);
+  deletingStageId = signal<number | null>(null);
 
   saving = signal(false);
   deleting = signal(false);
@@ -84,6 +96,19 @@ export class SettingsTab {
   // For bracket formats (single/double elim), rankings are determined by bracket placement
   stageUseBracketRanking = computed(() => {
     const format = this.stageFormat();
+    return format === 'single_elimination' || format === 'double_elimination';
+  });
+
+  // Count group stages for add stage button visibility
+  groupStageCount = computed(() => {
+    const stageList = this.stages();
+    if (!stageList) return 0;
+    return stageList.filter(s => s.stage_type === 'group').length;
+  });
+
+  // For new stage form - check if using bracket ranking
+  newStageUseBracketRanking = computed(() => {
+    const format = this.newStageFormat();
     return format === 'single_elimination' || format === 'double_elimination';
   });
 
@@ -120,11 +145,14 @@ export class SettingsTab {
       this.prizePoolUsd.set(t.prize_pool_usd || null);
 
       // Initialize prize distribution from tournament
+      // Don't reset if user manually opened the configuration
       if (t.prize_distribution) {
         this.showPrizeDistribution.set(true);
         this.prizeDistributionMode.set(t.prize_distribution.mode);
         this.prizeTiers.set(t.prize_distribution.tiers);
-      } else {
+        this.userOpenedPrizeDistribution = false; // Reset flag when loading saved distribution
+      } else if (!this.userOpenedPrizeDistribution) {
+        // Only reset if user hasn't manually opened the configuration
         this.showPrizeDistribution.set(false);
         this.prizeTiers.set([]);
       }
@@ -231,6 +259,7 @@ export class SettingsTab {
     this.stageFormat.set(stage.format);
     this.stageParticipantsPerGroup.set(stage.participants_per_group || 4);
     this.stageAdvancingPerGroup.set(stage.advancing_per_group || 2);
+    this.stageExpectedParticipants.set(stage.expected_participants ?? null);
     this.stageSwissRounds.set(stage.swiss_rounds || null);
     this.stageWinsToAdvance.set(stage.wins_to_advance ?? null);
     this.stageLossesToEliminate.set(stage.losses_to_eliminate ?? null);
@@ -307,6 +336,11 @@ export class SettingsTab {
       request.advancing_per_group = this.stageAdvancingPerGroup();
     }
 
+    // Include expected participants if set (for prize tier calculation)
+    if (this.stageExpectedParticipants() !== null) {
+      request.expected_participants = this.stageExpectedParticipants()!;
+    }
+
     // Only include Swiss-specific fields for Swiss format
     if (this.stageFormat() === 'swiss') {
       if (this.stageSwissRounds()) {
@@ -335,19 +369,128 @@ export class SettingsTab {
     });
   }
 
+  // Add/delete stage methods
+
+  showAddStageForm(): void {
+    this.addingStage.set(true);
+    this.newStageFormat.set('swiss');
+    this.newStageParticipantsPerGroup.set(4);
+    this.newStageAdvancingPerGroup.set(2);
+    this.newStageRankingCriteria.set(['match_wins', 'set_differential']);
+    this.stageError.set('');
+  }
+
+  cancelAddStage(): void {
+    this.addingStage.set(false);
+    this.stageError.set('');
+  }
+
+  onNewStageFormatChange(format: StageFormat): void {
+    this.newStageFormat.set(format);
+    if (format === 'single_elimination' || format === 'double_elimination') {
+      this.newStageRankingCriteria.set([]);
+    } else if (format === 'swiss' && this.newStageRankingCriteria().length === 0) {
+      this.newStageRankingCriteria.set(['match_wins', 'set_differential']);
+    }
+  }
+
+  toggleNewStageCriterion(criterion: RankingCriterion): void {
+    const current = this.newStageRankingCriteria();
+    if (current.includes(criterion)) {
+      this.newStageRankingCriteria.set(current.filter(c => c !== criterion));
+    } else {
+      this.newStageRankingCriteria.set([...current, criterion]);
+    }
+  }
+
+  moveNewStageCriterionUp(index: number): void {
+    if (index === 0) return;
+    const current = [...this.newStageRankingCriteria()];
+    [current[index - 1], current[index]] = [current[index], current[index - 1]];
+    this.newStageRankingCriteria.set(current);
+  }
+
+  moveNewStageCriterionDown(index: number): void {
+    const current = [...this.newStageRankingCriteria()];
+    if (index >= current.length - 1) return;
+    [current[index], current[index + 1]] = [current[index + 1], current[index]];
+    this.newStageRankingCriteria.set(current);
+  }
+
+  createStage(): void {
+    this.creatingStage.set(true);
+    this.stageError.set('');
+
+    const request: StageConfigRequest = {
+      stage_order: 0, // Backend will set the correct order
+      format: this.newStageFormat(),
+      participants_per_group: this.newStageParticipantsPerGroup(),
+      advancing_per_group: this.newStageAdvancingPerGroup(),
+      ranking_criteria: this.newStageRankingCriteria()
+    };
+
+    this.tournamentService.addStage(this.tournament().slug, request).subscribe({
+      next: (created) => {
+        this.stageUpdated.emit(created);
+        this.creatingStage.set(false);
+        this.addingStage.set(false);
+        this.stageSuccess.set('Stage added successfully');
+        setTimeout(() => this.stageSuccess.set(''), 3000);
+      },
+      error: (err) => {
+        this.stageError.set(err.error?.error || 'Failed to add stage');
+        this.creatingStage.set(false);
+      }
+    });
+  }
+
+  deleteStage(stage: TournamentStage): void {
+    if (!confirm(`Are you sure you want to delete "${this.getStageLabel(stage)}"? This cannot be undone.`)) {
+      return;
+    }
+
+    this.deletingStageId.set(stage.id);
+    this.stageError.set('');
+
+    this.tournamentService.deleteStage(this.tournament().slug, stage.id).subscribe({
+      next: () => {
+        this.deletingStageId.set(null);
+        this.stageSuccess.set('Stage deleted successfully');
+        // Emit a fake updated stage to trigger parent refresh
+        this.stageUpdated.emit({ ...stage, id: -1 } as TournamentStage);
+        setTimeout(() => this.stageSuccess.set(''), 3000);
+      },
+      error: (err) => {
+        this.stageError.set(err.error?.error || 'Failed to delete stage');
+        this.deletingStageId.set(null);
+      }
+    });
+  }
+
   // Prize distribution methods
 
   generateSuggestedTiers(): void {
+    this.userOpenedPrizeDistribution = true; // Mark that user manually opened this
     this.loadingTiers.set(true);
-    const participants = this.tournament().max_participants || this.tournament().participant_count || 8;
+    const tournament = this.tournament();
+    // Use participant_count (actual) or max_participants, let backend figure it out if neither
+    const participants = tournament.participant_count || tournament.max_participants || undefined;
 
-    this.tournamentService.getSuggestedPrizeTiers(this.tournament().slug, participants)
+    this.tournamentService.getSuggestedPrizeTiers(tournament.slug, participants)
       .subscribe({
         next: (response) => {
+          // Handle null/empty tiers from API
+          const responseTiers = response.tiers || [];
+          if (responseTiers.length === 0) {
+            this.prizeTiers.set([]);
+            this.loadingTiers.set(false);
+            this.error.set('No prize tiers available for the current participant count');
+            return;
+          }
           // Initialize with default percentage values (halving pattern: 50, 25, 12.5...)
-          const tiers = response.tiers.map((t, i) => ({
+          const tiers = responseTiers.map((t, i) => ({
             ...t,
-            value: this.getDefaultPercentage(i, response.tiers.length)
+            value: this.getDefaultPercentage(i, responseTiers.length)
           }));
           this.prizeTiers.set(tiers);
           this.loadingTiers.set(false);
@@ -382,6 +525,7 @@ export class SettingsTab {
   clearPrizeDistribution(): void {
     this.prizeTiers.set([]);
     this.showPrizeDistribution.set(false);
+    this.userOpenedPrizeDistribution = false;
   }
 
   computeTierAmount(tier: PlacementTier): number {

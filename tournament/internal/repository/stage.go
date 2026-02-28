@@ -21,7 +21,9 @@ type StageRepository interface {
 	GetStageByID(ctx context.Context, id uint64) (*domain.TournamentStage, error)
 	GetActiveStage(ctx context.Context, tournamentID uint64) (*domain.TournamentStage, error)
 	UpdateStage(ctx context.Context, stage *domain.TournamentStage) error
+	DeleteStage(ctx context.Context, stageID uint64) error
 	DeleteStagesByTournament(ctx context.Context, tournamentID uint64) error
+	RenumberGroupStages(ctx context.Context, tournamentID uint64) error
 
 	// Group CRUD
 	CreateGroup(ctx context.Context, group *domain.StageGroup) error
@@ -77,21 +79,21 @@ func NewStageRepository(db *sql.DB) StageRepository {
 
 func (r *stageRepository) CreateStage(ctx context.Context, stage *domain.TournamentStage) error {
 	query := `
-		INSERT INTO tournament_stages (tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO tournament_stages (tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, expected_participants, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING id, created_at, updated_at
 	`
 	return r.db.QueryRowContext(ctx, query,
 		stage.TournamentID, stage.StageOrder, stage.StageType, stage.Format,
-		stage.ParticipantsPerGroup, stage.AdvancingPerGroup, stage.SwissRounds,
-		stage.WinsToAdvance, stage.LossesToEliminate,
+		stage.ParticipantsPerGroup, stage.AdvancingPerGroup, stage.ExpectedParticipants,
+		stage.SwissRounds, stage.WinsToAdvance, stage.LossesToEliminate,
 		stage.VenueType, stage.SkipFinals, stage.IsActive, stage.IsComplete,
 	).Scan(&stage.ID, &stage.CreatedAt, &stage.UpdatedAt)
 }
 
 func (r *stageRepository) GetStagesByTournament(ctx context.Context, tournamentID uint64) ([]*domain.TournamentStage, error) {
 	query := `
-		SELECT id, tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete, created_at, updated_at
+		SELECT id, tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, expected_participants, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete, created_at, updated_at
 		FROM tournament_stages
 		WHERE tournament_id = $1
 		ORDER BY stage_order ASC
@@ -107,8 +109,8 @@ func (r *stageRepository) GetStagesByTournament(ctx context.Context, tournamentI
 		s := &domain.TournamentStage{}
 		if err := rows.Scan(
 			&s.ID, &s.TournamentID, &s.StageOrder, &s.StageType, &s.Format,
-			&s.ParticipantsPerGroup, &s.AdvancingPerGroup, &s.SwissRounds,
-			&s.WinsToAdvance, &s.LossesToEliminate,
+			&s.ParticipantsPerGroup, &s.AdvancingPerGroup, &s.ExpectedParticipants,
+			&s.SwissRounds, &s.WinsToAdvance, &s.LossesToEliminate,
 			&s.VenueType, &s.SkipFinals, &s.IsActive, &s.IsComplete, &s.CreatedAt, &s.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -121,15 +123,15 @@ func (r *stageRepository) GetStagesByTournament(ctx context.Context, tournamentI
 
 func (r *stageRepository) GetStageByID(ctx context.Context, id uint64) (*domain.TournamentStage, error) {
 	query := `
-		SELECT id, tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete, created_at, updated_at
+		SELECT id, tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, expected_participants, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete, created_at, updated_at
 		FROM tournament_stages
 		WHERE id = $1
 	`
 	s := &domain.TournamentStage{}
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&s.ID, &s.TournamentID, &s.StageOrder, &s.StageType, &s.Format,
-		&s.ParticipantsPerGroup, &s.AdvancingPerGroup, &s.SwissRounds,
-		&s.WinsToAdvance, &s.LossesToEliminate,
+		&s.ParticipantsPerGroup, &s.AdvancingPerGroup, &s.ExpectedParticipants,
+		&s.SwissRounds, &s.WinsToAdvance, &s.LossesToEliminate,
 		&s.VenueType, &s.SkipFinals, &s.IsActive, &s.IsComplete, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
@@ -143,7 +145,7 @@ func (r *stageRepository) GetStageByID(ctx context.Context, id uint64) (*domain.
 
 func (r *stageRepository) GetActiveStage(ctx context.Context, tournamentID uint64) (*domain.TournamentStage, error) {
 	query := `
-		SELECT id, tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete, created_at, updated_at
+		SELECT id, tournament_id, stage_order, stage_type, format, participants_per_group, advancing_per_group, expected_participants, swiss_rounds, wins_to_advance, losses_to_eliminate, venue_type, skip_finals, is_active, is_complete, created_at, updated_at
 		FROM tournament_stages
 		WHERE tournament_id = $1 AND is_active = true
 		LIMIT 1
@@ -151,8 +153,8 @@ func (r *stageRepository) GetActiveStage(ctx context.Context, tournamentID uint6
 	s := &domain.TournamentStage{}
 	err := r.db.QueryRowContext(ctx, query, tournamentID).Scan(
 		&s.ID, &s.TournamentID, &s.StageOrder, &s.StageType, &s.Format,
-		&s.ParticipantsPerGroup, &s.AdvancingPerGroup, &s.SwissRounds,
-		&s.WinsToAdvance, &s.LossesToEliminate,
+		&s.ParticipantsPerGroup, &s.AdvancingPerGroup, &s.ExpectedParticipants,
+		&s.SwissRounds, &s.WinsToAdvance, &s.LossesToEliminate,
 		&s.VenueType, &s.SkipFinals, &s.IsActive, &s.IsComplete, &s.CreatedAt, &s.UpdatedAt,
 	)
 	if err != nil {
@@ -168,14 +170,14 @@ func (r *stageRepository) UpdateStage(ctx context.Context, stage *domain.Tournam
 	query := `
 		UPDATE tournament_stages
 		SET format = $1, participants_per_group = $2, advancing_per_group = $3,
-		    swiss_rounds = $4, wins_to_advance = $5, losses_to_eliminate = $6,
-		    venue_type = $7, skip_finals = $8, is_active = $9, is_complete = $10
-		WHERE id = $11
+		    expected_participants = $4, swiss_rounds = $5, wins_to_advance = $6, losses_to_eliminate = $7,
+		    venue_type = $8, skip_finals = $9, is_active = $10, is_complete = $11
+		WHERE id = $12
 		RETURNING updated_at
 	`
 	err := r.db.QueryRowContext(ctx, query,
 		stage.Format, stage.ParticipantsPerGroup, stage.AdvancingPerGroup,
-		stage.SwissRounds, stage.WinsToAdvance, stage.LossesToEliminate,
+		stage.ExpectedParticipants, stage.SwissRounds, stage.WinsToAdvance, stage.LossesToEliminate,
 		stage.VenueType, stage.SkipFinals, stage.IsActive, stage.IsComplete, stage.ID,
 	).Scan(&stage.UpdatedAt)
 	if err != nil {
@@ -189,6 +191,40 @@ func (r *stageRepository) UpdateStage(ctx context.Context, stage *domain.Tournam
 
 func (r *stageRepository) DeleteStagesByTournament(ctx context.Context, tournamentID uint64) error {
 	query := `DELETE FROM tournament_stages WHERE tournament_id = $1`
+	_, err := r.db.ExecContext(ctx, query, tournamentID)
+	return err
+}
+
+func (r *stageRepository) DeleteStage(ctx context.Context, stageID uint64) error {
+	query := `DELETE FROM tournament_stages WHERE id = $1`
+	result, err := r.db.ExecContext(ctx, query, stageID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrStageNotFound
+	}
+	return nil
+}
+
+// RenumberGroupStages renumbers all group stages (stage_order > 0) to be sequential starting from 1.
+// This should be called after deleting a group stage to close any gaps.
+func (r *stageRepository) RenumberGroupStages(ctx context.Context, tournamentID uint64) error {
+	query := `
+		WITH numbered AS (
+			SELECT id, ROW_NUMBER() OVER (ORDER BY stage_order ASC) as new_order
+			FROM tournament_stages
+			WHERE tournament_id = $1 AND stage_order > 0
+		)
+		UPDATE tournament_stages ts
+		SET stage_order = numbered.new_order
+		FROM numbered
+		WHERE ts.id = numbered.id
+	`
 	_, err := r.db.ExecContext(ctx, query, tournamentID)
 	return err
 }

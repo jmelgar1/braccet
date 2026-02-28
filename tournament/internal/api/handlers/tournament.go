@@ -441,7 +441,15 @@ func (h *TournamentHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, toTournamentResponse(tournament))
+	resp := toTournamentResponse(tournament)
+
+	// Populate participant count
+	count, err := h.participantRepo.CountByTournament(r.Context(), tournament.ID)
+	if err == nil {
+		resp.ParticipantCount = &count
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // GetByID returns a single tournament by ID (internal endpoint for service-to-service calls)
@@ -931,7 +939,7 @@ type SuggestedPrizeTiersResponse struct {
 	Tiers            []domain.PlacementTier `json:"tiers"`
 }
 
-// GetSuggestedPrizeTiers returns suggested prize tiers for a tournament based on participant count
+// GetSuggestedPrizeTiers returns suggested prize tiers for a tournament based on format and participant count
 func (h *TournamentHandler) GetSuggestedPrizeTiers(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	if slug == "" {
@@ -950,25 +958,152 @@ func (h *TournamentHandler) GetSuggestedPrizeTiers(w http.ResponseWriter, r *htt
 	}
 
 	// Determine participant count
-	count := 8 // default
-	if participantsStr := r.URL.Query().Get("participants"); participantsStr != "" {
-		if parsed, err := strconv.Atoi(participantsStr); err == nil && parsed >= 2 {
-			count = parsed
-		}
-	} else {
-		// Fall back to actual participant count or max_participants
-		actualCount, err := h.participantRepo.CountByTournament(r.Context(), tournament.ID)
-		if err == nil && actualCount >= 2 {
-			count = actualCount
-		} else if tournament.MaxParticipants != nil && int(*tournament.MaxParticipants) >= 2 {
-			count = int(*tournament.MaxParticipants)
-		}
-	}
+	count := h.determineParticipantCount(r, tournament)
 
-	tiers := domain.GeneratePlacementTiers(count)
+	// Build tier generation config based on tournament format
+	config := h.buildTierConfig(r.Context(), tournament, count)
+
+	tiers := domain.GeneratePlacementTiersConfig(config)
 
 	writeJSON(w, http.StatusOK, SuggestedPrizeTiersResponse{
 		ParticipantCount: count,
 		Tiers:            tiers,
 	})
+}
+
+// determineParticipantCount gets the participant count from query param, actual count, or max_participants
+func (h *TournamentHandler) determineParticipantCount(r *http.Request, tournament *domain.Tournament) int {
+	count := 8 // default
+
+	if participantsStr := r.URL.Query().Get("participants"); participantsStr != "" {
+		if parsed, err := strconv.Atoi(participantsStr); err == nil && parsed >= 2 {
+			return parsed
+		}
+	}
+
+	// Fall back to actual participant count or max_participants
+	actualCount, err := h.participantRepo.CountByTournament(r.Context(), tournament.ID)
+	if err == nil && actualCount >= 2 {
+		return actualCount
+	}
+
+	if tournament.MaxParticipants != nil && int(*tournament.MaxParticipants) >= 2 {
+		return int(*tournament.MaxParticipants)
+	}
+
+	return count
+}
+
+// buildTierConfig creates a TierGenerationConfig based on tournament format
+func (h *TournamentHandler) buildTierConfig(ctx context.Context, tournament *domain.Tournament, participantCount int) domain.TierGenerationConfig {
+	config := domain.TierGenerationConfig{
+		Format:           tournament.Format,
+		ParticipantCount: participantCount,
+	}
+
+	switch tournament.Format {
+	case domain.FormatMultiStage:
+		config.Stages = h.buildMultiStageConfig(ctx, tournament.ID, participantCount)
+	case domain.FormatSwiss:
+		// For single-stage Swiss, check for threshold mode via query params
+		// (actual threshold values are stored at stage level, but we can preview with params)
+		if winsStr := ctx.Value("wins_to_advance"); winsStr != nil {
+			// Reserved for future: query param support for Swiss threshold preview
+		}
+	}
+
+	return config
+}
+
+// buildMultiStageConfig creates StageTierConfig array for multi-stage tournaments
+func (h *TournamentHandler) buildMultiStageConfig(ctx context.Context, tournamentID uint64, totalParticipants int) []domain.StageTierConfig {
+	if h.stageRepo == nil {
+		return nil
+	}
+
+	stages, err := h.stageRepo.GetStagesByTournament(ctx, tournamentID)
+	if err != nil || len(stages) == 0 {
+		return nil
+	}
+
+	// Separate final stage from group stages
+	var finalStage *domain.TournamentStage
+	var groupStages []*domain.TournamentStage
+
+	for _, s := range stages {
+		if s.StageType == domain.StageTypeFinal {
+			finalStage = s
+		} else {
+			groupStages = append(groupStages, s)
+		}
+	}
+
+	// Sort group stages by order (descending - later stages have higher order)
+	for i := 0; i < len(groupStages)-1; i++ {
+		for j := 0; j < len(groupStages)-i-1; j++ {
+			if groupStages[j].StageOrder < groupStages[j+1].StageOrder {
+				groupStages[j], groupStages[j+1] = groupStages[j+1], groupStages[j]
+			}
+		}
+	}
+
+	var stageConfigs []domain.StageTierConfig
+
+	// Calculate participants at each stage, working backwards
+	remaining := totalParticipants
+
+	// Process group stages from latest to earliest
+	for _, gs := range groupStages {
+		// Use expected_participants if set, otherwise calculate
+		stageParticipants := remaining
+		if gs.ExpectedParticipants != nil && *gs.ExpectedParticipants > 0 {
+			stageParticipants = *gs.ExpectedParticipants
+		}
+
+		advancing := 0
+		if gs.AdvancingPerGroup != nil && gs.ParticipantsPerGroup != nil {
+			// Number of groups = participants / participants_per_group
+			numGroups := stageParticipants / *gs.ParticipantsPerGroup
+			if numGroups < 1 {
+				numGroups = 1
+			}
+			advancing = numGroups * *gs.AdvancingPerGroup
+		} else {
+			// Default: half advance
+			advancing = stageParticipants / 2
+		}
+
+		stageConfigs = append(stageConfigs, domain.StageTierConfig{
+			StageOrder:        gs.StageOrder,
+			StageType:         gs.StageType,
+			Format:            gs.Format,
+			Participants:      stageParticipants,
+			Advancing:         advancing,
+			WinsToAdvance:     gs.WinsToAdvance,
+			LossesToEliminate: gs.LossesToEliminate,
+		})
+
+		remaining = advancing
+	}
+
+	// Add final stage
+	if finalStage != nil && remaining > 0 {
+		// Use expected_participants if set, otherwise use remaining from group stages
+		finalParticipants := remaining
+		if finalStage.ExpectedParticipants != nil && *finalStage.ExpectedParticipants > 0 {
+			finalParticipants = *finalStage.ExpectedParticipants
+		}
+
+		stageConfigs = append(stageConfigs, domain.StageTierConfig{
+			StageOrder:        0,
+			StageType:         domain.StageTypeFinal,
+			Format:            finalStage.Format,
+			Participants:      finalParticipants,
+			Advancing:         0, // No one advances from final
+			WinsToAdvance:     finalStage.WinsToAdvance,
+			LossesToEliminate: finalStage.LossesToEliminate,
+		})
+	}
+
+	return stageConfigs
 }

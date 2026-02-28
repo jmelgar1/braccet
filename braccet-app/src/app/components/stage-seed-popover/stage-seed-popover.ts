@@ -146,39 +146,30 @@ export class StageSeedPopover implements OnDestroy {
     const currentStageId = this.stage().id;
     const firstGroupStageId = this.getFirstGroupStageId();
     const pool = this.initialPool();
-    const stages = this.allStages();
 
-    // Count assignments per stage from existing pool (for OTHER later stages, not first group stage)
+    // Collect participant IDs per stage from existing pool (for OTHER later stages, not first group stage)
     // First group stage is handled as "remainder" by the backend, so we don't include it
-    const stageCountMap = new Map<number, number>();
+    const stageParticipantsMap = new Map<number, number[]>();
     for (const entry of pool) {
       if (entry.stage_id !== currentStageId && entry.stage_id !== firstGroupStageId) {
-        stageCountMap.set(entry.stage_id, (stageCountMap.get(entry.stage_id) || 0) + 1);
+        const ids = stageParticipantsMap.get(entry.stage_id) || [];
+        ids.push(entry.participant_id);
+        stageParticipantsMap.set(entry.stage_id, ids);
       }
     }
 
-    // Add this stage's count (unless it's the first group stage - those are auto-assigned)
+    // Add this stage's selected participant IDs (unless it's the first group stage - those are auto-assigned)
     if (currentStageId !== firstGroupStageId) {
-      stageCountMap.set(currentStageId, this.selectedParticipantIds().size);
+      stageParticipantsMap.set(currentStageId, Array.from(this.selectedParticipantIds()));
     }
 
-    // Build config array, sorted by stage order (later stages first, since they get top seeds)
-    // Final stage (order 0) should be processed first if it has assignments
-    const sortedStages = [...stages].sort((a, b) => {
-      // Finals (order 0) comes last in stage progression but gets top seeds
-      if (a.stage_order === 0) return -1;
-      if (b.stage_order === 0) return 1;
-      // Higher order stages (later stages) get processed first for top seeds
-      return b.stage_order - a.stage_order;
-    });
-
+    // Build config array with explicit participant IDs
     const config: StagePoolConfigInput[] = [];
-    for (const stage of sortedStages) {
-      const count = stageCountMap.get(stage.id) || 0;
-      if (count > 0) {
+    for (const [stageId, participantIds] of stageParticipantsMap) {
+      if (participantIds.length > 0) {
         config.push({
-          stage_id: stage.id,
-          count: count
+          stage_id: stageId,
+          participant_ids: participantIds
         });
       }
     }

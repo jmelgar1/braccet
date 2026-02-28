@@ -259,7 +259,7 @@ export class TournamentNew implements OnInit {
 
   // Multi-stage methods
   addGroupStage(): void {
-    if (this.groupStages().length >= 2) return; // Max 2 group stages
+    if (this.groupStages().length >= 3) return; // Max 3 group stages
 
     const newStage: StageConfigRequest = {
       stage_order: this.groupStages().length + 1,

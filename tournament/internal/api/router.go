@@ -119,7 +119,9 @@ func NewRouter(tournamentRepo repository.TournamentRepository, participantRepo r
 
 			// Stage routes (for multi-stage tournaments)
 			r.Get("/{slug}/stages", stageHandler.GetStages)
+			r.Post("/{slug}/stages", stageHandler.AddStage)
 			r.Put("/{slug}/stages/{stageId}", stageHandler.UpdateStage)
+			r.Delete("/{slug}/stages/{stageId}", stageHandler.DeleteStage)
 			r.Post("/{slug}/stages/start", stageHandler.StartStage)
 			r.Post("/{slug}/stages/advance", stageHandler.AdvanceStage)
 			r.Get("/{slug}/stages/{stageId}/groups", stageHandler.GetGroups)

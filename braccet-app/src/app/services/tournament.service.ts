@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Tournament, CreateTournamentRequest, CreateMultiStageTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult, RegionInviteMember, TournamentStage, StageGroup, UpdateStageRequest, StageSeedAssignment, UpdateStageSeedsRequest, StagePoolResponse, UpdateStagePoolRequest, SuggestedPrizeTiersResponse } from '../models/tournament.model';
+import { Tournament, CreateTournamentRequest, CreateMultiStageTournamentRequest, Participant, AddParticipantRequest, UpdateSeedingRequest, MemberSearchResult, RegionInviteMember, TournamentStage, StageGroup, UpdateStageRequest, StageConfigRequest, StageSeedAssignment, UpdateStageSeedsRequest, StagePoolResponse, UpdateStagePoolRequest, SuggestedPrizeTiersResponse } from '../models/tournament.model';
 
 @Injectable({ providedIn: 'root' })
 export class TournamentService {
@@ -94,6 +94,14 @@ export class TournamentService {
 
   updateStage(slug: string, stageId: number, request: UpdateStageRequest): Observable<TournamentStage> {
     return this.http.put<TournamentStage>(`${this.baseUrl}/${slug}/stages/${stageId}`, request);
+  }
+
+  addStage(slug: string, request: StageConfigRequest): Observable<TournamentStage> {
+    return this.http.post<TournamentStage>(`${this.baseUrl}/${slug}/stages`, request);
+  }
+
+  deleteStage(slug: string, stageId: number): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/${slug}/stages/${stageId}`);
   }
 
   // Stage seeding methods (manual seed assignments before stage starts)
